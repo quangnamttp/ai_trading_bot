@@ -1,0 +1,49 @@
+# Render Deployment Configuration for AI Trading Signal Bot
+services:
+  - type: web
+    name: ai-trading-signal-bot
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python main.py
+    envVars:
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_ADMIN_ID
+        sync: false
+      - key: BINANCE_API_KEY
+        value: ""
+        sync: false
+      - key: BINANCE_API_SECRET
+        value: ""
+        sync: false
+      - key: COINAPI_KEY
+        value: ""
+        sync: false
+      - key: NEWS_API_KEY
+        value: ""
+        sync: false
+      - key: AI_SCORE_THRESHOLD
+        value: "85"
+      - key: MIN_CONFIDENCE
+        value: "0.85"
+      - key: MAX_RISK_PER_TRADE
+        value: "0.02"
+      - key: MAX_POSITIONS
+        value: "3"
+      - key: SIGNAL_COOLDOWN_MINUTES
+        value: "30"
+      - key: MAX_SIGNALS_PER_HOUR
+        value: "2"
+      - key: LOG_LEVEL
+        value: "INFO"
+      - key: MARKET_DATA_INTERVAL
+        value: "60"
+      - key: NEWS_CHECK_INTERVAL
+        value: "300"
+      - key: AI_UPDATE_INTERVAL
+        value: "120"
+      - key: DEPLOYMENT_ENV
+        value: "production"
+      - key: PORT
+        value: "8080"
