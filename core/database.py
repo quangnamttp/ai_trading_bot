@@ -121,6 +121,10 @@ class DatabaseManager:
                  first_name: str = None, is_admin: bool = False) -> bool:
         """Thêm user mới vào database"""
         try:
+            if not isinstance(telegram_id, int) or telegram_id <= 0:
+                logger.error(f"Invalid telegram_id: {telegram_id}")
+                return False
+            
             with self.get_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute("""

@@ -55,27 +55,46 @@ class TradingBotApp:
             logger.info("Initializing AI Trading Signal Bot...")
             
             # Validate config
-            validate_config()
-            logger.info("Configuration validated")
+            try:
+                validate_config()
+                logger.info("Configuration validated")
+            except ValueError as e:
+                logger.error(f"Configuration validation failed: {e}")
+                raise
             
             # Initialize database
-            logger.info("Database initialized")
+            try:
+                logger.info("Database initialized")
+            except Exception as e:
+                logger.error(f"Database initialization failed: {e}")
+                raise
             
             # Initialize market data engine
-            await market_data_engine.initialize_exchanges()
-            logger.info("Market data engine initialized")
+            try:
+                await market_data_engine.initialize_exchanges()
+                logger.info("Market data engine initialized")
+            except Exception as e:
+                logger.error(f"Market data engine initialization failed: {e}")
+                logger.warning("Continuing with limited market data functionality")
             
             # Initialize telegram bot
-            telegram_bot.set_dependencies(signal_engine, market_data_engine)
-            bot_app = telegram_bot.start()
-            logger.info("Telegram bot initialized")
+            try:
+                telegram_bot.set_dependencies(signal_engine, market_data_engine)
+                bot_app = telegram_bot.start()
+                logger.info("Telegram bot initialized")
+            except Exception as e:
+                logger.error(f"Telegram bot initialization failed: {e}")
+                raise
             
             # Add admin to database
-            db.add_user(
-                telegram_id=int(TELEGRAM_ADMIN_ID),
-                is_admin=True
-            )
-            logger.info(f"Admin {TELEGRAM_ADMIN_ID} added to database")
+            try:
+                db.add_user(
+                    telegram_id=int(TELEGRAM_ADMIN_ID),
+                    is_admin=True
+                )
+                logger.info(f"Admin {TELEGRAM_ADMIN_ID} added to database")
+            except Exception as e:
+                logger.error(f"Failed to add admin to database: {e}")
             
             logger.info("All components initialized successfully")
             return bot_app

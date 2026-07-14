@@ -296,6 +296,10 @@ Bot này sẽ giúp bạn:
         
         try:
             target_user_id = int(context.args[0])
+            if target_user_id <= 0:
+                await update.message.reply_text("❌ Telegram ID phải là số dương.")
+                return
+            
             db.add_user(target_user_id, is_active=True)
             await update.message.reply_text(f"✅ Đã thêm user {target_user_id} vào danh sách.")
             logger.info(f"Admin {user_id} added user {target_user_id}")
@@ -319,6 +323,10 @@ Bot này sẽ giúp bạn:
         
         try:
             target_user_id = int(context.args[0])
+            if target_user_id <= 0:
+                await update.message.reply_text("❌ Telegram ID phải là số dương.")
+                return
+            
             db.remove_user(target_user_id)
             await update.message.reply_text(f"✅ Đã xóa user {target_user_id} khỏi danh sách.")
             logger.info(f"Admin {user_id} removed user {target_user_id}")
