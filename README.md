@@ -4,6 +4,20 @@ Bot AI phân tích thị trường và gửi tín hiệu giao dịch Bitcoin (BT
 
 ## ✨ Tính năng
 
+### V2.0 - Cập nhật mới
+- 📈 **Signal Tracking**: Theo dõi tự động TP1, TP2, TP3 và Stop Loss với thông báo
+- 📊 **Chart Generation**: Tạo biểu đồ phân tích thị trường với annotation chi tiết
+- 📉 **Statistics Module**: Lệnh `/stats` xem thống kê win rate, tổng tín hiệu, PNL
+- 📨 **Message Queue**: Hệ thống hàng đợi tin nhắn tránh Telegram flood limits
+- 🚫 **Anti-Duplicate**: Ngăn chặn gửi tín hiệu trùng lặp
+- 💾 **Caching System**: Cache API calls để giảm số lần gọi
+- 🏥 **Health Check**: Kiểm tra sức khỏe hệ thống (CPU, RAM, DB, API) và alert admin
+- 🧹 **Auto Cleanup**: Tự động cleanup cache, logs, temp files
+- 📅 **Auto Reporting**: Báo cáo tự động ngày/tuần/tháng gửi admin
+- 🔒 **User Management**: Lệnh `/ban` và `/unban` quản lý users
+- 🇻🇳 **Vietnamese Analysis**: Phân tích bằng tiếng Việt
+
+### V1.0 - Tính năng gốc
 - 📊 **Phân tích thị trường 24/7**: Quét dữ liệu giá, khối lượng, Open Interest, Funding Rate
 - 🤖 **AI Analysis**: Phân tích bằng AI với độ chính xác cao
 - 🎯 **Tín hiệu giao dịch**: Gửi tín hiệu LONG/SHORT khi AI Score > 85%
@@ -115,9 +129,15 @@ python main.py
 
 - `/adduser <user_id>` - Thêm user nhận tín hiệu
 - `/removeuser <user_id>` - Xóa user
+- `/ban <user_id> [reason]` - Ban user
+- `/unban <user_id>` - Unban user
 - `/users` - Danh sách users
 - `/broadcast <message>` - Gửi thông báo đến tất cả users
 - `/settings` - Cấu hình bot
+
+### Thống kê
+
+- `/stats [period]` - Xem thống kê tín hiệu (period: day/week/month/all)
 
 ## 📊 Cấu trúc Project
 
@@ -134,7 +154,11 @@ ai_trading_bot/
 │   ├── __init__.py
 │   ├── config.py           # System configuration
 │   ├── database.py         # SQLite database management
-│   └── main.py             # Main application
+│   ├── main.py             # Main application
+│   ├── signal_tracker.py   # Signal TP/SL tracking (V2.0)
+│   ├── statistics.py       # Statistics module (V2.0)
+│   ├── health_check.py     # System health monitoring (V2.0)
+│   └── reporting.py        # Auto reporting (V2.0)
 │
 ├── data/                    # Data collection modules
 │   ├── __init__.py
@@ -146,7 +170,8 @@ ai_trading_bot/
 │   ├── __init__.py
 │   ├── ai_engine.py        # AI analysis engine
 │   ├── signal_engine.py    # Signal generation
-│   └── risk_manager.py     # Risk management
+│   ├── risk_manager.py     # Risk management
+│   └── chart_generator.py  # Chart generation (V2.0)
 │
 ├── telegram/                # Telegram integration
 │   ├── __init__.py
@@ -154,7 +179,11 @@ ai_trading_bot/
 │
 ├── utils/                   # Utility functions
 │   ├── __init__.py
-│   └── utils.py            # Helper functions
+│   ├── utils.py            # Helper functions
+│   ├── message_queue.py    # Telegram message queue (V2.0)
+│   ├── anti_duplicate.py   # Anti-duplicate signals (V2.0)
+│   ├── cache_manager.py    # API caching system (V2.0)
+│   └── auto_cleanup.py     # Auto cleanup system (V2.0)
 │
 ├── docs/                    # Tài liệu chi tiết
 │   ├── CONG_DUNG_BOT.md           # Công dụng bot
@@ -163,7 +192,9 @@ ai_trading_bot/
 │   └── HUONG_DAN_CAI_DAT.md       # Hướng dẫn cài đặt
 │
 ├── logs/                    # Log files
-└── database/                # SQLite database files
+├── database/                # SQLite database files
+├── temp/                    # Temporary files (charts, etc.)
+└── tests/                   # Unit tests
 ```
 
 ## 🔧 Cấu hình

@@ -16,6 +16,7 @@ from telegram.ext import (
 )
 from ..core.config import TELEGRAM_BOT_TOKEN, TELEGRAM_ADMIN_ID
 from ..core.database import db
+from ..core.statistics import statistics_manager
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +37,11 @@ class TelegramBot:
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Lệnh /start - Khởi động bot"""
         user = update.effective_user
+        
+        # Kiểm tra xem user có bị ban không
+        if db.is_banned(user.id):
+            await update.message.reply_text("❌ Bạn đã bị ban khỏi bot.")
+            return
         
         # Lưu user vào database
         db.add_user(
@@ -95,11 +101,16 @@ Bot này sẽ giúp bạn:
 🔹 *Quản trị (Chỉ Admin):*
 /adduser <user_id> - Thêm user nhận tín hiệu
 /removeuser <user_id> - Xóa user
+/ban <user_id> - Ban user
+/unban <user_id> - Unban user
 /users - Danh sách users
 /settings - Cấu hình bot
 /broadcast <message> - Gửi thông báo đến tất cả users
 
-📌 *Bot hoạt động 24/7 quét dữ liệu thị trường và gửi tín hiệu khi AI Score > 85%*
+� *Thống kê:*
+/stats - Xem thống kê tín hiệu
+
+� *Bot hoạt động 24/7 quét dữ liệu thị trường và gửi tín hiệu khi AI Score > 85%*
 
 ⚠️ *Bot không tự động giao dịch. Tín hiệu chỉ để tham khảo.*
         """
@@ -385,6 +396,91 @@ Bot này sẽ giúp bạn:
         await update.message.reply_text(f"✅ Đã gửi thông báo đến {success_count}/{len(users)} users.")
         logger.info(f"Admin {user_id} broadcasted message to {success_count} users")
     
+    async def ban_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Lệnh /ban - Ban user (Admin only)"""
+        user_id = update.effective_user.id
+        
+        if not db.is_admin(user_id):
+            await update.message.reply_text("❌ Chỉ Admin mới sử dụng lệnh này.")
+            return
+        
+        if not context.args or len(context.args) < 1:
+            await update.message.reply_text("❌ Sử dụng: /ban <telegram_id> [reason]")
+            return
+        
+        try:
+            target_user_id = int(context.args[0])
+            if target_user_id <= 0:
+                await update.message.reply_text("❌ Telegram ID phải là số dương.")
+                return
+            
+            reason = " ".join(context.args[1:]) if len(context.args) > 1 else None
+            
+            db.ban_user(target_user_id, banned_by=user_id, reason=reason)
+            await update.message.reply_text(f"✅ Đã ban user {target_user_id}")
+            logger.info(f"Admin {user_id} banned user {target_user_id}")
+        except ValueError:
+            await update.message.reply_text("❌ Telegram ID phải là số.")
+        except Exception as e:
+            logger.error(f"Error banning user: {e}")
+            await update.message.reply_text(f"❌ Lỗi: {str(e)}")
+    
+    async def unban_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Lệnh /unban - Unban user (Admin only)"""
+        user_id = update.effective_user.id
+        
+        if not db.is_admin(user_id):
+            await update.message.reply_text("❌ Chỉ Admin mới sử dụng lệnh này.")
+            return
+        
+        if not context.args or len(context.args) < 1:
+            await update.message.reply_text("❌ Sử dụng: /unban <telegram_id>")
+            return
+        
+        try:
+            target_user_id = int(context.args[0])
+            if target_user_id <= 0:
+                await update.message.reply_text("❌ Telegram ID phải là số dương.")
+                return
+            
+            db.unban_user(target_user_id)
+            await update.message.reply_text(f"✅ Đã unban user {target_user_id}")
+            logger.info(f"Admin {user_id} unbanned user {target_user_id}")
+        except ValueError:
+            await update.message.reply_text("❌ Telegram ID phải là số.")
+        except Exception as e:
+            logger.error(f"Error unbanning user: {e}")
+            await update.message.reply_text(f"❌ Lỗi: {str(e)}")
+    
+    async def stats_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Lệnh /stats - Xem thống kê tín hiệu"""
+        user_id = update.effective_user.id
+        
+        # Kiểm tra xem user có bị ban không
+        if db.is_banned(user_id):
+            await update.message.reply_text("❌ Bạn đã bị ban khỏi bot.")
+            return
+        
+        # Kiểm tra xem user có được phép sử dụng không
+        if not db.is_authorized(user_id):
+            await update.message.reply_text("❌ Bạn chưa được phép sử dụng bot.")
+            return
+        
+        try:
+            # Lấy tham số period (default: all)
+            period = 'all'
+            if context.args and len(context.args) > 0:
+                period_arg = context.args[0].lower()
+                if period_arg in ['day', 'week', 'month']:
+                    period = period_arg
+            
+            stats_message = statistics_manager.format_stats_message(period)
+            await update.message.reply_text(stats_message, parse_mode='Markdown')
+            logger.info(f"User {user_id} requested stats (period: {period})")
+        except Exception as e:
+            logger.error(f"Error in stats command: {e}")
+            await update.message.reply_text("❌ Không thể lấy thống kê.")
+    
     # ==================== CALLBACK HANDLERS ====================
     
     async def button_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -433,8 +529,11 @@ Bot này sẽ giúp bạn:
             self.application.add_handler(CommandHandler("id", self.id_command))
             self.application.add_handler(CommandHandler("adduser", self.adduser_command))
             self.application.add_handler(CommandHandler("removeuser", self.removeuser_command))
+            self.application.add_handler(CommandHandler("ban", self.ban_command))
+            self.application.add_handler(CommandHandler("unban", self.unban_command))
             self.application.add_handler(CommandHandler("users", self.users_command))
             self.application.add_handler(CommandHandler("broadcast", self.broadcast_command))
+            self.application.add_handler(CommandHandler("stats", self.stats_command))
             self.application.add_handler(CallbackQueryHandler(self.button_callback))
             
             logger.info("Telegram bot handlers registered successfully")

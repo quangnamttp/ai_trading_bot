@@ -46,6 +46,10 @@ database/*.db
 logs/
 *.log
 
+# Temp files (charts, etc.)
+temp/*
+!temp/.gitkeep
+
 # OS
 .DS_Store
 Thumbs.db

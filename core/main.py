@@ -14,6 +14,10 @@ from .config import (
     validate_config, PORT
 )
 from .database import db
+from .signal_tracker import signal_tracker
+from .statistics import statistics_manager
+from .health_check import health_checker
+from .reporting import reporting_manager
 from ..telegram.telegram_bot import telegram_bot
 from ..data.market_data import market_data_engine
 from ..data.news_engine import news_engine
@@ -21,7 +25,12 @@ from ..data.smart_money import smart_money_tracker
 from ..analysis.ai_engine import ai_engine
 from ..analysis.signal_engine import signal_engine
 from ..analysis.risk_manager import risk_manager
+from ..analysis.chart_generator import chart_generator
 from ..utils.utils import setup_logging, async_sleep
+from ..utils.message_queue import message_queue
+from ..utils.anti_duplicate import anti_duplicate
+from ..utils.cache_manager import cache_manager
+from ..utils.auto_cleanup import auto_cleanup
 
 # Flask app cho Render health check
 app = Flask(__name__)
@@ -82,6 +91,10 @@ class TradingBotApp:
                 telegram_bot.set_dependencies(signal_engine, market_data_engine)
                 bot_app = telegram_bot.start()
                 logger.info("Telegram bot initialized")
+                
+                # Set telegram bot for message queue
+                message_queue.set_telegram_bot(telegram_bot)
+                signal_tracker.set_telegram_bot(telegram_bot)
             except Exception as e:
                 logger.error(f"Telegram bot initialization failed: {e}")
                 raise
@@ -101,6 +114,45 @@ class TradingBotApp:
         except Exception as e:
             logger.error(f"Error during initialization: {e}")
             raise
+    
+    async def signal_tracking_loop(self):
+        """Loop theo dõi tín hiệu (TP/SL)"""
+        logger.info("Starting signal tracking loop")
+        while self.running:
+            try:
+                await signal_tracker.monitoring_loop()
+                await async_sleep(60)
+            except Exception as e:
+                logger.error(f"Error in signal tracking loop: {e}")
+                await async_sleep(30)
+    
+    async def cache_cleanup_loop(self):
+        """Loop cleanup cache"""
+        logger.info("Starting cache cleanup loop")
+        while self.running:
+            try:
+                cache_manager.cleanup_expired()
+                await async_sleep(300)  # Every 5 minutes
+            except Exception as e:
+                logger.error(f"Error in cache cleanup loop: {e}")
+                await async_sleep(60)
+    
+    async def health_check_loop(self):
+        """Loop health check"""
+        logger.info("Starting health check loop")
+        while self.running:
+            try:
+                health_report = await health_checker.check_system_health()
+                await health_checker.send_alert_if_needed(health_report, telegram_bot)
+                await async_sleep(300)  # Every 5 minutes
+            except Exception as e:
+                logger.error(f"Error in health check loop: {e}")
+                await async_sleep(60)
+    
+    async def reporting_loop(self):
+        """Loop báo cáo tự động"""
+        logger.info("Starting reporting loop")
+        await reporting_manager.reporting_loop(telegram_bot)
     
     async def market_data_loop(self):
         """Loop quét dữ liệu thị trường"""
@@ -246,6 +298,10 @@ class TradingBotApp:
                 asyncio.create_task(self.news_loop()),
                 asyncio.create_task(self.analysis_loop()),
                 asyncio.create_task(self.smart_money_loop()),
+                asyncio.create_task(self.signal_tracking_loop()),
+                asyncio.create_task(self.cache_cleanup_loop()),
+                asyncio.create_task(self.health_check_loop()),
+                asyncio.create_task(self.reporting_loop()),
                 asyncio.create_task(bot_app.run_polling())
             ]
             
