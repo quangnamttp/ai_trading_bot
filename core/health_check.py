@@ -7,8 +7,8 @@ import asyncio
 import psutil
 from datetime import datetime
 from typing import Dict, Optional
-from ..core.database import db
-from ..core.config import TELEGRAM_ADMIN_ID
+from .database import db
+from .config import TELEGRAM_ADMIN_ID
 
 logger = logging.getLogger(__name__)
 

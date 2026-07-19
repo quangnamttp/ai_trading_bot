@@ -6,9 +6,9 @@ import logging
 import asyncio
 from datetime import datetime, timedelta
 from typing import Optional
-from ..core.database import db
-from ..core.statistics import statistics_manager
-from ..core.config import TELEGRAM_ADMIN_ID
+from .database import db
+from .statistics import statistics_manager
+from .config import TELEGRAM_ADMIN_ID
 
 logger = logging.getLogger(__name__)
 
