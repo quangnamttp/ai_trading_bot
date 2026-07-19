@@ -1,7 +1,7 @@
 # Render Deployment Configuration for AI Trading Signal Bot
 services:
   - type: web
-    name: ai-trading-bot
+    name: ai_trading_bot
     env: python
     plan: free
     buildCommand: pip install -r requirements.txt
