@@ -1,6 +1,6 @@
 # Render Deployment Configuration for AI Trading Signal Bot
 services:
-  - type: worker
+  - type: web
     name: ai-trading-signal-bot
     env: python
     plan: free
