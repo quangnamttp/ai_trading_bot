@@ -36,6 +36,5 @@ loguru==0.7.2
 # Async
 aiohttp==3.9.1
 
-# Web Server (for Render)
+# Web Server (for health check endpoint)
 flask==3.0.0
-gunicorn==21.2.0
