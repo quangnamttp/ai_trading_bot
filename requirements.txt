@@ -18,7 +18,7 @@ yfinance==0.2.32
 
 # AI & Analysis
 scikit-learn>=1.4.0
-TA-Lib==0.4.28
+pandas-ta>=0.3.14b0
 
 # Chart Generation
 matplotlib==3.8.2
