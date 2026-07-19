@@ -11,6 +11,10 @@ services:
         sync: false
       - key: TELEGRAM_ADMIN_ID
         sync: false
+      - key: TELEGRAM_WEBHOOK_URL
+        value: ""
+      - key: DATABASE_PATH
+        value: "database/trading_bot.db"
       - key: BINANCE_API_KEY
         value: ""
         sync: false
@@ -43,6 +47,8 @@ services:
         value: "300"
       - key: AI_UPDATE_INTERVAL
         value: "120"
+      - key: AI_MODEL
+        value: "rule_based"
       - key: DEPLOYMENT_ENV
         value: "production"
       - key: PORT
