@@ -18,7 +18,7 @@ from core.signal_tracker import signal_tracker
 from core.statistics import statistics_manager
 from core.health_check import health_checker
 from core.reporting import reporting_manager
-from telegram.telegram_bot import telegram_bot
+from bot.telegram_bot import telegram_bot
 from data.market_data import market_data_engine
 from data.news_engine import news_engine
 from data.smart_money import smart_money_tracker
