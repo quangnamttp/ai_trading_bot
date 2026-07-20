@@ -9,7 +9,7 @@ import sys
 from datetime import datetime
 from flask import Flask
 from core.config import (
-    TELEGRAM_BOT_TOKEN, TELEGRAM_ADMIN_ID, 
+    TELEGRAM_BOT_TOKEN, TELEGRAM_ADMIN_ID,
     MARKET_DATA_INTERVAL, NEWS_CHECK_INTERVAL, AI_UPDATE_INTERVAL,
     validate_config, PORT
 )
@@ -31,6 +31,8 @@ from utils.message_queue import message_queue
 from utils.anti_duplicate import anti_duplicate
 from utils.cache_manager import cache_manager
 from utils.auto_cleanup import auto_cleanup
+
+logger = logging.getLogger(__name__)
 
 # Flask app cho Render health check
 app = Flask(__name__)

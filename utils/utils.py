@@ -4,6 +4,7 @@ Các hàm tiện ích chung
 """
 import logging
 import asyncio
+import os
 from datetime import datetime, timedelta
 from typing import Optional, Callable
 import functools
@@ -14,6 +15,11 @@ logger = logging.getLogger(__name__)
 def setup_logging(log_level: str = "INFO", log_file: str = "logs/trading_bot.log"):
     """Thiết lập logging"""
     try:
+        # Create logs directory if it doesn't exist
+        log_dir = os.path.dirname(log_file)
+        if log_dir:
+            os.makedirs(log_dir, exist_ok=True)
+        
         logging.basicConfig(
             level=getattr(logging, log_level.upper()),
             format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -24,7 +30,14 @@ def setup_logging(log_level: str = "INFO", log_file: str = "logs/trading_bot.log
         )
         logger.info(f"Logging initialized at {log_level} level")
     except Exception as e:
-        print(f"Error setting up logging: {e}")
+        # Fallback to console-only logging if file logging fails
+        logging.basicConfig(
+            level=getattr(logging, log_level.upper()),
+            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+            handlers=[logging.StreamHandler()]
+        )
+        print(f"Error setting up file logging, using console only: {e}")
+        logger.info(f"Logging initialized at {log_level} level (console only)")
 
 
 def retry(max_retries: int = 3, delay: float = 1.0, backoff: float = 2.0):
