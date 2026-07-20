@@ -7,7 +7,7 @@ import asyncio
 import os
 from datetime import datetime, timedelta
 from typing import List
-from ..utils.cache_manager import cache_manager
+from .cache_manager import cache_manager
 
 logger = logging.getLogger(__name__)
 
