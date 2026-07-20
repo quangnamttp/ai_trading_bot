@@ -14,9 +14,9 @@ from telegram.ext import (
     filters,
     ContextTypes
 )
-from ..core.config import TELEGRAM_BOT_TOKEN, TELEGRAM_ADMIN_ID
-from ..core.database import db
-from ..core.statistics import statistics_manager
+from core.config import TELEGRAM_BOT_TOKEN, TELEGRAM_ADMIN_ID
+from core.database import db
+from core.statistics import statistics_manager
 
 logger = logging.getLogger(__name__)
 

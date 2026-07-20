@@ -8,29 +8,29 @@ import signal
 import sys
 from datetime import datetime
 from flask import Flask
-from .config import (
+from core.config import (
     TELEGRAM_BOT_TOKEN, TELEGRAM_ADMIN_ID, 
     MARKET_DATA_INTERVAL, NEWS_CHECK_INTERVAL, AI_UPDATE_INTERVAL,
     validate_config, PORT
 )
-from .database import db
-from .signal_tracker import signal_tracker
-from .statistics import statistics_manager
-from .health_check import health_checker
-from .reporting import reporting_manager
-from ..telegram.telegram_bot import telegram_bot
-from ..data.market_data import market_data_engine
-from ..data.news_engine import news_engine
-from ..data.smart_money import smart_money_tracker
-from ..analysis.ai_engine import ai_engine
-from ..analysis.signal_engine import signal_engine
-from ..analysis.risk_manager import risk_manager
-from ..analysis.chart_generator import chart_generator
-from ..utils.utils import setup_logging, async_sleep
-from ..utils.message_queue import message_queue
-from ..utils.anti_duplicate import anti_duplicate
-from ..utils.cache_manager import cache_manager
-from ..utils.auto_cleanup import auto_cleanup
+from core.database import db
+from core.signal_tracker import signal_tracker
+from core.statistics import statistics_manager
+from core.health_check import health_checker
+from core.reporting import reporting_manager
+from telegram.telegram_bot import telegram_bot
+from data.market_data import market_data_engine
+from data.news_engine import news_engine
+from data.smart_money import smart_money_tracker
+from analysis.ai_engine import ai_engine
+from analysis.signal_engine import signal_engine
+from analysis.risk_manager import risk_manager
+from analysis.chart_generator import chart_generator
+from utils.utils import setup_logging, async_sleep
+from utils.message_queue import message_queue
+from utils.anti_duplicate import anti_duplicate
+from utils.cache_manager import cache_manager
+from utils.auto_cleanup import auto_cleanup
 
 # Flask app cho Render health check
 app = Flask(__name__)

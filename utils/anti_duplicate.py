@@ -5,8 +5,8 @@ Ngăn chặn gửi tín hiệu trùng lặp
 import logging
 from datetime import datetime, timedelta
 from typing import Dict, Optional
-from ..core.database import db
-from ..core.config import SIGNAL_COOLDOWN_MINUTES
+from core.database import db
+from core.config import SIGNAL_COOLDOWN_MINUTES
 
 logger = logging.getLogger(__name__)
 

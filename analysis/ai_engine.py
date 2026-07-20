@@ -5,7 +5,7 @@ Phân tích dữ liệu thị trường và đưa ra quyết định giao dịch
 import logging
 from datetime import datetime
 from typing import Dict, List, Optional
-from ..core.config import AI_SCORE_THRESHOLD, MIN_CONFIDENCE
+from core.config import AI_SCORE_THRESHOLD, MIN_CONFIDENCE
 
 logger = logging.getLogger(__name__)
 

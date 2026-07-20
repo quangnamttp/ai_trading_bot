@@ -9,7 +9,7 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
-from ..core.config import BINANCE_API_KEY, BINANCE_API_SECRET, SYMBOLS
+from core.config import BINANCE_API_KEY, BINANCE_API_SECRET, SYMBOLS
 
 logger = logging.getLogger(__name__)
 

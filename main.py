@@ -1,6 +1,12 @@
 """
 Entry point for AI Trading Signal Bot
 """
+import sys
+import os
+
+# Add current directory to Python path to enable package imports
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 from core.main import main
 
 if __name__ == "__main__":

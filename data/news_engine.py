@@ -7,7 +7,7 @@ import asyncio
 import aiohttp
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional
-from ..core.config import NEWS_API_KEY
+from core.config import NEWS_API_KEY
 
 logger = logging.getLogger(__name__)
 

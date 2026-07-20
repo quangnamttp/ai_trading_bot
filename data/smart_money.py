@@ -6,7 +6,7 @@ import logging
 import asyncio
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
-from ..core.config import SYMBOLS
+from core.config import SYMBOLS
 
 logger = logging.getLogger(__name__)
 

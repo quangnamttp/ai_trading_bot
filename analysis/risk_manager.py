@@ -5,7 +5,7 @@ Quản lý rủi ro và kiểm soát tín hiệu
 import logging
 from datetime import datetime, timedelta
 from typing import Dict, Optional
-from ..core.config import MAX_RISK_PER_TRADE, MAX_POSITIONS, AI_SCORE_THRESHOLD
+from core.config import MAX_RISK_PER_TRADE, MAX_POSITIONS, AI_SCORE_THRESHOLD
 
 logger = logging.getLogger(__name__)
 

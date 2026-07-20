@@ -7,7 +7,7 @@ import asyncio
 from datetime import datetime
 from typing import Dict, Optional
 from .database import db
-from ..data.market_data import market_data_engine
+from data.market_data import market_data_engine
 
 logger = logging.getLogger(__name__)
 
