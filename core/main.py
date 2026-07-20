@@ -265,14 +265,14 @@ class TradingBotApp:
                 logger.error(f"Error in smart money loop: {e}")
                 await async_sleep(30)
     
-    async def run_flask_server(self):
+    def run_flask_server(self):
         """Chạy Flask server cho health check"""
         try:
             # Run Flask in a separate thread
             import threading
             
             def run_flask():
-                app.run(host='0.0.0.0', port=PORT, debug=False, use_reloader=False)
+                app.run(host='0.0.0.0', port=PORT, debug=False, use_reloader=False, threaded=True)
             
             flask_thread = threading.Thread(target=run_flask, daemon=True)
             flask_thread.start()
@@ -291,7 +291,7 @@ class TradingBotApp:
             bot_app = await self.initialize()
             
             # Start Flask server
-            await self.run_flask_server()
+            self.run_flask_server()
             
             # Start Telegram bot
             self.running = True
@@ -327,13 +327,16 @@ class TradingBotApp:
         self.running = False
         self.shutdown_event.set()
 
-        # Cancel all tasks
+        # Cancel all tasks except the bot polling task (let it shut down gracefully)
         for task in self.tasks:
-            task.cancel()
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
+            if not task.done():
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+                except Exception as e:
+                    logger.error(f"Error cancelling task: {e}")
 
         # Shutdown Telegram bot application
         if self.bot_application:
@@ -344,7 +347,10 @@ class TradingBotApp:
                 logger.error(f"Error shutting down Telegram bot: {e}")
 
         # Close market data connections
-        await market_data_engine.close()
+        try:
+            await market_data_engine.close()
+        except Exception as e:
+            logger.error(f"Error closing market data connections: {e}")
 
         logger.info("Bot shutdown complete")
 
