@@ -59,6 +59,7 @@ class TradingBotApp:
         self.running = False
         self.tasks = []
         self.shutdown_event = asyncio.Event()
+        self.bot_application = None
     
     async def initialize(self):
         """Khởi tạo tất cả các components"""
@@ -92,8 +93,9 @@ class TradingBotApp:
             try:
                 telegram_bot.set_dependencies(signal_engine, market_data_engine)
                 bot_app = telegram_bot.start()
+                self.bot_application = bot_app
                 logger.info("Telegram bot initialized")
-                
+
                 # Set telegram bot for message queue
                 message_queue.set_telegram_bot(telegram_bot)
                 signal_tracker.set_telegram_bot(telegram_bot)
@@ -324,7 +326,7 @@ class TradingBotApp:
         logger.info("Shutting down AI Trading Signal Bot...")
         self.running = False
         self.shutdown_event.set()
-        
+
         # Cancel all tasks
         for task in self.tasks:
             task.cancel()
@@ -332,10 +334,18 @@ class TradingBotApp:
                 await task
             except asyncio.CancelledError:
                 pass
-        
+
+        # Shutdown Telegram bot application
+        if self.bot_application:
+            try:
+                await self.bot_application.shutdown()
+                logger.info("Telegram bot application shut down")
+            except Exception as e:
+                logger.error(f"Error shutting down Telegram bot: {e}")
+
         # Close market data connections
         await market_data_engine.close()
-        
+
         logger.info("Bot shutdown complete")
 
 
