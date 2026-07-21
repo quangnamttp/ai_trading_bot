@@ -16,7 +16,8 @@ TELEGRAM_WEBHOOK_URL = os.getenv("TELEGRAM_WEBHOOK_URL", "")
 DATABASE_PATH = os.getenv("DATABASE_PATH", "database/trading_bot.db")
 
 # Trading Configuration
-SYMBOLS = ["BTCUSDT", "XAUUSD"]
+SYMBOLS = os.getenv("TRADING_SYMBOLS", "BTCUSDT,XAUUSD").split(",")
+SYMBOLS = [s.strip() for s in SYMBOLS if s.strip()]
 EXCHANGE = "MEXC"
 AI_SCORE_THRESHOLD = float(os.getenv("AI_SCORE_THRESHOLD", "85"))
 MIN_CONFIDENCE = float(os.getenv("MIN_CONFIDENCE", "0.85"))

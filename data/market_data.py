@@ -123,36 +123,40 @@ class MarketDataEngine:
             logger.error(f"Error fetching open interest for {symbol}: {e}")
             return None
     
-    async def get_funding_rate(self, symbol: str, exchange: str = 'binance') -> Optional[Dict]:
-        """Lấy Funding Rate"""
-        try:
-            if exchange != 'binance':
-                logger.warning("Funding Rate only available on Binance")
-                return None
-            
-            exchange_instance = self.exchanges[exchange]
-            funding_rate = await exchange_instance.fetch_funding_rate(symbol)
-            
-            self.data_cache[f"{symbol}_funding_rate"] = funding_rate
-            self.last_update[f"{symbol}_funding_rate"] = datetime.now()
-            
-            return funding_rate
-        except Exception as e:
-            logger.error(f"Error fetching funding rate for {symbol}: {e}")
-            return None
+    async def get_funding_rate(self, symbol: str) -> Optional[Dict]:
+        """Lấy Funding Rate với fallback logic (MEXC -> Bybit -> OKX)"""
+        exchanges = ['mexc', 'bybit', 'okx']
+        for exchange in exchanges:
+            try:
+                if exchange not in self.exchanges:
+                    continue
+
+                exchange_instance = self.exchanges[exchange]
+                funding_rate = await exchange_instance.fetch_funding_rate(symbol)
+
+                self.data_cache[f"{symbol}_funding_rate"] = funding_rate
+                self.last_update[f"{symbol}_funding_rate"] = datetime.now()
+
+                logger.info(f"Successfully fetched funding rate for {symbol} from {exchange}")
+                return funding_rate
+            except Exception as e:
+                logger.warning(f"Failed to fetch funding rate from {exchange} for {symbol}: {e}")
+
+        logger.warning(f"All exchanges failed for funding rate {symbol}, returning N/A")
+        return {'fundingRate': 'N/A', 'timestamp': datetime.now().isoformat()}
     
-    async def get_liquidations(self, symbol: str, exchange: str = 'binance') -> Optional[List[Dict]]:
+    async def get_liquidations(self, symbol: str) -> Optional[List[Dict]]:
         """Lấy dữ liệu liquidation (giả lập - thực tế cần API premium)"""
         try:
             # Trong thực tế, cần API premium để lấy dữ liệu liquidation
             # Đây là dữ liệu mẫu
             liquidations = []
-            
+
             # Lấy từ cache nếu có
             cache_key = f"{symbol}_liquidations"
             if cache_key in self.data_cache:
                 return self.data_cache[cache_key]
-            
+
             # Dữ liệu mẫu
             liquidations.append({
                 'side': 'long',
@@ -160,10 +164,10 @@ class MarketDataEngine:
                 'price': 118000,
                 'time': datetime.now()
             })
-            
+
             self.data_cache[cache_key] = liquidations
             self.last_update[cache_key] = datetime.now()
-            
+
             return liquidations
         except Exception as e:
             logger.error(f"Error fetching liquidations for {symbol}: {e}")
@@ -370,18 +374,18 @@ class MarketDataEngine:
         """Lấy tổng quan thị trường"""
         try:
             overview = "📊 *Tổng quan thị trường*\n\n"
-            
+
             for symbol in SYMBOLS:
-                ticker = await self.get_ticker(symbol)
+                ticker = await self.get_ticker(symbol, exchange='mexc')
                 if ticker:
                     change_percent = ticker.get('percentage', 0)
                     emoji = "🟢" if change_percent > 0 else "🔴"
-                    
+
                     overview += f"{emoji} *{symbol}*\n"
                     overview += f"💰 Giá: ${ticker.get('last', 0):,.2f}\n"
                     overview += f"📈 Thay đổi: {change_percent:.2f}%\n"
                     overview += f"📊 Volume: ${ticker.get('quoteVolume', 0):,.0f}\n\n"
-            
+
             return overview
         except Exception as e:
             logger.error(f"Error getting market overview: {e}")
@@ -394,40 +398,40 @@ class MarketDataEngine:
                 'symbol': symbol,
                 'timestamp': datetime.now().isoformat()
             }
-            
+
             # Ticker
-            ticker = await self.get_ticker(symbol)
+            ticker = await self.get_ticker(symbol, exchange='mexc')
             if ticker:
                 data['ticker'] = ticker
-            
+
             # Indicators
             indicators = await self.calculate_indicators(symbol)
             if indicators:
                 data['indicators'] = indicators
-            
+
             # Order Book
-            order_book = await self.get_order_book(symbol)
+            order_book = await self.get_order_book(symbol, exchange='mexc')
             if order_book:
                 data['order_book'] = order_book
-            
+
             # Funding Rate
             funding_rate = await self.get_funding_rate(symbol)
             if funding_rate:
                 data['funding_rate'] = funding_rate
-            
+
             # Open Interest
             open_interest = await self.get_open_interest(symbol)
             if open_interest:
                 data['open_interest'] = open_interest
-            
+
             # Order Blocks
             order_blocks = await self.detect_order_blocks(symbol)
             data['order_blocks'] = order_blocks
-            
+
             # FVG
             fvgs = await self.detect_fvg(symbol)
             data['fvg'] = fvgs
-            
+
             return data
         except Exception as e:
             logger.error(f"Error getting symbol data for {symbol}: {e}")
