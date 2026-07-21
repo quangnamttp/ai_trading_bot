@@ -92,7 +92,7 @@ class TradingBotApp:
             # Initialize telegram bot
             try:
                 telegram_bot.set_dependencies(signal_engine, market_data_engine)
-                bot_app = telegram_bot.start()
+                bot_app = await telegram_bot.start()
                 self.bot_application = bot_app
                 logger.info("Telegram bot initialized")
 
@@ -296,6 +296,10 @@ class TradingBotApp:
             # Start Telegram bot
             self.running = True
             
+            # Start the application
+            await bot_app.start()
+            logger.info("Telegram bot application started")
+
             # Create tasks
             self.tasks = [
                 asyncio.create_task(self.market_data_loop()),
@@ -306,7 +310,7 @@ class TradingBotApp:
                 asyncio.create_task(self.cache_cleanup_loop()),
                 asyncio.create_task(self.health_check_loop()),
                 asyncio.create_task(self.reporting_loop()),
-                asyncio.create_task(bot_app.run_polling())
+                asyncio.create_task(bot_app.updater.start_polling())
             ]
             
             logger.info("All loops started successfully")
@@ -327,7 +331,7 @@ class TradingBotApp:
         self.running = False
         self.shutdown_event.set()
 
-        # Cancel all tasks except the bot polling task (let it shut down gracefully)
+        # Cancel all tasks
         for task in self.tasks:
             if not task.done():
                 task.cancel()
@@ -338,8 +342,14 @@ class TradingBotApp:
                 except Exception as e:
                     logger.error(f"Error cancelling task: {e}")
 
-        # Shutdown Telegram bot application
+        # Stop and shutdown Telegram bot application
         if self.bot_application:
+            try:
+                await self.bot_application.stop()
+                logger.info("Telegram bot application stopped")
+            except Exception as e:
+                logger.error(f"Error stopping Telegram bot: {e}")
+
             try:
                 await self.bot_application.shutdown()
                 logger.info("Telegram bot application shut down")

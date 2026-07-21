@@ -511,12 +511,12 @@ Bot này sẽ giúp bạn:
             await query.edit_message_text("🔙 Đã quay lại.")
     
     # ==================== BOT STARTUP ====================
-    
-    def start(self):
+
+    async def start(self):
         """Khởi động bot"""
         try:
             self.application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
-            
+
             # Đăng ký handlers
             self.application.add_handler(CommandHandler("start", self.start_command))
             self.application.add_handler(CommandHandler("help", self.help_command))
@@ -535,8 +535,10 @@ Bot này sẽ giúp bạn:
             self.application.add_handler(CommandHandler("broadcast", self.broadcast_command))
             self.application.add_handler(CommandHandler("stats", self.stats_command))
             self.application.add_handler(CallbackQueryHandler(self.button_callback))
-            
-            logger.info("Telegram bot handlers registered successfully")
+
+            # Initialize the application
+            await self.application.initialize()
+            logger.info("Telegram bot initialized successfully")
             return self.application
         except Exception as e:
             logger.error(f"Error starting Telegram bot: {e}")
