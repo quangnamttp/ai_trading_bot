@@ -53,13 +53,14 @@ class HealthChecker:
     def _check_cpu(self) -> Dict:
         """Kiểm tra CPU"""
         try:
-            cpu_percent = psutil.cpu_percent(interval=1)
+            # Use interval=0 to avoid blocking, get instantaneous CPU usage
+            cpu_percent = psutil.cpu_percent(interval=0)
             status = 'healthy'
             if cpu_percent > 90:
                 status = 'critical'
             elif cpu_percent > 70:
                 status = 'warning'
-            
+
             return {
                 'percent': cpu_percent,
                 'status': status
@@ -128,18 +129,55 @@ class HealthChecker:
             return {'status': 'critical', 'error': str(e)}
     
     async def _check_api(self) -> Dict:
-        """Kiểm tra API connections"""
+        """Kiểm tra API connections (MEXC, Bybit, OKX)"""
         try:
             from ..data.market_data import market_data_engine
-            # Thử lấy ticker
-            ticker = await market_data_engine.get_ticker('BTCUSDT')
-            if ticker:
-                return {'status': 'healthy', 'message': 'API accessible'}
-            else:
-                return {'status': 'warning', 'message': 'API returned no data'}
+            from ..core.config import SYMBOLS
+
+            # Check if exchanges are initialized
+            if not market_data_engine.exchanges:
+                return {'status': 'critical', 'error': 'No exchanges initialized'}
+
+            # Check primary exchange (MEXC)
+            if 'mexc' in market_data_engine.exchanges:
+                try:
+                    ticker = await market_data_engine.get_ticker('BTCUSDT', exchange='mexc')
+                    if ticker:
+                        return {
+                            'status': 'healthy',
+                            'message': 'MEXC API accessible',
+                            'providers': ['mexc']
+                        }
+                except Exception as e:
+                    logger.warning(f"MEXC API check failed: {e}")
+
+            # Check fallback exchanges
+            working_providers = []
+            for exchange in ['bybit', 'okx']:
+                if exchange in market_data_engine.exchanges:
+                    try:
+                        ticker = await market_data_engine.get_ticker('BTCUSDT', exchange=exchange)
+                        if ticker:
+                            working_providers.append(exchange)
+                    except Exception as e:
+                        logger.debug(f"{exchange} API check failed: {e}")
+
+            if working_providers:
+                return {
+                    'status': 'warning',
+                    'message': f'Fallback APIs accessible: {", ".join(working_providers)}',
+                    'providers': working_providers
+                }
+
+            # No provider working
+            return {
+                'status': 'critical',
+                'error': 'No market data provider available',
+                'providers': []
+            }
         except Exception as e:
             logger.error(f"API check failed: {e}")
-            return {'status': 'critical', 'error': str(e)}
+            return {'status': 'critical', 'error': str(e), 'providers': []}
     
     async def send_alert_if_needed(self, health_report: Dict, telegram_bot):
         """Gửi alert nếu cần thiết"""

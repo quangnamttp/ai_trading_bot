@@ -22,8 +22,8 @@ class MarketDataEngine:
         self.exchanges = {}
         self.data_cache = {}
         self.last_update = {}
-        self.retry_count = 3
-        self.retry_delay = 2
+        self.retry_count = 2  # Reduced from 3 to save CPU
+        self.retry_delay = 3  # Increased from 2 to reduce rapid retries
 
     async def initialize_exchanges(self):
         """Khởi tạo kết nối với các sàn (MEXC, Bybit, OKX)"""

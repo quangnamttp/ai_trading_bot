@@ -39,12 +39,12 @@ LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 LOG_FILE = "logs/trading_bot.log"
 
 # Market Data Configuration
-MARKET_DATA_INTERVAL = int(os.getenv("MARKET_DATA_INTERVAL", "60"))  # seconds
-NEWS_CHECK_INTERVAL = int(os.getenv("NEWS_CHECK_INTERVAL", "300"))  # seconds
+MARKET_DATA_INTERVAL = int(os.getenv("MARKET_DATA_INTERVAL", "120"))  # seconds (increased from 60)
+NEWS_CHECK_INTERVAL = int(os.getenv("NEWS_CHECK_INTERVAL", "600"))  # seconds (increased from 300)
 
 # AI Configuration
 AI_MODEL = os.getenv("AI_MODEL", "rule_based")
-AI_UPDATE_INTERVAL = int(os.getenv("AI_UPDATE_INTERVAL", "120"))  # seconds
+AI_UPDATE_INTERVAL = int(os.getenv("AI_UPDATE_INTERVAL", "180"))  # seconds (increased from 120)
 
 # Deployment Configuration
 DEPLOYMENT_ENV = os.getenv("DEPLOYMENT_ENV", "development")

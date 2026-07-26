@@ -11,7 +11,7 @@ from flask import Flask
 from core.config import (
     TELEGRAM_BOT_TOKEN, TELEGRAM_ADMIN_ID,
     MARKET_DATA_INTERVAL, NEWS_CHECK_INTERVAL, AI_UPDATE_INTERVAL,
-    validate_config, PORT
+    validate_config, PORT, SYMBOLS
 )
 from core.database import db
 from core.signal_tracker import signal_tracker
@@ -148,7 +148,7 @@ class TradingBotApp:
             try:
                 health_report = await health_checker.check_system_health()
                 await health_checker.send_alert_if_needed(health_report, telegram_bot)
-                await async_sleep(300)  # Every 5 minutes
+                await async_sleep(600)  # Every 10 minutes (increased from 300)
             except Exception as e:
                 logger.error(f"Error in health check loop: {e}")
                 await async_sleep(60)
@@ -161,14 +161,14 @@ class TradingBotApp:
     async def market_data_loop(self):
         """Loop quét dữ liệu thị trường"""
         logger.info("Starting market data loop")
-        
+
         while not self.shutdown_event.is_set():
             try:
-                for symbol in ["BTCUSDT", "XAUUSD"]:
+                for symbol in SYMBOLS:
                     try:
                         # Lấy dữ liệu thị trường
                         await market_data_engine.get_symbol_data(symbol)
-                        
+
                         # Lưu vào database
                         ticker = await market_data_engine.get_ticker(symbol)
                         if ticker:
@@ -177,11 +177,11 @@ class TradingBotApp:
                                 data_type='ticker',
                                 data_value=ticker
                             )
-                        
+
                         logger.debug(f"Market data updated for {symbol}")
                     except Exception as e:
                         logger.error(f"Error updating market data for {symbol}: {e}")
-                
+
                 await async_sleep(MARKET_DATA_INTERVAL)
             except Exception as e:
                 logger.error(f"Error in market data loop: {e}")
@@ -205,19 +205,19 @@ class TradingBotApp:
     async def analysis_loop(self):
         """Loop phân tích AI"""
         logger.info("Starting AI analysis loop")
-        
+
         while not self.shutdown_event.is_set():
             try:
-                for symbol in ["BTCUSDT", "XAUUSD"]:
+                for symbol in SYMBOLS:
                     try:
                         # Phân tích AI
                         analysis = await ai_engine.analyze(
-                            symbol, 
-                            market_data_engine, 
-                            smart_money_tracker, 
+                            symbol,
+                            market_data_engine,
+                            smart_money_tracker,
                             news_engine
                         )
-                        
+
                         # Lưu AI log
                         db.save_ai_log(
                             symbol=symbol,
@@ -226,7 +226,7 @@ class TradingBotApp:
                             ai_score=analysis.get('ai_score'),
                             confidence=analysis.get('confidence')
                         )
-                        
+
                         # Nếu có tín hiệu, tạo và gửi
                         if analysis.get('action') in ['LONG', 'SHORT']:
                             signal = await signal_engine.create_signal(analysis)
@@ -234,11 +234,11 @@ class TradingBotApp:
                                 # Gửi tín hiệu qua Telegram
                                 await telegram_bot.send_signal(signal['message'])
                                 logger.info(f"Signal sent for {symbol}")
-                        
+
                         logger.debug(f"AI analysis completed for {symbol}")
                     except Exception as e:
                         logger.error(f"Error analyzing {symbol}: {e}")
-                
+
                 await async_sleep(AI_UPDATE_INTERVAL)
             except Exception as e:
                 logger.error(f"Error in analysis loop: {e}")
@@ -247,19 +247,19 @@ class TradingBotApp:
     async def smart_money_loop(self):
         """Loop theo dõi Smart Money"""
         logger.info("Starting smart money loop")
-        
+
         while not self.shutdown_event.is_set():
             try:
-                for symbol in ["BTCUSDT", "XAUUSD"]:
+                for symbol in SYMBOLS:
                     try:
                         await smart_money_tracker.analyze_smart_money_confluence(
-                            symbol, 
+                            symbol,
                             market_data_engine
                         )
                         logger.debug(f"Smart money analysis completed for {symbol}")
                     except Exception as e:
                         logger.error(f"Error in smart money analysis for {symbol}: {e}")
-                
+
                 await async_sleep(120)  # Every 2 minutes
             except Exception as e:
                 logger.error(f"Error in smart money loop: {e}")
