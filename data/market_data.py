@@ -7,121 +7,188 @@ import asyncio
 import ccxt.async_support as ccxt
 import pandas as pd
 import numpy as np
+import aiohttp
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
-from core.config import BINANCE_API_KEY, BINANCE_API_SECRET, SYMBOLS
+from core.config import SYMBOLS
 
 logger = logging.getLogger(__name__)
 
 
 class MarketDataEngine:
     """Thu thập và xử lý dữ liệu thị trường"""
-    
+
     def __init__(self):
         self.exchanges = {}
         self.data_cache = {}
         self.last_update = {}
-    
+        self.retry_count = 3
+        self.retry_delay = 2
+
     async def initialize_exchanges(self):
-        """Khởi tạo kết nối với các sàn"""
+        """Khởi tạo kết nối với các sàn (MEXC, Bybit, OKX)"""
         try:
-            # Binance
-            self.exchanges['binance'] = ccxt.binance({
-                'apiKey': BINANCE_API_KEY,
-                'secret': BINANCE_API_SECRET,
-                'enableRateLimit': True,
-                'options': {'defaultType': 'future'}
-            })
-            
-            # MEXC (không cần API key cho public data)
+            # MEXC (primary - no API key needed for public data)
             self.exchanges['mexc'] = ccxt.mexc({
                 'enableRateLimit': True,
-                'options': {'defaultType': 'future'}
+                'options': {'defaultType': 'swap'}
             })
-            
-            logger.info("Exchanges initialized successfully")
+
+            # Bybit (fallback - no API key needed for public data)
+            self.exchanges['bybit'] = ccxt.bybit({
+                'enableRateLimit': True,
+                'options': {'defaultType': 'linear'}
+            })
+
+            # OKX (fallback - no API key needed for public data)
+            self.exchanges['okx'] = ccxt.okx({
+                'enableRateLimit': True,
+                'options': {'defaultType': 'swap'}
+            })
+
+            logger.info("Exchanges initialized successfully (MEXC, Bybit, OKX)")
         except Exception as e:
             logger.error(f"Error initializing exchanges: {e}")
     
-    async def get_ticker(self, symbol: str, exchange: str = 'binance') -> Optional[Dict]:
-        """Lấy dữ liệu ticker cho symbol"""
-        try:
-            if exchange not in self.exchanges:
-                logger.error(f"Exchange {exchange} not initialized")
-                return None
-            
-            exchange_instance = self.exchanges[exchange]
-            ticker = await exchange_instance.fetch_ticker(symbol)
-            
-            self.data_cache[f"{symbol}_ticker"] = ticker
-            self.last_update[f"{symbol}_ticker"] = datetime.now()
-            
-            return ticker
-        except Exception as e:
-            logger.error(f"Error fetching ticker for {symbol}: {e}")
-            return None
+    async def get_ticker(self, symbol: str, exchange: str = 'mexc') -> Optional[Dict]:
+        """Lấy dữ liệu ticker cho symbol với retry logic"""
+        for attempt in range(self.retry_count):
+            try:
+                if exchange not in self.exchanges:
+                    logger.warning(f"Exchange {exchange} not initialized, trying fallback")
+                    return await self._try_fallback_ticker(symbol)
+
+                exchange_instance = self.exchanges[exchange]
+                ticker = await exchange_instance.fetch_ticker(symbol)
+
+                self.data_cache[f"{symbol}_ticker"] = ticker
+                self.last_update[f"{symbol}_ticker"] = datetime.now()
+
+                return ticker
+            except Exception as e:
+                logger.warning(f"Attempt {attempt + 1} failed for ticker {symbol} on {exchange}: {e}")
+                if attempt < self.retry_count - 1:
+                    await asyncio.sleep(self.retry_delay)
+                else:
+                    logger.error(f"All retries failed for ticker {symbol}")
+                    return await self._try_fallback_ticker(symbol)
+
+    async def _try_fallback_ticker(self, symbol: str) -> Optional[Dict]:
+        """Try fallback exchanges for ticker"""
+        exchanges = ['bybit', 'okx']
+        for exchange in exchanges:
+            try:
+                if exchange in self.exchanges:
+                    ticker = await self.exchanges[exchange].fetch_ticker(symbol)
+                    logger.info(f"Successfully fetched ticker for {symbol} from fallback {exchange}")
+                    return ticker
+            except Exception as e:
+                logger.warning(f"Fallback {exchange} failed for ticker {symbol}: {e}")
+        return None
     
-    async def get_ohlcv(self, symbol: str, timeframe: str = '1h', 
-                       limit: int = 100, exchange: str = 'binance') -> Optional[pd.DataFrame]:
-        """Lấy dữ liệu OHLCV (Open, High, Low, Close, Volume)"""
-        try:
-            if exchange not in self.exchanges:
-                logger.error(f"Exchange {exchange} not initialized")
-                return None
-            
-            exchange_instance = self.exchanges[exchange]
-            ohlcv = await exchange_instance.fetch_ohlcv(symbol, timeframe, limit=limit)
-            
-            # Chuyển thành DataFrame
-            df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-            df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
-            df.set_index('timestamp', inplace=True)
-            
-            self.data_cache[f"{symbol}_ohlcv_{timeframe}"] = df
-            self.last_update[f"{symbol}_ohlcv_{timeframe}"] = datetime.now()
-            
-            return df
-        except Exception as e:
-            logger.error(f"Error fetching OHLCV for {symbol}: {e}")
-            return None
+    async def get_ohlcv(self, symbol: str, timeframe: str = '1h',
+                       limit: int = 100, exchange: str = 'mexc') -> Optional[pd.DataFrame]:
+        """Lấy dữ liệu OHLCV với retry và fallback logic"""
+        for attempt in range(self.retry_count):
+            try:
+                if exchange not in self.exchanges:
+                    logger.warning(f"Exchange {exchange} not initialized, trying fallback")
+                    return await self._try_fallback_ohlcv(symbol, timeframe, limit)
+
+                exchange_instance = self.exchanges[exchange]
+                ohlcv = await exchange_instance.fetch_ohlcv(symbol, timeframe, limit=limit)
+
+                # Chuyển thành DataFrame
+                df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+                df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+                df.set_index('timestamp', inplace=True)
+
+                self.data_cache[f"{symbol}_ohlcv_{timeframe}"] = df
+                self.last_update[f"{symbol}_ohlcv_{timeframe}"] = datetime.now()
+
+                return df
+            except Exception as e:
+                logger.warning(f"Attempt {attempt + 1} failed for OHLCV {symbol} on {exchange}: {e}")
+                if attempt < self.retry_count - 1:
+                    await asyncio.sleep(self.retry_delay)
+                else:
+                    logger.error(f"All retries failed for OHLCV {symbol}")
+                    return await self._try_fallback_ohlcv(symbol, timeframe, limit)
+
+    async def _try_fallback_ohlcv(self, symbol: str, timeframe: str, limit: int) -> Optional[pd.DataFrame]:
+        """Try fallback exchanges for OHLCV"""
+        exchanges = ['bybit', 'okx']
+        for exchange in exchanges:
+            try:
+                if exchange in self.exchanges:
+                    ohlcv = await self.exchanges[exchange].fetch_ohlcv(symbol, timeframe, limit=limit)
+                    df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+                    df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+                    df.set_index('timestamp', inplace=True)
+                    logger.info(f"Successfully fetched OHLCV for {symbol} from fallback {exchange}")
+                    return df
+            except Exception as e:
+                logger.warning(f"Fallback {exchange} failed for OHLCV {symbol}: {e}")
+        return None
     
-    async def get_order_book(self, symbol: str, limit: int = 20, 
-                           exchange: str = 'binance') -> Optional[Dict]:
-        """Lấy Order Book"""
-        try:
-            if exchange not in self.exchanges:
-                logger.error(f"Exchange {exchange} not initialized")
-                return None
-            
-            exchange_instance = self.exchanges[exchange]
-            order_book = await exchange_instance.fetch_order_book(symbol, limit=limit)
-            
-            self.data_cache[f"{symbol}_orderbook"] = order_book
-            self.last_update[f"{symbol}_orderbook"] = datetime.now()
-            
-            return order_book
-        except Exception as e:
-            logger.error(f"Error fetching order book for {symbol}: {e}")
-            return None
+    async def get_order_book(self, symbol: str, limit: int = 20,
+                           exchange: str = 'mexc') -> Optional[Dict]:
+        """Lấy Order Book với retry và fallback logic"""
+        for attempt in range(self.retry_count):
+            try:
+                if exchange not in self.exchanges:
+                    logger.warning(f"Exchange {exchange} not initialized, trying fallback")
+                    return await self._try_fallback_orderbook(symbol, limit)
+
+                exchange_instance = self.exchanges[exchange]
+                order_book = await exchange_instance.fetch_order_book(symbol, limit=limit)
+
+                self.data_cache[f"{symbol}_orderbook"] = order_book
+                self.last_update[f"{symbol}_orderbook"] = datetime.now()
+
+                return order_book
+            except Exception as e:
+                logger.warning(f"Attempt {attempt + 1} failed for orderbook {symbol} on {exchange}: {e}")
+                if attempt < self.retry_count - 1:
+                    await asyncio.sleep(self.retry_delay)
+                else:
+                    logger.error(f"All retries failed for orderbook {symbol}")
+                    return await self._try_fallback_orderbook(symbol, limit)
+
+    async def _try_fallback_orderbook(self, symbol: str, limit: int) -> Optional[Dict]:
+        """Try fallback exchanges for order book"""
+        exchanges = ['bybit', 'okx']
+        for exchange in exchanges:
+            try:
+                if exchange in self.exchanges:
+                    order_book = await self.exchanges[exchange].fetch_order_book(symbol, limit=limit)
+                    logger.info(f"Successfully fetched orderbook for {symbol} from fallback {exchange}")
+                    return order_book
+            except Exception as e:
+                logger.warning(f"Fallback {exchange} failed for orderbook {symbol}: {e}")
+        return None
     
-    async def get_open_interest(self, symbol: str, exchange: str = 'binance') -> Optional[Dict]:
-        """Lấy Open Interest"""
-        try:
-            if exchange != 'binance':
-                logger.warning("Open Interest only available on Binance")
-                return None
-            
-            exchange_instance = self.exchanges[exchange]
-            # Binance API endpoint cho Open Interest
-            oi_data = await exchange_instance.fetch_open_interest(symbol)
-            
-            self.data_cache[f"{symbol}_open_interest"] = oi_data
-            self.last_update[f"{symbol}_open_interest"] = datetime.now()
-            
-            return oi_data
-        except Exception as e:
-            logger.error(f"Error fetching open interest for {symbol}: {e}")
-            return None
+    async def get_open_interest(self, symbol: str) -> Optional[Dict]:
+        """Lấy Open Interest với fallback logic (MEXC -> Bybit -> OKX)"""
+        exchanges = ['mexc', 'bybit', 'okx']
+        for exchange in exchanges:
+            try:
+                if exchange not in self.exchanges:
+                    continue
+
+                exchange_instance = self.exchanges[exchange]
+                oi_data = await exchange_instance.fetch_open_interest(symbol)
+
+                self.data_cache[f"{symbol}_open_interest"] = oi_data
+                self.last_update[f"{symbol}_open_interest"] = datetime.now()
+
+                logger.info(f"Successfully fetched open interest for {symbol} from {exchange}")
+                return oi_data
+            except Exception as e:
+                logger.warning(f"Failed to fetch open interest from {exchange} for {symbol}: {e}")
+
+        logger.warning(f"All exchanges failed for open interest {symbol}, returning N/A")
+        return {'openInterest': 'N/A', 'timestamp': datetime.now().isoformat()}
     
     async def get_funding_rate(self, symbol: str) -> Optional[Dict]:
         """Lấy Funding Rate với fallback logic (MEXC -> Bybit -> OKX)"""

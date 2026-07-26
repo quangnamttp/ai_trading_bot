@@ -10,7 +10,7 @@ Cython==3.0.5
 # API & Data
 requests==2.31.0
 pandas>=2.0.0
-numpy>=1.24.0
+numpy
 
 # Trading & Market Data
 ccxt==4.1.90
@@ -20,8 +20,8 @@ yfinance==0.2.32
 scikit-learn>=1.4.0
 
 # Chart Generation
-matplotlib==3.8.2
-seaborn==0.13.0
+matplotlib
+seaborn
 
 # System Monitoring
 psutil==5.9.6
@@ -34,7 +34,7 @@ python-dateutil==2.8.2
 loguru==0.7.2
 
 # Async
-aiohttp==3.9.1
+aiohttp
 
 # Web Server (for health check endpoint)
 flask==3.0.0

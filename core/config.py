@@ -22,9 +22,7 @@ EXCHANGE = "MEXC"
 AI_SCORE_THRESHOLD = float(os.getenv("AI_SCORE_THRESHOLD", "85"))
 MIN_CONFIDENCE = float(os.getenv("MIN_CONFIDENCE", "0.85"))
 
-# API Keys
-BINANCE_API_KEY = os.getenv("BINANCE_API_KEY", "")
-BINANCE_API_SECRET = os.getenv("BINANCE_API_SECRET", "")
+# API Keys (all optional - using free public APIs)
 COINAPI_KEY = os.getenv("COINAPI_KEY", "")
 NEWS_API_KEY = os.getenv("NEWS_API_KEY", "")
 
