@@ -219,39 +219,23 @@ Bot này sẽ giúp bạn:
     async def news_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Lệnh /news - Tin tức"""
         user_id = update.effective_user.id
-        
+
         if not db.is_authorized(user_id):
             await update.message.reply_text("❌ Bạn không có quyền sử dụng bot này.")
             return
-        
+
         await update.message.reply_text("🔄 Đang lấy tin tức...")
-        
+
         try:
-            # Lấy tin tức từ database (được lưu bởi news_engine)
-            recent_signals = db.get_recent_signals(limit=3)
-            
-            news_message = """
-📰 *Tin tức thị trường mới nhất*
+            from data.news_engine import news_engine
 
-🔹 *Crypto:*
-• Theo dõi ETF Bitcoin
-• FOMC, CPI, PPI, NFP
-• Dòng tiền cá voi
+            # Get real news summary from news engine
+            news_summary = await news_engine.get_news_summary()
 
-🔹 *Forex:*
-• DXY Index
-• Lợi suất trái phiếu
-• Chỉ số Fear & Greed
-
-🔹 *On-chain:*
-• Smart Money
-• Open Interest
-• Funding Rate
-
-📌 Bot tự động cập nhật tin tức 24/7
-            """
-            
-            await update.message.reply_text(news_message, parse_mode='Markdown')
+            if news_summary:
+                await update.message.reply_text(news_summary, parse_mode='Markdown')
+            else:
+                await update.message.reply_text("❌ Không thể lấy tin tức lúc này.")
         except Exception as e:
             logger.error(f"Error in news_command: {e}")
             await update.message.reply_text(f"❌ Lỗi: {str(e)}")
@@ -487,28 +471,75 @@ Bot này sẽ giúp bạn:
         """Xử lý callback từ inline keyboard"""
         query = update.callback_query
         await query.answer()
-        
+
         user_id = query.from_user.id
-        
+
         if not db.is_admin(user_id):
             await query.edit_message_text("❌ Chỉ Admin mới sử dụng chức năng này.")
             return
-        
+
         if query.data == "config_view":
-            config = db.get_all_config()
+            from core.config import (
+                AI_SCORE_THRESHOLD, MIN_CONFIDENCE, MAX_RISK_PER_TRADE,
+                MAX_POSITIONS, SIGNAL_COOLDOWN_MINUTES, MAX_SIGNALS_PER_HOUR,
+                MARKET_DATA_INTERVAL, NEWS_CHECK_INTERVAL, AI_UPDATE_INTERVAL,
+                SYMBOLS, EXCHANGE
+            )
             config_text = "📊 *Cấu hình hiện tại:*\n\n"
-            for key, value in config.items():
-                config_text += f"• {key}: {value}\n"
-            await query.edit_message_text(config_text, parse_mode='Markdown')
-        
+            config_text += f"• AI Score Threshold: {AI_SCORE_THRESHOLD}\n"
+            config_text += f"• Min Confidence: {MIN_CONFIDENCE}\n"
+            config_text += f"• Max Risk Per Trade: {MAX_RISK_PER_TRADE}\n"
+            config_text += f"• Max Positions: {MAX_POSITIONS}\n"
+            config_text += f"• Signal Cooldown: {SIGNAL_COOLDOWN_MINUTES} minutes\n"
+            config_text += f"• Max Signals Per Hour: {MAX_SIGNALS_PER_HOUR}\n"
+            config_text += f"• Market Data Interval: {MARKET_DATA_INTERVAL}s\n"
+            config_text += f"• News Check Interval: {NEWS_CHECK_INTERVAL}s\n"
+            config_text += f"• AI Update Interval: {AI_UPDATE_INTERVAL}s\n"
+            config_text += f"• Trading Symbols: {', '.join(SYMBOLS)}\n"
+            config_text += f"• Exchange: {EXCHANGE}\n"
+
+            keyboard = [
+                [InlineKeyboardButton("🔙 Quay lại", callback_data="config_back")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await query.edit_message_text(config_text, reply_markup=reply_markup, parse_mode='Markdown')
+
         elif query.data == "config_ai_threshold":
-            await query.edit_message_text("🔧 Để đổi ngưỡng AI Score, sử dụng lệnh: /set_ai_threshold <value>")
-        
+            keyboard = [
+                [InlineKeyboardButton("🔙 Quay lại", callback_data="config_view")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await query.edit_message_text(
+                "🔧 *Đổi ngưỡng AI Score*\n\n"
+                "Ngưỡng hiện tại: 85\n"
+                "Để đổi, sử dụng lệnh: /set_ai_threshold <value>\n"
+                "Ví dụ: /set_ai_threshold 90",
+                reply_markup=reply_markup,
+                parse_mode='Markdown'
+            )
+
         elif query.data == "config_cooldown":
-            await query.edit_message_text("⏰ Để đổi thời gian cooldown, sử dụng lệnh: /set_cooldown <minutes>")
-        
+            keyboard = [
+                [InlineKeyboardButton("🔙 Quay lại", callback_data="config_view")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await query.edit_message_text(
+                "⏰ *Đổi thời gian cooldown*\n\n"
+                "Cooldown hiện tại: 30 phút\n"
+                "Để đổi, sử dụng lệnh: /set_cooldown <minutes>\n"
+                "Ví dụ: /set_cooldown 15",
+                reply_markup=reply_markup,
+                parse_mode='Markdown'
+            )
+
         elif query.data == "config_back":
-            await query.edit_message_text("🔙 Đã quay lại.")
+            keyboard = [
+                [InlineKeyboardButton("📊 Xem cấu hình", callback_data="config_view")],
+                [InlineKeyboardButton("🔧 Đổi ngưỡng AI Score", callback_data="config_ai_threshold")],
+                [InlineKeyboardButton("⏰ Đổi thời gian cooldown", callback_data="config_cooldown")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await query.edit_message_text("⚙️ *Cấu hình Bot*", reply_markup=reply_markup, parse_mode='Markdown')
     
     # ==================== BOT STARTUP ====================
 

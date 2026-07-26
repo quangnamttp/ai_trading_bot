@@ -129,55 +129,37 @@ class HealthChecker:
             return {'status': 'critical', 'error': str(e)}
     
     async def _check_api(self) -> Dict:
-        """Kiểm tra API connections (MEXC, Bybit, OKX)"""
+        """Kiểm tra API connections (MEXC only)"""
         try:
-            from ..data.market_data import market_data_engine
-            from ..core.config import SYMBOLS
+            from data.market_data import market_data_engine
 
-            # Check if exchanges are initialized
+            # Check if MEXC is initialized
             if not market_data_engine.exchanges:
-                return {'status': 'critical', 'error': 'No exchanges initialized'}
+                return {'status': 'critical', 'error': 'No exchange initialized'}
 
-            # Check primary exchange (MEXC)
+            # Check MEXC API
             if 'mexc' in market_data_engine.exchanges:
                 try:
-                    ticker = await market_data_engine.get_ticker('BTCUSDT', exchange='mexc')
+                    ticker = await market_data_engine.get_ticker('BTCUSDT')
                     if ticker:
                         return {
                             'status': 'healthy',
                             'message': 'MEXC API accessible',
-                            'providers': ['mexc']
+                            'provider': 'mexc'
                         }
                 except Exception as e:
                     logger.warning(f"MEXC API check failed: {e}")
+                    return {'status': 'critical', 'error': f'MEXC API unavailable: {str(e)}', 'provider': 'mexc'}
 
-            # Check fallback exchanges
-            working_providers = []
-            for exchange in ['bybit', 'okx']:
-                if exchange in market_data_engine.exchanges:
-                    try:
-                        ticker = await market_data_engine.get_ticker('BTCUSDT', exchange=exchange)
-                        if ticker:
-                            working_providers.append(exchange)
-                    except Exception as e:
-                        logger.debug(f"{exchange} API check failed: {e}")
-
-            if working_providers:
-                return {
-                    'status': 'warning',
-                    'message': f'Fallback APIs accessible: {", ".join(working_providers)}',
-                    'providers': working_providers
-                }
-
-            # No provider working
+            # MEXC not initialized
             return {
                 'status': 'critical',
-                'error': 'No market data provider available',
-                'providers': []
+                'error': 'MEXC exchange not initialized',
+                'provider': None
             }
         except Exception as e:
             logger.error(f"API check failed: {e}")
-            return {'status': 'critical', 'error': str(e), 'providers': []}
+            return {'status': 'critical', 'error': str(e), 'provider': None}
     
     async def send_alert_if_needed(self, health_report: Dict, telegram_bot):
         """Gửi alert nếu cần thiết"""

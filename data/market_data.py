@@ -26,39 +26,27 @@ class MarketDataEngine:
         self.retry_delay = 3  # Increased from 2 to reduce rapid retries
 
     async def initialize_exchanges(self):
-        """Khởi tạo kết nối với các sàn (MEXC, Bybit, OKX)"""
+        """Khởi tạo kết nối với MEXC"""
         try:
-            # MEXC (primary - no API key needed for public data)
+            # MEXC (only exchange - no API key needed for public data)
             self.exchanges['mexc'] = ccxt.mexc({
                 'enableRateLimit': True,
                 'options': {'defaultType': 'swap'}
             })
 
-            # Bybit (fallback - no API key needed for public data)
-            self.exchanges['bybit'] = ccxt.bybit({
-                'enableRateLimit': True,
-                'options': {'defaultType': 'linear'}
-            })
-
-            # OKX (fallback - no API key needed for public data)
-            self.exchanges['okx'] = ccxt.okx({
-                'enableRateLimit': True,
-                'options': {'defaultType': 'swap'}
-            })
-
-            logger.info("Exchanges initialized successfully (MEXC, Bybit, OKX)")
+            logger.info("MEXC exchange initialized successfully")
         except Exception as e:
-            logger.error(f"Error initializing exchanges: {e}")
+            logger.error(f"Error initializing MEXC exchange: {e}")
     
-    async def get_ticker(self, symbol: str, exchange: str = 'mexc') -> Optional[Dict]:
-        """Lấy dữ liệu ticker cho symbol với retry logic"""
+    async def get_ticker(self, symbol: str) -> Optional[Dict]:
+        """Lấy dữ liệu ticker cho symbol với retry logic (MEXC only)"""
         for attempt in range(self.retry_count):
             try:
-                if exchange not in self.exchanges:
-                    logger.warning(f"Exchange {exchange} not initialized, trying fallback")
-                    return await self._try_fallback_ticker(symbol)
+                if 'mexc' not in self.exchanges:
+                    logger.error("MEXC exchange not initialized")
+                    return None
 
-                exchange_instance = self.exchanges[exchange]
+                exchange_instance = self.exchanges['mexc']
                 ticker = await exchange_instance.fetch_ticker(symbol)
 
                 self.data_cache[f"{symbol}_ticker"] = ticker
@@ -66,36 +54,23 @@ class MarketDataEngine:
 
                 return ticker
             except Exception as e:
-                logger.warning(f"Attempt {attempt + 1} failed for ticker {symbol} on {exchange}: {e}")
+                logger.warning(f"Attempt {attempt + 1} failed for ticker {symbol}: {e}")
                 if attempt < self.retry_count - 1:
                     await asyncio.sleep(self.retry_delay)
                 else:
                     logger.error(f"All retries failed for ticker {symbol}")
-                    return await self._try_fallback_ticker(symbol)
-
-    async def _try_fallback_ticker(self, symbol: str) -> Optional[Dict]:
-        """Try fallback exchanges for ticker"""
-        exchanges = ['bybit', 'okx']
-        for exchange in exchanges:
-            try:
-                if exchange in self.exchanges:
-                    ticker = await self.exchanges[exchange].fetch_ticker(symbol)
-                    logger.info(f"Successfully fetched ticker for {symbol} from fallback {exchange}")
-                    return ticker
-            except Exception as e:
-                logger.warning(f"Fallback {exchange} failed for ticker {symbol}: {e}")
-        return None
+                    return None
     
     async def get_ohlcv(self, symbol: str, timeframe: str = '1h',
-                       limit: int = 100, exchange: str = 'mexc') -> Optional[pd.DataFrame]:
-        """Lấy dữ liệu OHLCV với retry và fallback logic"""
+                       limit: int = 100) -> Optional[pd.DataFrame]:
+        """Lấy dữ liệu OHLCV với retry logic (MEXC only)"""
         for attempt in range(self.retry_count):
             try:
-                if exchange not in self.exchanges:
-                    logger.warning(f"Exchange {exchange} not initialized, trying fallback")
-                    return await self._try_fallback_ohlcv(symbol, timeframe, limit)
+                if 'mexc' not in self.exchanges:
+                    logger.error("MEXC exchange not initialized")
+                    return None
 
-                exchange_instance = self.exchanges[exchange]
+                exchange_instance = self.exchanges['mexc']
                 ohlcv = await exchange_instance.fetch_ohlcv(symbol, timeframe, limit=limit)
 
                 # Chuyển thành DataFrame
@@ -108,39 +83,22 @@ class MarketDataEngine:
 
                 return df
             except Exception as e:
-                logger.warning(f"Attempt {attempt + 1} failed for OHLCV {symbol} on {exchange}: {e}")
+                logger.warning(f"Attempt {attempt + 1} failed for OHLCV {symbol}: {e}")
                 if attempt < self.retry_count - 1:
                     await asyncio.sleep(self.retry_delay)
                 else:
                     logger.error(f"All retries failed for OHLCV {symbol}")
-                    return await self._try_fallback_ohlcv(symbol, timeframe, limit)
-
-    async def _try_fallback_ohlcv(self, symbol: str, timeframe: str, limit: int) -> Optional[pd.DataFrame]:
-        """Try fallback exchanges for OHLCV"""
-        exchanges = ['bybit', 'okx']
-        for exchange in exchanges:
-            try:
-                if exchange in self.exchanges:
-                    ohlcv = await self.exchanges[exchange].fetch_ohlcv(symbol, timeframe, limit=limit)
-                    df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-                    df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
-                    df.set_index('timestamp', inplace=True)
-                    logger.info(f"Successfully fetched OHLCV for {symbol} from fallback {exchange}")
-                    return df
-            except Exception as e:
-                logger.warning(f"Fallback {exchange} failed for OHLCV {symbol}: {e}")
-        return None
+                    return None
     
-    async def get_order_book(self, symbol: str, limit: int = 20,
-                           exchange: str = 'mexc') -> Optional[Dict]:
-        """Lấy Order Book với retry và fallback logic"""
+    async def get_order_book(self, symbol: str, limit: int = 20) -> Optional[Dict]:
+        """Lấy Order Book với retry logic (MEXC only)"""
         for attempt in range(self.retry_count):
             try:
-                if exchange not in self.exchanges:
-                    logger.warning(f"Exchange {exchange} not initialized, trying fallback")
-                    return await self._try_fallback_orderbook(symbol, limit)
+                if 'mexc' not in self.exchanges:
+                    logger.error("MEXC exchange not initialized")
+                    return None
 
-                exchange_instance = self.exchanges[exchange]
+                exchange_instance = self.exchanges['mexc']
                 order_book = await exchange_instance.fetch_order_book(symbol, limit=limit)
 
                 self.data_cache[f"{symbol}_orderbook"] = order_book
@@ -148,69 +106,50 @@ class MarketDataEngine:
 
                 return order_book
             except Exception as e:
-                logger.warning(f"Attempt {attempt + 1} failed for orderbook {symbol} on {exchange}: {e}")
+                logger.warning(f"Attempt {attempt + 1} failed for orderbook {symbol}: {e}")
                 if attempt < self.retry_count - 1:
                     await asyncio.sleep(self.retry_delay)
                 else:
                     logger.error(f"All retries failed for orderbook {symbol}")
-                    return await self._try_fallback_orderbook(symbol, limit)
-
-    async def _try_fallback_orderbook(self, symbol: str, limit: int) -> Optional[Dict]:
-        """Try fallback exchanges for order book"""
-        exchanges = ['bybit', 'okx']
-        for exchange in exchanges:
-            try:
-                if exchange in self.exchanges:
-                    order_book = await self.exchanges[exchange].fetch_order_book(symbol, limit=limit)
-                    logger.info(f"Successfully fetched orderbook for {symbol} from fallback {exchange}")
-                    return order_book
-            except Exception as e:
-                logger.warning(f"Fallback {exchange} failed for orderbook {symbol}: {e}")
-        return None
+                    return None
     
     async def get_open_interest(self, symbol: str) -> Optional[Dict]:
-        """Lấy Open Interest với fallback logic (MEXC -> Bybit -> OKX)"""
-        exchanges = ['mexc', 'bybit', 'okx']
-        for exchange in exchanges:
-            try:
-                if exchange not in self.exchanges:
-                    continue
+        """Lấy Open Interest từ MEXC (returns N/A if not supported)"""
+        try:
+            if 'mexc' not in self.exchanges:
+                logger.warning("MEXC exchange not initialized for open interest")
+                return {'openInterest': 'N/A', 'timestamp': datetime.now().isoformat()}
 
-                exchange_instance = self.exchanges[exchange]
-                oi_data = await exchange_instance.fetch_open_interest(symbol)
+            exchange_instance = self.exchanges['mexc']
+            oi_data = await exchange_instance.fetch_open_interest(symbol)
 
-                self.data_cache[f"{symbol}_open_interest"] = oi_data
-                self.last_update[f"{symbol}_open_interest"] = datetime.now()
+            self.data_cache[f"{symbol}_open_interest"] = oi_data
+            self.last_update[f"{symbol}_open_interest"] = datetime.now()
 
-                logger.info(f"Successfully fetched open interest for {symbol} from {exchange}")
-                return oi_data
-            except Exception as e:
-                logger.warning(f"Failed to fetch open interest from {exchange} for {symbol}: {e}")
-
-        logger.warning(f"All exchanges failed for open interest {symbol}, returning N/A")
-        return {'openInterest': 'N/A', 'timestamp': datetime.now().isoformat()}
+            logger.info(f"Successfully fetched open interest for {symbol} from MEXC")
+            return oi_data
+        except Exception as e:
+            logger.warning(f"MEXC does not support open interest or failed for {symbol}: {e}")
+            return {'openInterest': 'N/A', 'timestamp': datetime.now().isoformat()}
     
     async def get_funding_rate(self, symbol: str) -> Optional[Dict]:
-        """Lấy Funding Rate với fallback logic (MEXC -> Bybit -> OKX)"""
-        exchanges = ['mexc', 'bybit', 'okx']
-        for exchange in exchanges:
-            try:
-                if exchange not in self.exchanges:
-                    continue
+        """Lấy Funding Rate từ MEXC (returns N/A if not supported)"""
+        try:
+            if 'mexc' not in self.exchanges:
+                logger.warning("MEXC exchange not initialized for funding rate")
+                return {'fundingRate': 'N/A', 'timestamp': datetime.now().isoformat()}
 
-                exchange_instance = self.exchanges[exchange]
-                funding_rate = await exchange_instance.fetch_funding_rate(symbol)
+            exchange_instance = self.exchanges['mexc']
+            funding_rate = await exchange_instance.fetch_funding_rate(symbol)
 
-                self.data_cache[f"{symbol}_funding_rate"] = funding_rate
-                self.last_update[f"{symbol}_funding_rate"] = datetime.now()
+            self.data_cache[f"{symbol}_funding_rate"] = funding_rate
+            self.last_update[f"{symbol}_funding_rate"] = datetime.now()
 
-                logger.info(f"Successfully fetched funding rate for {symbol} from {exchange}")
-                return funding_rate
-            except Exception as e:
-                logger.warning(f"Failed to fetch funding rate from {exchange} for {symbol}: {e}")
-
-        logger.warning(f"All exchanges failed for funding rate {symbol}, returning N/A")
-        return {'fundingRate': 'N/A', 'timestamp': datetime.now().isoformat()}
+            logger.info(f"Successfully fetched funding rate for {symbol} from MEXC")
+            return funding_rate
+        except Exception as e:
+            logger.warning(f"MEXC does not support funding rate or failed for {symbol}: {e}")
+            return {'fundingRate': 'N/A', 'timestamp': datetime.now().isoformat()}
     
     async def get_liquidations(self, symbol: str) -> Optional[List[Dict]]:
         """Lấy dữ liệu liquidation (giả lập - thực tế cần API premium)"""
@@ -443,7 +382,7 @@ class MarketDataEngine:
             overview = "📊 *Tổng quan thị trường*\n\n"
 
             for symbol in SYMBOLS:
-                ticker = await self.get_ticker(symbol, exchange='mexc')
+                ticker = await self.get_ticker(symbol)
                 if ticker:
                     change_percent = ticker.get('percentage', 0)
                     emoji = "🟢" if change_percent > 0 else "🔴"
@@ -467,7 +406,7 @@ class MarketDataEngine:
             }
 
             # Ticker
-            ticker = await self.get_ticker(symbol, exchange='mexc')
+            ticker = await self.get_ticker(symbol)
             if ticker:
                 data['ticker'] = ticker
 
@@ -477,7 +416,7 @@ class MarketDataEngine:
                 data['indicators'] = indicators
 
             # Order Book
-            order_book = await self.get_order_book(symbol, exchange='mexc')
+            order_book = await self.get_order_book(symbol)
             if order_book:
                 data['order_book'] = order_book
 
