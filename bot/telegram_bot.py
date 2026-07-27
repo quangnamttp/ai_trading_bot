@@ -28,6 +28,7 @@ class TelegramBot:
         self.application = None
         self.signal_engine = None
         self.market_data = None
+        self.running = False
     
     def set_dependencies(self, signal_engine, market_data):
         """Set dependencies cho bot"""
@@ -544,8 +545,12 @@ Bot này sẽ giúp bạn:
     # ==================== BOT STARTUP ====================
 
     async def start(self):
-        """Khởi động bot"""
+        """Khởi động bot - chỉ tạo Application, không start polling"""
         try:
+            if self.application is not None:
+                logger.warning("Telegram bot application already initialized")
+                return self.application
+
             self.application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 
             # Đăng ký handlers
@@ -567,27 +572,60 @@ Bot này sẽ giúp bạn:
             self.application.add_handler(CommandHandler("stats", self.stats_command))
             self.application.add_handler(CallbackQueryHandler(self.button_callback))
 
-            # Initialize the application
+            # Initialize the application (không start polling ở đây)
             await self.application.initialize()
-            await self.application.start()
-            await self.application.updater.start_polling(drop_pending_updates=True)
-            logger.info("Telegram bot initialized successfully")
+            logger.info("Telegram bot application initialized successfully")
             return self.application
         except Exception as e:
             logger.error(f"Error starting Telegram bot: {e}")
             raise
 
+    async def run_polling(self):
+        """Chạy polling trong background task"""
+        try:
+            if self.running:
+                logger.warning("Telegram bot polling already running")
+                return
+
+            self.running = True
+            await self.application.start()
+            await self.application.updater.start_polling(drop_pending_updates=True)
+            logger.info("Telegram bot polling started successfully")
+        except Exception as e:
+            logger.error(f"Error starting Telegram bot polling: {e}")
+            self.running = False
+            raise
+
     async def stop(self):
         """Stop the bot"""
         try:
+            if not self.running:
+                logger.info("Telegram bot not running, skipping stop")
+                return
+
+            self.running = False
+
             if self.application:
                 if hasattr(self.application, 'updater') and self.application.updater:
                     try:
                         await self.application.updater.stop()
-                    except:
-                        pass
-                await self.application.stop()
-                await self.application.shutdown()
+                        logger.info("Telegram bot updater stopped")
+                    except Exception as e:
+                        logger.error(f"Error stopping updater: {e}")
+
+                try:
+                    await self.application.stop()
+                    logger.info("Telegram bot application stopped")
+                except Exception as e:
+                    logger.error(f"Error stopping application: {e}")
+
+                try:
+                    await self.application.shutdown()
+                    logger.info("Telegram bot application shut down")
+                except Exception as e:
+                    logger.error(f"Error shutting down application: {e}")
+
+                self.application = None
                 logger.info("Telegram bot stopped successfully")
         except Exception as e:
             logger.error(f"Error stopping Telegram bot: {e}")

@@ -94,7 +94,7 @@ class TradingBotApp:
                 telegram_bot.set_dependencies(signal_engine, market_data_engine)
                 bot_app = await telegram_bot.start()
                 self.bot_application = bot_app
-                logger.info("Telegram bot initialized")
+                logger.info("Telegram bot application initialized")
 
                 # Set telegram bot for message queue
                 message_queue.set_telegram_bot(telegram_bot)
@@ -286,19 +286,19 @@ class TradingBotApp:
             logger.info("=" * 50)
             logger.info("AI Trading Signal Bot Starting...")
             logger.info("=" * 50)
-            
+
             # Initialize components
             bot_app = await self.initialize()
-            
+
             # Start Flask server
             self.run_flask_server()
-            
+
             # Start Telegram bot
             self.running = True
-            
-            # Start the application
-            await bot_app.start()
-            logger.info("Telegram bot application started")
+
+            # Start Telegram polling
+            await telegram_bot.run_polling()
+            logger.info("Telegram bot polling started")
 
             # Create tasks
             self.tasks = [
@@ -309,16 +309,15 @@ class TradingBotApp:
                 asyncio.create_task(self.signal_tracking_loop()),
                 asyncio.create_task(self.cache_cleanup_loop()),
                 asyncio.create_task(self.health_check_loop()),
-                asyncio.create_task(self.reporting_loop()),
-                asyncio.create_task(bot_app.updater.start_polling())
+                asyncio.create_task(self.reporting_loop())
             ]
-            
+
             logger.info("All loops started successfully")
             logger.info("Bot is now running 24/7")
-            
+
             # Wait for shutdown
             await self.shutdown_event.wait()
-            
+
         except Exception as e:
             logger.error(f"Error in main run loop: {e}")
             raise
