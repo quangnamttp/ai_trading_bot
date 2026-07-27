@@ -24,9 +24,11 @@ class MarketDataEngine:
         self.last_update = {}
         self.retry_count = 2  # Reduced from 3 to save CPU
         self.retry_delay = 3  # Increased from 2 to reduce rapid retries
+        self.mexc_markets = {}  # Store MEXC market list
+        self.unsupported_symbols = set()  # Track unsupported symbols to skip
 
     async def initialize_exchanges(self):
-        """Khởi tạo kết nối với MEXC"""
+        """Khởi tạo kết nối với MEXC và load market list"""
         try:
             # MEXC (only exchange - no API key needed for public data)
             self.exchanges['mexc'] = ccxt.mexc({
@@ -34,12 +36,47 @@ class MarketDataEngine:
                 'options': {'defaultType': 'swap'}
             })
 
-            logger.info("MEXC exchange initialized successfully")
+            await self.exchanges['mexc'].load_markets()
+            self.mexc_markets = self.exchanges['mexc'].markets
+
+            logger.info(f"MEXC exchange initialized successfully with {len(self.mexc_markets)} markets")
+            await self._validate_symbols()
         except Exception as e:
             logger.error(f"Error initializing MEXC exchange: {e}")
+
+    async def _validate_symbols(self):
+        """Validate configured symbols against MEXC market list"""
+        from core.config import SYMBOLS
+
+        for symbol in SYMBOLS:
+            if symbol in self.mexc_markets:
+                logger.info(f"Symbol {symbol} is supported by MEXC")
+            else:
+                # Try to find a matching symbol (e.g., XAUUSD -> GOLD)
+                if symbol == 'XAUUSD':
+                    # Look for GOLD-related symbols
+                    gold_symbols = [k for k in self.mexc_markets.keys() if 'GOLD' in k or 'XAU' in k]
+                    if gold_symbols:
+                        logger.warning(f"Symbol {symbol} not found on MEXC. Available GOLD symbols: {gold_symbols[:5]}")
+                    else:
+                        logger.warning(f"Symbol {symbol} not found on MEXC and no GOLD alternatives available")
+                else:
+                    logger.warning(f"Symbol {symbol} not found on MEXC markets")
+                self.unsupported_symbols.add(symbol)
+
+        if self.unsupported_symbols:
+            logger.warning(f"Unsupported symbols (will be skipped): {list(self.unsupported_symbols)}")
+
+    def _is_symbol_supported(self, symbol: str) -> bool:
+        """Check if symbol is supported by MEXC"""
+        return symbol not in self.unsupported_symbols and symbol in self.mexc_markets
     
     async def get_ticker(self, symbol: str) -> Optional[Dict]:
         """Lấy dữ liệu ticker cho symbol với retry logic (MEXC only)"""
+        # Skip if symbol is unsupported
+        if not self._is_symbol_supported(symbol):
+            return None
+
         for attempt in range(self.retry_count):
             try:
                 if 'mexc' not in self.exchanges:
@@ -64,6 +101,10 @@ class MarketDataEngine:
     async def get_ohlcv(self, symbol: str, timeframe: str = '1h',
                        limit: int = 100) -> Optional[pd.DataFrame]:
         """Lấy dữ liệu OHLCV với retry logic (MEXC only)"""
+        # Skip if symbol is unsupported
+        if not self._is_symbol_supported(symbol):
+            return None
+
         for attempt in range(self.retry_count):
             try:
                 if 'mexc' not in self.exchanges:
@@ -92,6 +133,10 @@ class MarketDataEngine:
     
     async def get_order_book(self, symbol: str, limit: int = 20) -> Optional[Dict]:
         """Lấy Order Book với retry logic (MEXC only)"""
+        # Skip if symbol is unsupported
+        if not self._is_symbol_supported(symbol):
+            return None
+
         for attempt in range(self.retry_count):
             try:
                 if 'mexc' not in self.exchanges:
@@ -114,11 +159,15 @@ class MarketDataEngine:
                     return None
     
     async def get_open_interest(self, symbol: str) -> Optional[Dict]:
-        """Lấy Open Interest từ MEXC (returns N/A if not supported)"""
+        """Lấy Open Interest từ MEXC (returns None if not supported)"""
+        # Skip if symbol is unsupported
+        if not self._is_symbol_supported(symbol):
+            return None
+
         try:
             if 'mexc' not in self.exchanges:
                 logger.warning("MEXC exchange not initialized for open interest")
-                return {'openInterest': 'N/A', 'timestamp': datetime.now().isoformat()}
+                return None
 
             exchange_instance = self.exchanges['mexc']
             oi_data = await exchange_instance.fetch_open_interest(symbol)
@@ -129,15 +178,19 @@ class MarketDataEngine:
             logger.info(f"Successfully fetched open interest for {symbol} from MEXC")
             return oi_data
         except Exception as e:
-            logger.warning(f"MEXC does not support open interest or failed for {symbol}: {e}")
-            return {'openInterest': 'N/A', 'timestamp': datetime.now().isoformat()}
+            logger.debug(f"MEXC does not support open interest or failed for {symbol}: {e}")
+            return None
     
     async def get_funding_rate(self, symbol: str) -> Optional[Dict]:
-        """Lấy Funding Rate từ MEXC (returns N/A if not supported)"""
+        """Lấy Funding Rate từ MEXC (returns None if not supported)"""
+        # Skip if symbol is unsupported
+        if not self._is_symbol_supported(symbol):
+            return None
+
         try:
             if 'mexc' not in self.exchanges:
                 logger.warning("MEXC exchange not initialized for funding rate")
-                return {'fundingRate': 'N/A', 'timestamp': datetime.now().isoformat()}
+                return None
 
             exchange_instance = self.exchanges['mexc']
             funding_rate = await exchange_instance.fetch_funding_rate(symbol)
@@ -148,8 +201,8 @@ class MarketDataEngine:
             logger.info(f"Successfully fetched funding rate for {symbol} from MEXC")
             return funding_rate
         except Exception as e:
-            logger.warning(f"MEXC does not support funding rate or failed for {symbol}: {e}")
-            return {'fundingRate': 'N/A', 'timestamp': datetime.now().isoformat()}
+            logger.debug(f"MEXC does not support funding rate or failed for {symbol}: {e}")
+            return None
     
     async def get_liquidations(self, symbol: str) -> Optional[List[Dict]]:
         """Lấy dữ liệu liquidation (giả lập - thực tế cần API premium)"""

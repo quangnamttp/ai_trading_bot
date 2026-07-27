@@ -150,16 +150,16 @@ Bot này sẽ giúp bạn:
     async def btc_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Lệnh /btc - Phân tích BTC"""
         user_id = update.effective_user.id
-        
+
         if not db.is_authorized(user_id):
             await update.message.reply_text("❌ Bạn không có quyền sử dụng bot này.")
             return
-        
-        await update.message.reply_text("🔄 Đang phân tích BTCUSDT...")
-        
+
+        await update.message.reply_text("🔄 Đang phân tích BTC (BTC/USDT)...")
+
         try:
             if self.signal_engine:
-                analysis = await self.signal_engine.analyze_symbol("BTCUSDT")
+                analysis = await self.signal_engine.analyze_symbol("BTC/USDT:USDT")
                 if analysis:
                     await update.message.reply_text(analysis, parse_mode='Markdown')
                 else:
@@ -173,16 +173,16 @@ Bot này sẽ giúp bạn:
     async def gold_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Lệnh /gold - Phân tích Vàng"""
         user_id = update.effective_user.id
-        
+
         if not db.is_authorized(user_id):
             await update.message.reply_text("❌ Bạn không có quyền sử dụng bot này.")
             return
-        
-        await update.message.reply_text("🔄 Đang phân tích XAUUSD...")
-        
+
+        await update.message.reply_text("🔄 Đang phân tích Vàng (XAU/USDT)...")
+
         try:
             if self.signal_engine:
-                analysis = await self.signal_engine.analyze_symbol("XAUUSD")
+                analysis = await self.signal_engine.analyze_symbol("XAU/USDT:USDT")
                 if analysis:
                     await update.message.reply_text(analysis, parse_mode='Markdown')
                 else:
@@ -569,11 +569,28 @@ Bot này sẽ giúp bạn:
 
             # Initialize the application
             await self.application.initialize()
+            await self.application.start()
+            await self.application.updater.start_polling(drop_pending_updates=True)
             logger.info("Telegram bot initialized successfully")
             return self.application
         except Exception as e:
             logger.error(f"Error starting Telegram bot: {e}")
             raise
+
+    async def stop(self):
+        """Stop the bot"""
+        try:
+            if self.application:
+                if hasattr(self.application, 'updater') and self.application.updater:
+                    try:
+                        await self.application.updater.stop()
+                    except:
+                        pass
+                await self.application.stop()
+                await self.application.shutdown()
+                logger.info("Telegram bot stopped successfully")
+        except Exception as e:
+            logger.error(f"Error stopping Telegram bot: {e}")
     
     async def send_signal(self, signal_text: str):
         """Gửi tín hiệu đến tất cả users được phép"""

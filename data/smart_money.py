@@ -94,15 +94,20 @@ class SmartMoneyTracker:
         """Phân tích Funding Rate để xác định tâm lý thị trường"""
         try:
             funding_data = await market_data.get_funding_rate(symbol)
-            
+
             if not funding_data:
                 return {'sentiment': 'neutral', 'rate': 0}
-            
+
             funding_rate = funding_data.get('fundingRate', 0)
-            
+
+            # Handle string values like 'N/A'
+            if isinstance(funding_rate, str):
+                logger.debug(f"Funding rate is string for {symbol}: {funding_rate}")
+                return {'sentiment': 'neutral', 'rate': 0}
+
             # Funding rate dương = longs pay shorts = bullish sentiment
             # Funding rate âm = shorts pay longs = bearish sentiment
-            
+
             if funding_rate > 0.01:  # > 1%
                 sentiment = 'strongly_bullish'
             elif funding_rate > 0:
@@ -113,7 +118,7 @@ class SmartMoneyTracker:
                 sentiment = 'bearish'
             else:
                 sentiment = 'neutral'
-            
+
             return {
                 'sentiment': sentiment,
                 'rate': funding_rate,
@@ -127,16 +132,21 @@ class SmartMoneyTracker:
         """Phân tích Open Interest"""
         try:
             oi_data = await market_data.get_open_interest(symbol)
-            
+
             if not oi_data:
                 return {'trend': 'neutral', 'change': 0}
-            
+
             open_interest = oi_data.get('openInterestAmount', 0)
-            
+
+            # Handle string values like 'N/A'
+            if isinstance(open_interest, str):
+                logger.debug(f"Open interest is string for {symbol}: {open_interest}")
+                return {'trend': 'neutral', 'change': 0}
+
             # Trong thực tế, cần so sánh với giá trị trước đó
             # Đây là mô phỏng
             change_percent = 5.2  # +5.2%
-            
+
             if change_percent > 10:
                 trend = 'strongly_increasing'
             elif change_percent > 5:
@@ -147,7 +157,7 @@ class SmartMoneyTracker:
                 trend = 'decreasing'
             else:
                 trend = 'stable'
-            
+
             return {
                 'trend': trend,
                 'change': change_percent,

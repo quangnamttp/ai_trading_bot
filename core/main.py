@@ -343,18 +343,11 @@ class TradingBotApp:
                     logger.error(f"Error cancelling task: {e}")
 
         # Stop and shutdown Telegram bot application
-        if self.bot_application:
-            try:
-                await self.bot_application.stop()
-                logger.info("Telegram bot application stopped")
-            except Exception as e:
-                logger.error(f"Error stopping Telegram bot: {e}")
-
-            try:
-                await self.bot_application.shutdown()
-                logger.info("Telegram bot application shut down")
-            except Exception as e:
-                logger.error(f"Error shutting down Telegram bot: {e}")
+        try:
+            await telegram_bot.stop()
+            logger.info("Telegram bot stopped")
+        except Exception as e:
+            logger.error(f"Error stopping Telegram bot: {e}")
 
         # Close market data connections
         try:
