@@ -148,52 +148,6 @@ Bot này sẽ giúp bạn:
         
         await update.message.reply_text(status_message, parse_mode='Markdown')
     
-    async def btc_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Lệnh /btc - Phân tích BTC"""
-        user_id = update.effective_user.id
-
-        if not db.is_authorized(user_id):
-            await update.message.reply_text("❌ Bạn không có quyền sử dụng bot này.")
-            return
-
-        await update.message.reply_text("🔄 Đang phân tích BTC (BTC/USDT)...")
-
-        try:
-            if self.signal_engine:
-                analysis = await self.signal_engine.analyze_symbol("BTC/USDT:USDT")
-                if analysis:
-                    await update.message.reply_text(analysis, parse_mode='Markdown')
-                else:
-                    await update.message.reply_text("❌ Không thể phân tích BTC lúc này.")
-            else:
-                await update.message.reply_text("❌ Signal engine chưa được khởi tạo.")
-        except Exception as e:
-            logger.error(f"Error in btc_command: {e}")
-            await update.message.reply_text(f"❌ Lỗi: {str(e)}")
-    
-    async def gold_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Lệnh /gold - Phân tích Vàng"""
-        user_id = update.effective_user.id
-
-        if not db.is_authorized(user_id):
-            await update.message.reply_text("❌ Bạn không có quyền sử dụng bot này.")
-            return
-
-        await update.message.reply_text("🔄 Đang phân tích Vàng (XAU/USDT)...")
-
-        try:
-            if self.signal_engine:
-                analysis = await self.signal_engine.analyze_symbol("XAU/USDT:USDT")
-                if analysis:
-                    await update.message.reply_text(analysis, parse_mode='Markdown')
-                else:
-                    await update.message.reply_text("❌ Không thể phân tích Vàng lúc này.")
-            else:
-                await update.message.reply_text("❌ Signal engine chưa được khởi tạo.")
-        except Exception as e:
-            logger.error(f"Error in gold_command: {e}")
-            await update.message.reply_text(f"❌ Lỗi: {str(e)}")
-    
     async def market_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Lệnh /market - Thông tin thị trường"""
         user_id = update.effective_user.id
@@ -253,11 +207,10 @@ Bot này sẽ giúp bạn:
         keyboard = [
             [InlineKeyboardButton("📊 Xem cấu hình", callback_data="config_view")],
             [InlineKeyboardButton("🔧 Đổi ngưỡng AI Score", callback_data="config_ai_threshold")],
-            [InlineKeyboardButton("⏰ Đổi thời gian cooldown", callback_data="config_cooldown")],
             [InlineKeyboardButton("🔙 Quay lại", callback_data="config_back")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        
+
         await update.message.reply_text("⚙️ *Cấu hình Bot*", reply_markup=reply_markup, parse_mode='Markdown')
     
     async def id_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -519,25 +472,11 @@ Bot này sẽ giúp bạn:
                 parse_mode='Markdown'
             )
 
-        elif query.data == "config_cooldown":
-            keyboard = [
-                [InlineKeyboardButton("🔙 Quay lại", callback_data="config_view")]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            await query.edit_message_text(
-                "⏰ *Đổi thời gian cooldown*\n\n"
-                "Cooldown hiện tại: 30 phút\n"
-                "Để đổi, sử dụng lệnh: /set_cooldown <minutes>\n"
-                "Ví dụ: /set_cooldown 15",
-                reply_markup=reply_markup,
-                parse_mode='Markdown'
-            )
-
         elif query.data == "config_back":
             keyboard = [
                 [InlineKeyboardButton("📊 Xem cấu hình", callback_data="config_view")],
                 [InlineKeyboardButton("🔧 Đổi ngưỡng AI Score", callback_data="config_ai_threshold")],
-                [InlineKeyboardButton("⏰ Đổi thời gian cooldown", callback_data="config_cooldown")]
+                [InlineKeyboardButton("🔙 Quay lại", callback_data="config_back")]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             await query.edit_message_text("⚙️ *Cấu hình Bot*", reply_markup=reply_markup, parse_mode='Markdown')
@@ -557,8 +496,6 @@ Bot này sẽ giúp bạn:
             self.application.add_handler(CommandHandler("start", self.start_command))
             self.application.add_handler(CommandHandler("help", self.help_command))
             self.application.add_handler(CommandHandler("status", self.status_command))
-            self.application.add_handler(CommandHandler("btc", self.btc_command))
-            self.application.add_handler(CommandHandler("gold", self.gold_command))
             self.application.add_handler(CommandHandler("market", self.market_command))
             self.application.add_handler(CommandHandler("news", self.news_command))
             self.application.add_handler(CommandHandler("settings", self.settings_command))
@@ -630,13 +567,26 @@ Bot này sẽ giúp bạn:
         except Exception as e:
             logger.error(f"Error stopping Telegram bot: {e}")
     
-    async def send_signal(self, signal_text: str):
-        """Gửi tín hiệu đến tất cả users được phép"""
+    async def send_signal(self, signal_text: str, chart_path: str = None):
+        """Gửi tín hiệu đến tất cả users được phép với chart"""
         users = db.get_all_users()
-        
+
         success_count = 0
         for user in users:
             try:
+                # Send chart first if available
+                if chart_path:
+                    try:
+                        with open(chart_path, 'rb') as photo:
+                            await self.application.bot.send_photo(
+                                chat_id=user['telegram_id'],
+                                photo=photo,
+                                caption="📊 Chart Analysis"
+                            )
+                    except Exception as e:
+                        logger.error(f"Error sending chart to {user['telegram_id']}: {e}")
+
+                # Send signal message
                 await self.application.bot.send_message(
                     chat_id=user['telegram_id'],
                     text=signal_text,
@@ -645,7 +595,7 @@ Bot này sẽ giúp bạn:
                 success_count += 1
             except Exception as e:
                 logger.error(f"Error sending signal to {user['telegram_id']}: {e}")
-        
+
         logger.info(f"Signal sent to {success_count}/{len(users)} users")
         return success_count
 

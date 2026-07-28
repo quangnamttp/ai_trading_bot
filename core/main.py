@@ -16,7 +16,6 @@ from core.config import (
 from core.database import db
 from core.signal_tracker import signal_tracker
 from core.statistics import statistics_manager
-from core.health_check import health_checker
 from core.reporting import reporting_manager
 from bot.telegram_bot import telegram_bot
 from data.market_data import market_data_engine
@@ -141,18 +140,6 @@ class TradingBotApp:
                 logger.error(f"Error in cache cleanup loop: {e}")
                 await async_sleep(60)
     
-    async def health_check_loop(self):
-        """Loop health check"""
-        logger.info("Starting health check loop")
-        while self.running:
-            try:
-                health_report = await health_checker.check_system_health()
-                await health_checker.send_alert_if_needed(health_report, telegram_bot)
-                await async_sleep(600)  # Every 10 minutes (increased from 300)
-            except Exception as e:
-                logger.error(f"Error in health check loop: {e}")
-                await async_sleep(60)
-    
     async def reporting_loop(self):
         """Loop báo cáo tự động"""
         logger.info("Starting reporting loop")
@@ -231,8 +218,9 @@ class TradingBotApp:
                         if analysis.get('action') in ['LONG', 'SHORT']:
                             signal = await signal_engine.create_signal(analysis)
                             if signal and signal.get('message'):
-                                # Gửi tín hiệu qua Telegram
-                                await telegram_bot.send_signal(signal['message'])
+                                # Gửi tín hiệu qua Telegram với chart
+                                chart_path = signal.get('chart_path')
+                                await telegram_bot.send_signal(signal['message'], chart_path)
                                 logger.info(f"Signal sent for {symbol}")
 
                         logger.debug(f"AI analysis completed for {symbol}")
@@ -308,7 +296,6 @@ class TradingBotApp:
                 asyncio.create_task(self.smart_money_loop()),
                 asyncio.create_task(self.signal_tracking_loop()),
                 asyncio.create_task(self.cache_cleanup_loop()),
-                asyncio.create_task(self.health_check_loop()),
                 asyncio.create_task(self.reporting_loop())
             ]
 

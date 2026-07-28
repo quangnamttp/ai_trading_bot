@@ -184,40 +184,59 @@ class AIEngine:
             logger.error(f"Error calculating risk level: {e}")
             return 'medium'
     
-    def generate_ai_decision(self, probabilities: Dict, risk_level: str, 
+    def generate_ai_decision(self, probabilities: Dict, risk_level: str,
                             trend_analysis: Dict) -> Dict:
-        """Tạo quyết định AI"""
+        """Tạo quyết định AI - recalibrated for conservative scoring"""
         try:
             long_prob = probabilities.get('long_probability', 50)
             short_prob = probabilities.get('short_probability', 50)
             trend_strength = probabilities.get('trend_strength', 0)
-            
+
             decision = {
                 'action': 'WAIT',
                 'ai_score': 0,
                 'confidence': 0,
                 'reasons': []
             }
-            
-            # Tính AI Score dựa trên nhiều yếu tố
-            base_score = max(long_prob, short_prob)
-            
-            # Điều chỉnh theo trend strength
-            if trend_strength > 2:
+
+            # Start with conservative base score (lower than probability)
+            base_score = max(long_prob, short_prob) * 0.7  # 70% of probability
+
+            # Only add bonuses for strong confirmations
+            trend_signals = trend_analysis.get('signals', [])
+
+            # Multiple EMA alignment (strong signal)
+            if 'EMA bullish alignment' in trend_signals or 'EMA bearish alignment' in trend_signals:
                 base_score += 5
-            elif trend_strength > 1:
+
+            # RSI at extreme levels (contrarian signal)
+            if 'RSI oversold' in trend_signals or 'RSI overbought' in trend_signals:
                 base_score += 3
-            
-            # Điều chỉnh theo risk level
+
+            # MACD crossover (momentum confirmation)
+            if 'MACD bullish crossover' in trend_signals or 'MACD bearish crossover' in trend_signals:
+                base_score += 3
+
+            # Price at Bollinger Bands (extreme levels)
+            if 'Price below BB lower' in trend_signals or 'Price above BB upper' in trend_signals:
+                base_score += 2
+
+            # Strong trend (multiple confirmations)
+            if trend_strength >= 3:
+                base_score += 4
+            elif trend_strength >= 2:
+                base_score += 2
+
+            # Significant penalty for high risk
             if risk_level == 'high':
-                base_score -= 10
+                base_score -= 15
             elif risk_level == 'medium':
-                base_score -= 5
-            
-            # Clamp AI Score
-            decision['ai_score'] = max(0, min(100, base_score))
+                base_score -= 8
+
+            # Clamp AI Score - make 90+ very rare
+            decision['ai_score'] = max(0, min(95, base_score))
             decision['confidence'] = decision['ai_score'] / 100
-            
+
             # Xác định action
             if decision['ai_score'] >= AI_SCORE_THRESHOLD:
                 if long_prob > short_prob:
@@ -226,14 +245,14 @@ class AIEngine:
                 else:
                     decision['action'] = 'SHORT'
                     decision['reasons'].append(f'Short probability: {short_prob:.1f}%')
-                
+
                 # Thêm reasons từ trend analysis
                 for signal in trend_analysis.get('signals', []):
                     decision['reasons'].append(signal)
             else:
                 decision['action'] = 'WAIT'
                 decision['reasons'].append(f'AI Score below threshold ({AI_SCORE_THRESHOLD})')
-            
+
             return decision
         except Exception as e:
             logger.error(f"Error generating AI decision: {e}")

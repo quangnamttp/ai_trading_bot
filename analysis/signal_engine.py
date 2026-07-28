@@ -68,21 +68,72 @@ class SignalEngine:
             logger.error(f"Error calculating stop loss: {e}")
             return price
     
+    def check_signal_lock(self, symbol: str, action: str, current_price: float) -> bool:
+        """Kiểm tra xem có tín hiệu active cùng direction không và kiểm tra stable entry"""
+        try:
+            active_signal = db.get_active_signal(symbol)
+            if not active_signal:
+                return True  # No active signal, can create new one
+
+            # If active signal has same direction, don't create new one
+            if active_signal['signal_type'] == action:
+                logger.info(f"Active {action} signal exists for {symbol}. Skipping new signal.")
+                return False
+
+            # If opposite direction, allow (market structure reversed)
+            logger.info(f"Active {active_signal['signal_type']} signal for {symbol}, new signal is {action}. Allowing reversal.")
+            return True
+        except Exception as e:
+            logger.error(f"Error checking signal lock: {e}")
+            return True  # On error, allow signal creation
+
+    def check_entry_validity(self, symbol: str, current_price: float) -> bool:
+        """Kiểm tra xem Entry vẫn còn hợp lệ (chasing price prevention)"""
+        try:
+            active_signal = db.get_active_signal(symbol)
+            if not active_signal:
+                return True  # No active signal, entry is valid
+
+            # Parse entry range
+            entry_price_str = active_signal['entry_price']
+            try:
+                if '-' in entry_price_str:
+                    entry_low, entry_high = map(float, entry_price_str.split(' - '))
+                else:
+                    entry_low = entry_high = float(entry_price_str)
+            except:
+                return True  # Can't parse, allow
+
+            # Calculate distance from current price to entry
+            distance_percent = abs(current_price - entry_low) / current_price * 100
+
+            # If price moved more than 1% away from entry, expire signal
+            if distance_percent > 1.0:
+                logger.info(f"Price moved {distance_percent:.2f}% from entry for {symbol}. Expiring signal.")
+                db.update_signal_status(active_signal['id'], 'expired')
+                return False
+
+            # Entry still valid
+            return True
+        except Exception as e:
+            logger.error(f"Error checking entry validity: {e}")
+            return True  # On error, allow
+
     def check_cooldown(self, symbol: str) -> bool:
         """Kiểm tra xem có thể gửi tín hiệu không (cooldown)"""
         try:
             last_signal = db.get_last_signal_time(symbol)
-            
+
             if not last_signal:
                 return True
-            
+
             time_since_last = datetime.now() - last_signal
             cooldown_period = timedelta(minutes=SIGNAL_COOLDOWN_MINUTES)
-            
+
             if time_since_last < cooldown_period:
                 logger.info(f"Cooldown active for {symbol}. Last signal {time_since_last.seconds} seconds ago.")
                 return False
-            
+
             return True
         except Exception as e:
             logger.error(f"Error checking cooldown: {e}")
@@ -109,49 +160,36 @@ class SignalEngine:
             return False
     
     def format_signal_message(self, analysis: Dict) -> str:
-        """Định dạng tin nhắn tín hiệu"""
+        """Định dạng tin nhắn tín hiệu - simplified format"""
         try:
             symbol = analysis.get('symbol')
             action = analysis.get('action')
             ai_score = analysis.get('ai_score', 0)
             confidence = analysis.get('confidence', 0)
             price = analysis.get('price', 0)
-            reasons = analysis.get('reasons', [])
-            
+            trend = analysis.get('trend', 'Neutral')
+
             if action == 'LONG':
                 emoji = "🟢"
             elif action == 'SHORT':
                 emoji = "🔴"
             else:
                 return None
-            
+
             # Tính levels
             entry_range = self.calculate_entry_range(price, action)
             take_profits = self.calculate_take_profit(price, action)
             stop_loss = self.calculate_stop_loss(price, action)
-            
-            # Format message
-            message = f"{emoji} {action} {symbol}\n\n"
-            message += f"🎯 Độ tin cậy: {int(confidence * 100)}%\n\n"
-            
-            message += f"📍 Entry:\n{entry_range}\n\n"
-            
-            message += f"🎯 Take Profit:\n"
-            message += f"TP1: {take_profits['TP1']:.2f}\n"
-            message += f"TP2: {take_profits['TP2']:.2f}\n"
-            message += f"TP3: {take_profits['TP3']:.2f}\n\n"
-            
-            message += f"🛑 Stop Loss:\n{stop_loss:.2f}\n\n"
-            
-            message += f"📋 Lý do:\n"
-            for reason in reasons[:8]:
-                message += f"• {reason}\n"
-            
-            message += f"\n🤖 AI Score: {ai_score}/100\n"
-            message += f"⏰ {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
-            message += f"📊 Sàn tham khảo: MEXC Futures\n\n"
-            message += f"⚠️ *Bot chỉ phân tích, không tự động giao dịch. Bạn tự quyết định vào lệnh thủ công.*"
-            
+
+            # Format message - simplified compact format
+            message = f"{emoji} {symbol} | {action}\n"
+            message += f"� Entry: {entry_range}\n"
+            message += f"🎯 TP: {take_profits['TP1']:.2f}\n"
+            message += f"🛑 SL: {stop_loss:.2f}\n"
+            message += f"� Confidence: {int(confidence * 100)}%\n"
+            message += f"📈 Trend: {trend}\n"
+            message += f"⏰ {datetime.now().strftime('%H:%M')}"
+
             return message
         except Exception as e:
             logger.error(f"Error formatting signal message: {e}")
@@ -166,17 +204,27 @@ class SignalEngine:
             confidence = analysis.get('confidence', 0)
             price = analysis.get('price', 0)
             reasons = analysis.get('reasons', [])
-            
+
             # Chỉ tạo tín hiệu nếu AI Score đủ cao
             if ai_score < AI_SCORE_THRESHOLD:
                 logger.info(f"AI Score {ai_score} below threshold {AI_SCORE_THRESHOLD}. No signal created.")
                 return None
-            
+
+            # Kiểm tra signal lock (không tạo cùng direction)
+            if not self.check_signal_lock(symbol, action, price):
+                logger.info(f"Signal lock active for {symbol} {action}")
+                return None
+
+            # Kiểm tra entry validity (chasing price prevention)
+            if not self.check_entry_validity(symbol, price):
+                logger.info(f"Entry invalid for {symbol} due to price movement")
+                return None
+
             # Kiểm tra cooldown
             if not self.check_cooldown(symbol):
                 logger.info(f"Cooldown active for {symbol}")
                 return None
-            
+
             # Kiểm tra rate limit
             if not self.check_rate_limit():
                 logger.info("Rate limit reached")
@@ -189,7 +237,27 @@ class SignalEngine:
             
             # Format take profit string
             tp_string = f"TP1: {take_profits['TP1']:.2f}, TP2: {take_profits['TP2']:.2f}, TP3: {take_profits['TP3']:.2f}"
-            
+
+            # Generate chart
+            chart_path = None
+            try:
+                from analysis.chart_generator import chart_generator
+                chart_path = await chart_generator.generate_signal_chart(
+                    symbol=symbol,
+                    signal_type=action,
+                    entry_price=price,
+                    tp1=take_profits['TP1'],
+                    tp2=take_profits['TP2'],
+                    tp3=take_profits['TP3'],
+                    stop_loss=stop_loss,
+                    ai_score=ai_score,
+                    timeframe='1h'
+                )
+                if chart_path:
+                    logger.info(f"Chart generated for {symbol}: {chart_path}")
+            except Exception as e:
+                logger.error(f"Error generating chart: {e}")
+
             # Lưu vào database
             signal_id = db.save_signal(
                 symbol=symbol,
@@ -201,20 +269,21 @@ class SignalEngine:
                 ai_score=ai_score,
                 reasons=reasons
             )
-            
+
             if signal_id:
                 self.signals_sent_this_hour += 1
                 logger.info(f"Signal created: {action} {symbol} (ID: {signal_id})")
-            
+
             # Format message
             message = self.format_signal_message(analysis)
-            
+
             return {
                 'signal_id': signal_id,
                 'message': message,
                 'symbol': symbol,
                 'action': action,
-                'ai_score': ai_score
+                'ai_score': ai_score,
+                'chart_path': chart_path
             }
         except Exception as e:
             logger.error(f"Error creating signal: {e}")

@@ -58,6 +58,7 @@ class DatabaseManager:
                         ai_score INTEGER,
                         reasons TEXT,
                         sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        status TEXT DEFAULT 'active',
                         UNIQUE(symbol, signal_type, sent_at)
                     )
                 """)
@@ -279,15 +280,15 @@ class DatabaseManager:
                 cursor = conn.cursor()
                 if symbol:
                     cursor.execute("""
-                        SELECT * FROM signals 
-                        WHERE symbol = ? 
-                        ORDER BY sent_at DESC 
+                        SELECT * FROM signals
+                        WHERE symbol = ?
+                        ORDER BY sent_at DESC
                         LIMIT ?
                     """, (symbol, limit))
                 else:
                     cursor.execute("""
-                        SELECT * FROM signals 
-                        ORDER BY sent_at DESC 
+                        SELECT * FROM signals
+                        ORDER BY sent_at DESC
                         LIMIT ?
                     """, (limit,))
                 rows = cursor.fetchall()
@@ -300,7 +301,43 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"Error getting recent signals: {e}")
             return []
-    
+
+    def get_active_signal(self, symbol: str) -> Optional[Dict]:
+        """Lấy tín hiệu active cho symbol"""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT * FROM signals
+                    WHERE symbol = ? AND status = 'active'
+                    ORDER BY sent_at DESC
+                    LIMIT 1
+                """, (symbol,))
+                row = cursor.fetchone()
+                if row:
+                    signal = dict(row)
+                    signal['reasons'] = json.loads(signal['reasons']) if signal['reasons'] else []
+                    return signal
+                return None
+        except Exception as e:
+            logger.error(f"Error getting active signal: {e}")
+            return None
+
+    def update_signal_status(self, signal_id: int, status: str) -> bool:
+        """Cập nhật status của tín hiệu"""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    UPDATE signals SET status = ? WHERE id = ?
+                """, (status, signal_id))
+                conn.commit()
+                logger.info(f"Signal {signal_id} status updated to {status}")
+                return True
+        except Exception as e:
+            logger.error(f"Error updating signal status: {e}")
+            return False
+
     def get_last_signal_time(self, symbol: str, signal_type: str = None) -> Optional[datetime]:
         """Lấy thời gian tín hiệu cuối cùng cho symbol"""
         try:
