@@ -151,25 +151,25 @@ Bot này sẽ giúp bạn:
     async def market_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Lệnh /market - Thông tin thị trường"""
         user_id = update.effective_user.id
-        
+
         if not db.is_authorized(user_id):
             await update.message.reply_text("❌ Bạn không có quyền sử dụng bot này.")
             return
-        
-        await update.message.reply_text("🔄 Đang lấy dữ liệu thị trường...")
-        
+
         try:
             if self.market_data:
                 market_info = await self.market_data.get_market_overview()
                 if market_info:
                     await update.message.reply_text(market_info, parse_mode='Markdown')
                 else:
-                    await update.message.reply_text("❌ Không thể lấy dữ liệu thị trường.")
+                    logger.error("Market data not available")
+                    await update.message.reply_text("📊 Dữ liệu thị trường không khả dụng lúc này.")
             else:
-                await update.message.reply_text("❌ Market data engine chưa được khởi tạo.")
+                logger.error("Market data engine not initialized")
+                await update.message.reply_text("📊 Dữ liệu thị trường không khả dụng lúc này.")
         except Exception as e:
             logger.error(f"Error in market_command: {e}")
-            await update.message.reply_text(f"❌ Lỗi: {str(e)}")
+            await update.message.reply_text("📊 Dữ liệu thị trường không khả dụng lúc này.")
     
     async def news_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Lệnh /news - Tin tức"""
@@ -178,8 +178,6 @@ Bot này sẽ giúp bạn:
         if not db.is_authorized(user_id):
             await update.message.reply_text("❌ Bạn không có quyền sử dụng bot này.")
             return
-
-        await update.message.reply_text("🔄 Đang lấy tin tức...")
 
         try:
             from data.news_engine import news_engine
@@ -190,10 +188,11 @@ Bot này sẽ giúp bạn:
             if news_summary:
                 await update.message.reply_text(news_summary, parse_mode='Markdown')
             else:
-                await update.message.reply_text("❌ Không thể lấy tin tức lúc này.")
+                logger.error("News summary not available")
+                await update.message.reply_text("📰 Tin tức không khả dụng lúc này.")
         except Exception as e:
             logger.error(f"Error in news_command: {e}")
-            await update.message.reply_text(f"❌ Lỗi: {str(e)}")
+            await update.message.reply_text("📰 Tin tức không khả dụng lúc này.")
     
     async def settings_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Lệnh /settings - Cấu hình (Admin only)"""

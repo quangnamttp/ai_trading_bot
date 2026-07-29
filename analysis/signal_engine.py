@@ -73,18 +73,19 @@ class SignalEngine:
         try:
             active_signal = db.get_active_signal(symbol)
             if not active_signal:
+                logger.debug(f"No active signal for {symbol}. Signal lock check passed.")
                 return True  # No active signal, can create new one
 
             # If active signal has same direction, don't create new one
             if active_signal['signal_type'] == action:
-                logger.info(f"Active {action} signal exists for {symbol}. Skipping new signal.")
+                logger.info(f"Signal lock active: {action} signal already exists for {symbol}. Entry locked at {active_signal['entry_price']}. Skipping new signal.")
                 return False
 
             # If opposite direction, allow (market structure reversed)
-            logger.info(f"Active {active_signal['signal_type']} signal for {symbol}, new signal is {action}. Allowing reversal.")
+            logger.info(f"Market structure reversal detected for {symbol}: {active_signal['signal_type']} -> {action}. Allowing new signal.")
             return True
         except Exception as e:
-            logger.error(f"Error checking signal lock: {e}")
+            logger.error(f"Error checking signal lock for {symbol}: {e}")
             return True  # On error, allow signal creation
 
     def check_entry_validity(self, symbol: str, current_price: float) -> bool:

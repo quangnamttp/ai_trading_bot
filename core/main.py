@@ -139,7 +139,69 @@ class TradingBotApp:
             except Exception as e:
                 logger.error(f"Error in cache cleanup loop: {e}")
                 await async_sleep(60)
-    
+
+    async def health_monitor_loop(self):
+        """Loop giám sát health của background tasks"""
+        logger.info("Starting health monitor loop")
+
+        last_signal_time = datetime.now()
+        last_market_update_time = datetime.now()
+
+        while not self.shutdown_event.is_set():
+            try:
+                current_time = datetime.now()
+
+                # Check if market data is updating
+                try:
+                    test_symbol = SYMBOLS[0] if SYMBOLS else None
+                    if test_symbol:
+                        await market_data_engine.get_symbol_data(test_symbol)
+                        last_market_update_time = current_time
+                        logger.debug("Market data health check passed")
+                except Exception as e:
+                    logger.error(f"Market data health check failed: {e}")
+
+                # Check time since last signal
+                time_since_last_signal = (current_time - last_signal_time).total_seconds()
+                if time_since_last_signal > 43200:  # 12 hours
+                    logger.warning(f"No signal generated for {time_since_last_signal/3600:.1f} hours. Diagnosing...")
+
+                    # Check for active signals
+                    active_signals = []
+                    for symbol in SYMBOLS:
+                        active = db.get_active_signal(symbol)
+                        if active:
+                            active_signals.append(symbol)
+
+                    if active_signals:
+                        logger.info(f"Active signals locked for: {active_signals}. No new signals due to signal lock.")
+                    else:
+                        logger.warning("No active signals but no new signals generated. Checking AI analysis...")
+
+                        # Test AI analysis
+                        try:
+                            test_symbol = SYMBOLS[0] if SYMBOLS else None
+                            if test_symbol:
+                                test_analysis = await ai_engine.analyze(
+                                    test_symbol,
+                                    market_data_engine,
+                                    smart_money_tracker,
+                                    news_engine
+                                )
+                                logger.info(f"AI analysis test for {test_symbol}: Action={test_analysis.get('action')}, Score={test_analysis.get('ai_score')}")
+                        except Exception as e:
+                            logger.error(f"AI analysis test failed: {e}")
+
+                # Update last signal time if a signal was sent
+                recent_signals = db.get_recent_signals(limit=1)
+                if recent_signals:
+                    last_signal_time = datetime.now()
+
+                await async_sleep(3600)  # Check every hour
+            except Exception as e:
+                logger.error(f"Error in health monitor loop: {e}")
+                await async_sleep(30)
+
     async def reporting_loop(self):
         """Loop báo cáo tự động"""
         logger.info("Starting reporting loop")
@@ -193,8 +255,11 @@ class TradingBotApp:
         """Loop phân tích AI"""
         logger.info("Starting AI analysis loop")
 
+        signals_generated_this_cycle = 0
+
         while not self.shutdown_event.is_set():
             try:
+                signals_generated_this_cycle = 0
                 for symbol in SYMBOLS:
                     try:
                         # Phân tích AI
@@ -214,6 +279,14 @@ class TradingBotApp:
                             confidence=analysis.get('confidence')
                         )
 
+                        # Log diagnostics for why signal was not generated
+                        action = analysis.get('action')
+                        ai_score = analysis.get('ai_score', 0)
+                        confidence = analysis.get('confidence', 0)
+
+                        if action == 'WAIT':
+                            logger.info(f"No signal for {symbol}: AI Score {ai_score} < threshold (reason: {analysis.get('reasons', ['Unknown'])})")
+
                         # Nếu có tín hiệu, tạo và gửi
                         if analysis.get('action') in ['LONG', 'SHORT']:
                             signal = await signal_engine.create_signal(analysis)
@@ -222,10 +295,17 @@ class TradingBotApp:
                                 chart_path = signal.get('chart_path')
                                 await telegram_bot.send_signal(signal['message'], chart_path)
                                 logger.info(f"Signal sent for {symbol}")
+                                signals_generated_this_cycle += 1
+                            else:
+                                logger.warning(f"Signal creation failed for {symbol} despite valid analysis")
 
                         logger.debug(f"AI analysis completed for {symbol}")
                     except Exception as e:
                         logger.error(f"Error analyzing {symbol}: {e}")
+
+                # Log if no signals were generated in this cycle
+                if signals_generated_this_cycle == 0:
+                    logger.info("No high-quality trading setup found in this analysis cycle")
 
                 await async_sleep(AI_UPDATE_INTERVAL)
             except Exception as e:
@@ -296,6 +376,7 @@ class TradingBotApp:
                 asyncio.create_task(self.smart_money_loop()),
                 asyncio.create_task(self.signal_tracking_loop()),
                 asyncio.create_task(self.cache_cleanup_loop()),
+                asyncio.create_task(self.health_monitor_loop()),
                 asyncio.create_task(self.reporting_loop())
             ]
 
