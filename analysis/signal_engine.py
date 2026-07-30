@@ -19,16 +19,67 @@ class SignalEngine:
         self.signals_sent_this_hour = 0
         self.hour_start_time = datetime.now()
     
-    def calculate_entry_range(self, price: float, action: str) -> str:
-        """Tính range entry"""
+    async def calculate_entry_range(self, price: float, action: str, symbol: str = None) -> str:
+        """Tính range entry dựa trên technical levels"""
         try:
-            if action == 'LONG':
-                entry_low = price * 0.9995  # 0.05% below current price
-                entry_high = price * 1.0005  # 0.05% above current price
-            else:  # SHORT
-                entry_low = price * 0.9995
-                entry_high = price * 1.0005
-            
+            # Default entry range around current price
+            entry_low = price * 0.9995  # 0.05% below current price
+            entry_high = price * 1.0005  # 0.05% above current price
+
+            # Try to get technical levels if symbol is provided
+            if symbol:
+                try:
+                    from ..data.market_data import market_data_engine
+                    symbol_data = await market_data_engine.get_symbol_data(symbol)
+                    if symbol_data:
+                        indicators = symbol_data.get('indicators', {})
+                        current_price = price
+
+                        # For LONG: Look for support levels below current price
+                        if action == 'LONG':
+                            # Check if near support (EMA levels, recent lows)
+                            ema_20 = indicators.get('ema_20')
+                            ema_50 = indicators.get('ema_50')
+                            recent_low = indicators.get('recent_low')
+
+                            # Use EMA as support if close enough (within 0.5%)
+                            if ema_20 and abs(current_price - ema_20) / current_price < 0.005:
+                                entry_low = ema_20 * 0.9995
+                                entry_high = ema_20 * 1.0005
+                                logger.info(f"Entry based on EMA20 support for {symbol}")
+                            elif ema_50 and abs(current_price - ema_50) / current_price < 0.005:
+                                entry_low = ema_50 * 0.9995
+                                entry_high = ema_50 * 1.0005
+                                logger.info(f"Entry based on EMA50 support for {symbol}")
+                            elif recent_low and abs(current_price - recent_low) / current_price < 0.005:
+                                entry_low = recent_low * 0.9995
+                                entry_high = recent_low * 1.0005
+                                logger.info(f"Entry based on recent low support for {symbol}")
+
+                        # For SHORT: Look for resistance levels above current price
+                        else:
+                            # Check if near resistance (EMA levels, recent highs)
+                            ema_20 = indicators.get('ema_20')
+                            ema_50 = indicators.get('ema_50')
+                            recent_high = indicators.get('recent_high')
+
+                            # Use EMA as resistance if close enough (within 0.5%)
+                            if ema_20 and abs(current_price - ema_20) / current_price < 0.005:
+                                entry_low = ema_20 * 0.9995
+                                entry_high = ema_20 * 1.0005
+                                logger.info(f"Entry based on EMA20 resistance for {symbol}")
+                            elif ema_50 and abs(current_price - ema_50) / current_price < 0.005:
+                                entry_low = ema_50 * 0.9995
+                                entry_high = ema_50 * 1.0005
+                                logger.info(f"Entry based on EMA50 resistance for {symbol}")
+                            elif recent_high and abs(current_price - recent_high) / current_price < 0.005:
+                                entry_low = recent_high * 0.9995
+                                entry_high = recent_high * 1.0005
+                                logger.info(f"Entry based on recent high resistance for {symbol}")
+                except Exception as e:
+                    logger.error(f"Error getting technical levels for entry: {e}")
+                    # Fall back to default entry range
+
             return f"{entry_low:.2f} - {entry_high:.2f}"
         except Exception as e:
             logger.error(f"Error calculating entry range: {e}")
@@ -120,6 +171,29 @@ class SignalEngine:
             logger.error(f"Error checking entry validity: {e}")
             return True  # On error, allow
 
+    def check_entry_practicality(self, entry_range: str, current_price: float) -> bool:
+        """Kiểm tra xem Entry có thực tế để execution không"""
+        try:
+            # Parse entry range
+            if '-' in entry_range:
+                entry_low, entry_high = map(float, entry_range.split(' - '))
+            else:
+                entry_low = entry_high = float(entry_range)
+
+            # Calculate distance from current price to entry
+            distance_percent = abs(current_price - entry_low) / current_price * 100
+
+            # Entry should be within 0.5% of current price for practical execution
+            if distance_percent > 0.5:
+                logger.warning(f"Entry too far from current price: {distance_percent:.2f}% (max allowed: 0.5%). Rejecting signal.")
+                return False
+
+            logger.debug(f"Entry practicality check passed: {distance_percent:.2f}% from current price")
+            return True
+        except Exception as e:
+            logger.error(f"Error checking entry practicality: {e}")
+            return True  # On error, allow
+
     def check_cooldown(self, symbol: str) -> bool:
         """Kiểm tra xem có thể gửi tín hiệu không (cooldown)"""
         try:
@@ -160,12 +234,11 @@ class SignalEngine:
             logger.error(f"Error checking rate limit: {e}")
             return False
     
-    def format_signal_message(self, analysis: Dict) -> str:
-        """Định dạng tin nhắn tín hiệu - simplified format"""
+    async def format_signal_message(self, analysis: Dict) -> Optional[str]:
+        """Định dạng tin nhắn tín hiệu - simplified compact format"""
         try:
             symbol = analysis.get('symbol')
             action = analysis.get('action')
-            ai_score = analysis.get('ai_score', 0)
             confidence = analysis.get('confidence', 0)
             price = analysis.get('price', 0)
             trend = analysis.get('trend', 'Neutral')
@@ -178,16 +251,16 @@ class SignalEngine:
                 return None
 
             # Tính levels
-            entry_range = self.calculate_entry_range(price, action)
+            entry_range = await self.calculate_entry_range(price, action, symbol)
             take_profits = self.calculate_take_profit(price, action)
             stop_loss = self.calculate_stop_loss(price, action)
 
             # Format message - simplified compact format
             message = f"{emoji} {symbol} | {action}\n"
-            message += f"� Entry: {entry_range}\n"
+            message += f"📍 Entry: {entry_range}\n"
             message += f"🎯 TP: {take_profits['TP1']:.2f}\n"
             message += f"🛑 SL: {stop_loss:.2f}\n"
-            message += f"� Confidence: {int(confidence * 100)}%\n"
+            message += f"💎 Confidence: {int(confidence * 100)}%\n"
             message += f"📈 Trend: {trend}\n"
             message += f"⏰ {datetime.now().strftime('%H:%M')}"
 
@@ -232,10 +305,15 @@ class SignalEngine:
                 return None
             
             # Tính toán levels
-            entry_range = self.calculate_entry_range(price, action)
+            entry_range = await self.calculate_entry_range(price, action, symbol)
             take_profits = self.calculate_take_profit(price, action)
             stop_loss = self.calculate_stop_loss(price, action)
-            
+
+            # Kiểm tra entry practicality (không quá xa current price)
+            if not self.check_entry_practicality(entry_range, price):
+                logger.info(f"Entry not practical for {symbol}. Rejecting signal.")
+                return None
+
             # Format take profit string
             tp_string = f"TP1: {take_profits['TP1']:.2f}, TP2: {take_profits['TP2']:.2f}, TP3: {take_profits['TP3']:.2f}"
 
@@ -276,7 +354,7 @@ class SignalEngine:
                 logger.info(f"Signal created: {action} {symbol} (ID: {signal_id})")
 
             # Format message
-            message = self.format_signal_message(analysis)
+            message = await self.format_signal_message(analysis)
 
             return {
                 'signal_id': signal_id,

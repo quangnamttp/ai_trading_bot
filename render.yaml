@@ -28,9 +28,9 @@ services:
         value: ""
         sync: false
       - key: AI_SCORE_THRESHOLD
-        value: "85"
+        value: "80"
       - key: MIN_CONFIDENCE
-        value: "0.85"
+        value: "0.80"
       - key: MAX_RISK_PER_TRADE
         value: "0.02"
       - key: MAX_POSITIONS
