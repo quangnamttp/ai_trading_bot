@@ -10,8 +10,21 @@ from datetime import datetime
 from typing import Dict, Optional, List
 import pandas as pd
 import numpy as np
+import os
+import re
 
 logger = logging.getLogger(__name__)
+
+
+def sanitize_filename(filename: str) -> str:
+    """Sanitize filename by replacing invalid characters with underscores"""
+    # Replace characters that are invalid in filenames
+    sanitized = re.sub(r'[<>:"/\\|?*]', '_', filename)
+    # Also replace spaces with underscores for consistency
+    sanitized = sanitized.replace(' ', '_')
+    # Remove leading/trailing dots and underscores
+    sanitized = sanitized.strip('._')
+    return sanitized
 
 
 class ChartGenerator:
@@ -73,14 +86,27 @@ class ChartGenerator:
             
             # Thêm thông tin
             self._add_info_text(fig, symbol, signal_type, ai_score, timeframe)
-            
+
             # Lưu ảnh
-            chart_path = f"temp/chart_{symbol}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+            # Ensure temp directory exists
+            temp_dir = "temp"
+            os.makedirs(temp_dir, exist_ok=True)
+
+            # Sanitize symbol for filename
+            sanitized_symbol = sanitize_filename(symbol)
+            chart_path = f"{temp_dir}/chart_{sanitized_symbol}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+
+            # Save chart
             plt.savefig(chart_path, dpi=100, bbox_inches='tight')
             plt.close()
-            
-            logger.info(f"Chart generated for {symbol}: {chart_path}")
-            return chart_path
+
+            # Verify file was created successfully
+            if os.path.exists(chart_path):
+                logger.info(f"Chart generated for {symbol}: {chart_path}")
+                return chart_path
+            else:
+                logger.error(f"Chart file not created for {symbol}: {chart_path}")
+                return None
             
         except Exception as e:
             logger.error(f"Error generating chart for {symbol}: {e}")

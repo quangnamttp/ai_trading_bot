@@ -369,12 +369,18 @@ class TradingBotApp:
             # Start Telegram bot
             self.running = True
 
-            # Start Telegram polling (only once)
-            if not telegram_bot.running:
+            # Start Telegram polling (only once, only in main process)
+            # Use environment variable to ensure only one process polls
+            import os
+            is_main_process = os.environ.get('RENDER', '') == '' or os.environ.get('DYNO', '') == '' or os.environ.get('WORKER_ID', '0') == '0'
+
+            if is_main_process and not telegram_bot.running:
                 await telegram_bot.run_polling()
-                logger.info("Telegram bot polling started")
-            else:
+                logger.info("Telegram bot polling started (main process)")
+            elif telegram_bot.running:
                 logger.warning("Telegram bot polling already running, skipping")
+            else:
+                logger.info(f"Skipping Telegram polling in worker process (WORKER_ID: {os.environ.get('WORKER_ID', 'unknown')})")
 
             # Create tasks
             self.tasks = [
