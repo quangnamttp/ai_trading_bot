@@ -22,10 +22,12 @@ class MarketDataEngine:
         self.exchanges = {}
         self.data_cache = {}
         self.last_update = {}
-        self.retry_count = 2  # Reduced from 3 to save CPU
-        self.retry_delay = 3  # Increased from 2 to reduce rapid retries
+        self.cache_ttl = {}  # TTL for each cache entry
+        self.retry_count = 4  # Increased for exponential backoff
+        self.base_retry_delay = 1  # Base delay for exponential backoff
         self.mexc_markets = {}  # Store MEXC market list
         self.unsupported_symbols = set()  # Track unsupported symbols to skip
+        self.semaphore = asyncio.Semaphore(3)  # Limit concurrent requests to 3
 
     async def initialize_exchanges(self):
         """Khởi tạo kết nối với MEXC và load market list"""
@@ -70,135 +72,227 @@ class MarketDataEngine:
     def _is_symbol_supported(self, symbol: str) -> bool:
         """Check if symbol is supported by MEXC"""
         return symbol not in self.unsupported_symbols and symbol in self.mexc_markets
+
+    def _is_cache_valid(self, cache_key: str, ttl_seconds: int) -> bool:
+        """Check if cache entry is still valid based on TTL"""
+        if cache_key not in self.data_cache:
+            return False
+
+        if cache_key not in self.last_update:
+            return False
+
+        cache_age = (datetime.now() - self.last_update[cache_key]).total_seconds()
+        return cache_age < ttl_seconds
+
+    async def _fetch_with_retry(self, fetch_func, *args, **kwargs):
+        """Fetch data with exponential backoff for rate limit errors"""
+        for attempt in range(self.retry_count):
+            try:
+                async with self.semaphore:  # Limit concurrent requests
+                    return await fetch_func(*args, **kwargs)
+            except Exception as e:
+                error_str = str(e)
+                # Check for rate limit error (code 510)
+                if '510' in error_str or 'too frequent' in error_str.lower():
+                    delay = self.base_retry_delay * (2 ** attempt)  # Exponential backoff
+                    logger.warning(f"Rate limit hit (510), retrying in {delay}s (attempt {attempt + 1}/{self.retry_count})")
+                    await asyncio.sleep(delay)
+                else:
+                    # For other errors, use shorter delay
+                    if attempt < self.retry_count - 1:
+                        await asyncio.sleep(self.base_retry_delay)
+                    else:
+                        raise
+        return None
     
     async def get_ticker(self, symbol: str) -> Optional[Dict]:
-        """Lấy dữ liệu ticker cho symbol với retry logic (MEXC only)"""
+        """Lấy dữ liệu ticker cho symbol với caching và retry logic (MEXC only)"""
         # Skip if symbol is unsupported
         if not self._is_symbol_supported(symbol):
             return None
 
-        for attempt in range(self.retry_count):
-            try:
-                if 'mexc' not in self.exchanges:
-                    logger.error("MEXC exchange not initialized")
-                    return None
+        cache_key = f"{symbol}_ticker"
+        ttl_seconds = 15  # Cache ticker for 15 seconds
 
-                exchange_instance = self.exchanges['mexc']
-                ticker = await exchange_instance.fetch_ticker(symbol)
+        # Return cached data if valid
+        if self._is_cache_valid(cache_key, ttl_seconds):
+            logger.debug(f"Using cached ticker for {symbol}")
+            return self.data_cache[cache_key]
 
-                self.data_cache[f"{symbol}_ticker"] = ticker
-                self.last_update[f"{symbol}_ticker"] = datetime.now()
+        # Fetch fresh data
+        try:
+            if 'mexc' not in self.exchanges:
+                logger.error("MEXC exchange not initialized")
+                return None
 
-                return ticker
-            except Exception as e:
-                logger.warning(f"Attempt {attempt + 1} failed for ticker {symbol}: {e}")
-                if attempt < self.retry_count - 1:
-                    await asyncio.sleep(self.retry_delay)
-                else:
-                    logger.error(f"All retries failed for ticker {symbol}")
-                    return None
+            exchange_instance = self.exchanges['mexc']
+
+            async def fetch():
+                return await exchange_instance.fetch_ticker(symbol)
+
+            ticker = await self._fetch_with_retry(fetch)
+
+            if ticker:
+                self.data_cache[cache_key] = ticker
+                self.last_update[cache_key] = datetime.now()
+                self.cache_ttl[cache_key] = ttl_seconds
+
+            return ticker
+        except Exception as e:
+            logger.error(f"Error fetching ticker for {symbol}: {e}")
+            return None
     
     async def get_ohlcv(self, symbol: str, timeframe: str = '1h',
                        limit: int = 100) -> Optional[pd.DataFrame]:
-        """Lấy dữ liệu OHLCV với retry logic (MEXC only)"""
+        """Lấy dữ liệu OHLCV với caching và retry logic (MEXC only)"""
         # Skip if symbol is unsupported
         if not self._is_symbol_supported(symbol):
             return None
 
-        for attempt in range(self.retry_count):
-            try:
-                if 'mexc' not in self.exchanges:
-                    logger.error("MEXC exchange not initialized")
-                    return None
+        cache_key = f"{symbol}_ohlcv_{timeframe}"
+        ttl_seconds = 30  # Cache OHLCV for 30 seconds
 
-                exchange_instance = self.exchanges['mexc']
-                ohlcv = await exchange_instance.fetch_ohlcv(symbol, timeframe, limit=limit)
+        # Return cached data if valid
+        if self._is_cache_valid(cache_key, ttl_seconds):
+            logger.debug(f"Using cached OHLCV for {symbol} {timeframe}")
+            return self.data_cache[cache_key]
 
+        # Fetch fresh data
+        try:
+            if 'mexc' not in self.exchanges:
+                logger.error("MEXC exchange not initialized")
+                return None
+
+            exchange_instance = self.exchanges['mexc']
+
+            async def fetch():
+                return await exchange_instance.fetch_ohlcv(symbol, timeframe, limit=limit)
+
+            ohlcv = await self._fetch_with_retry(fetch)
+
+            if ohlcv:
                 # Chuyển thành DataFrame
                 df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
                 df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
                 df.set_index('timestamp', inplace=True)
 
-                self.data_cache[f"{symbol}_ohlcv_{timeframe}"] = df
-                self.last_update[f"{symbol}_ohlcv_{timeframe}"] = datetime.now()
+                self.data_cache[cache_key] = df
+                self.last_update[cache_key] = datetime.now()
+                self.cache_ttl[cache_key] = ttl_seconds
 
-                return df
-            except Exception as e:
-                logger.warning(f"Attempt {attempt + 1} failed for OHLCV {symbol}: {e}")
-                if attempt < self.retry_count - 1:
-                    await asyncio.sleep(self.retry_delay)
-                else:
-                    logger.error(f"All retries failed for OHLCV {symbol}")
-                    return None
+            return df
+        except Exception as e:
+            logger.error(f"Error fetching OHLCV for {symbol}: {e}")
+            return None
     
     async def get_order_book(self, symbol: str, limit: int = 20) -> Optional[Dict]:
-        """Lấy Order Book với retry logic (MEXC only)"""
+        """Lấy Order Book với caching và retry logic (MEXC only)"""
         # Skip if symbol is unsupported
         if not self._is_symbol_supported(symbol):
             return None
 
-        for attempt in range(self.retry_count):
-            try:
-                if 'mexc' not in self.exchanges:
-                    logger.error("MEXC exchange not initialized")
-                    return None
+        cache_key = f"{symbol}_orderbook"
+        ttl_seconds = 10  # Cache order book for 10 seconds
 
-                exchange_instance = self.exchanges['mexc']
-                order_book = await exchange_instance.fetch_order_book(symbol, limit=limit)
+        # Return cached data if valid
+        if self._is_cache_valid(cache_key, ttl_seconds):
+            logger.debug(f"Using cached order book for {symbol}")
+            return self.data_cache[cache_key]
 
-                self.data_cache[f"{symbol}_orderbook"] = order_book
-                self.last_update[f"{symbol}_orderbook"] = datetime.now()
+        # Fetch fresh data
+        try:
+            if 'mexc' not in self.exchanges:
+                logger.error("MEXC exchange not initialized")
+                return None
 
-                return order_book
-            except Exception as e:
-                logger.warning(f"Attempt {attempt + 1} failed for orderbook {symbol}: {e}")
-                if attempt < self.retry_count - 1:
-                    await asyncio.sleep(self.retry_delay)
-                else:
-                    logger.error(f"All retries failed for orderbook {symbol}")
-                    return None
+            exchange_instance = self.exchanges['mexc']
+
+            async def fetch():
+                return await exchange_instance.fetch_order_book(symbol, limit=limit)
+
+            order_book = await self._fetch_with_retry(fetch)
+
+            if order_book:
+                self.data_cache[cache_key] = order_book
+                self.last_update[cache_key] = datetime.now()
+                self.cache_ttl[cache_key] = ttl_seconds
+
+            return order_book
+        except Exception as e:
+            logger.error(f"Error fetching order book for {symbol}: {e}")
+            return None
     
     async def get_open_interest(self, symbol: str) -> Optional[Dict]:
-        """Lấy Open Interest từ MEXC (returns None if not supported)"""
+        """Lấy Open Interest từ MEXC với caching (returns None if not supported)"""
         # Skip if symbol is unsupported
         if not self._is_symbol_supported(symbol):
             return None
 
+        cache_key = f"{symbol}_open_interest"
+        ttl_seconds = 30  # Cache open interest for 30 seconds
+
+        # Return cached data if valid
+        if self._is_cache_valid(cache_key, ttl_seconds):
+            logger.debug(f"Using cached open interest for {symbol}")
+            return self.data_cache[cache_key]
+
+        # Fetch fresh data
         try:
             if 'mexc' not in self.exchanges:
                 logger.warning("MEXC exchange not initialized for open interest")
                 return None
 
             exchange_instance = self.exchanges['mexc']
-            oi_data = await exchange_instance.fetch_open_interest(symbol)
 
-            self.data_cache[f"{symbol}_open_interest"] = oi_data
-            self.last_update[f"{symbol}_open_interest"] = datetime.now()
+            async def fetch():
+                return await exchange_instance.fetch_open_interest(symbol)
 
-            logger.info(f"Successfully fetched open interest for {symbol} from MEXC")
+            oi_data = await self._fetch_with_retry(fetch)
+
+            if oi_data:
+                self.data_cache[cache_key] = oi_data
+                self.last_update[cache_key] = datetime.now()
+                self.cache_ttl[cache_key] = ttl_seconds
+                logger.info(f"Successfully fetched open interest for {symbol} from MEXC")
+
             return oi_data
         except Exception as e:
             logger.debug(f"MEXC does not support open interest or failed for {symbol}: {e}")
             return None
     
     async def get_funding_rate(self, symbol: str) -> Optional[Dict]:
-        """Lấy Funding Rate từ MEXC (returns None if not supported)"""
+        """Lấy Funding Rate từ MEXC với caching (returns None if not supported)"""
         # Skip if symbol is unsupported
         if not self._is_symbol_supported(symbol):
             return None
 
+        cache_key = f"{symbol}_funding_rate"
+        ttl_seconds = 20  # Cache funding rate for 20 seconds
+
+        # Return cached data if valid
+        if self._is_cache_valid(cache_key, ttl_seconds):
+            logger.debug(f"Using cached funding rate for {symbol}")
+            return self.data_cache[cache_key]
+
+        # Fetch fresh data
         try:
             if 'mexc' not in self.exchanges:
                 logger.warning("MEXC exchange not initialized for funding rate")
                 return None
 
             exchange_instance = self.exchanges['mexc']
-            funding_rate = await exchange_instance.fetch_funding_rate(symbol)
 
-            self.data_cache[f"{symbol}_funding_rate"] = funding_rate
-            self.last_update[f"{symbol}_funding_rate"] = datetime.now()
+            async def fetch():
+                return await exchange_instance.fetch_funding_rate(symbol)
 
-            logger.info(f"Successfully fetched funding rate for {symbol} from MEXC")
+            funding_rate = await self._fetch_with_retry(fetch)
+
+            if funding_rate:
+                self.data_cache[cache_key] = funding_rate
+                self.last_update[cache_key] = datetime.now()
+                self.cache_ttl[cache_key] = ttl_seconds
+                logger.info(f"Successfully fetched funding rate for {symbol} from MEXC")
+
             return funding_rate
         except Exception as e:
             logger.debug(f"MEXC does not support funding rate or failed for {symbol}: {e}")

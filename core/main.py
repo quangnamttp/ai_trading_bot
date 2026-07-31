@@ -215,10 +215,10 @@ class TradingBotApp:
             try:
                 for symbol in SYMBOLS:
                     try:
-                        # Lấy dữ liệu thị trường
+                        # Lấy dữ liệu thị trường (sử dụng cache để tránh spam API)
                         await market_data_engine.get_symbol_data(symbol)
 
-                        # Lưu vào database
+                        # Lưu vào database (ticker đã được cache trong get_symbol_data)
                         ticker = await market_data_engine.get_ticker(symbol)
                         if ticker:
                             db.save_market_data(
