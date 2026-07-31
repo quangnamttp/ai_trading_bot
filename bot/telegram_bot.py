@@ -458,13 +458,14 @@ Bot này sẽ giúp bạn:
             await query.edit_message_text(config_text, reply_markup=reply_markup, parse_mode='Markdown')
 
         elif query.data == "config_ai_threshold":
+            from core.config import AI_SCORE_THRESHOLD
             keyboard = [
                 [InlineKeyboardButton("🔙 Quay lại", callback_data="config_view")]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             await query.edit_message_text(
-                "🔧 *Đổi ngưỡng AI Score*\n\n"
-                "Ngưỡng hiện tại: 85\n"
+                f"🔧 *Đổi ngưỡng AI Score*\n\n"
+                f"Ngưỡng hiện tại: {AI_SCORE_THRESHOLD}\n"
                 "Để đổi, sử dụng lệnh: /set_ai_threshold <value>\n"
                 "Ví dụ: /set_ai_threshold 90",
                 reply_markup=reply_markup,

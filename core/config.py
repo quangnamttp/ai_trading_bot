@@ -19,8 +19,14 @@ DATABASE_PATH = os.getenv("DATABASE_PATH", "database/trading_bot.db")
 SYMBOLS = os.getenv("TRADING_SYMBOLS", "BTC/USDT:USDT,XAU/USDT:USDT").split(",")
 SYMBOLS = [s.strip() for s in SYMBOLS if s.strip()]
 EXCHANGE = "MEXC"
-AI_SCORE_THRESHOLD = float(os.getenv("AI_SCORE_THRESHOLD", "85"))
-MIN_CONFIDENCE = float(os.getenv("MIN_CONFIDENCE", "0.85"))
+AI_SCORE_THRESHOLD = float(os.getenv("AI_SCORE_THRESHOLD", "80"))
+MIN_CONFIDENCE = float(os.getenv("MIN_CONFIDENCE", "0.80"))
+
+def clean_symbol(symbol: str) -> str:
+    """Clean symbol for user-facing display (remove exchange suffix)"""
+    if ":USDT" in symbol:
+        return symbol.replace(":USDT", "")
+    return symbol
 
 # API Keys (all optional - using free public APIs)
 COINAPI_KEY = os.getenv("COINAPI_KEY", "")

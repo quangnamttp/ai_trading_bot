@@ -11,7 +11,7 @@ from flask import Flask
 from core.config import (
     TELEGRAM_BOT_TOKEN, TELEGRAM_ADMIN_ID,
     MARKET_DATA_INTERVAL, NEWS_CHECK_INTERVAL, AI_UPDATE_INTERVAL,
-    validate_config, PORT, SYMBOLS
+    validate_config, PORT, SYMBOLS, AI_SCORE_THRESHOLD, MIN_CONFIDENCE
 )
 from core.database import db
 from core.signal_tracker import signal_tracker
@@ -285,7 +285,9 @@ class TradingBotApp:
                         confidence = analysis.get('confidence', 0)
 
                         if action == 'WAIT':
-                            logger.info(f"No signal for {symbol}: AI Score {ai_score} < threshold (reason: {analysis.get('reasons', ['Unknown'])})")
+                            from core.config import clean_symbol
+                            display_symbol = clean_symbol(symbol)
+                            logger.info(f"No signal for {display_symbol}: AI Score {ai_score} < threshold (reason: {analysis.get('reasons', ['Unknown'])})")
 
                         # Nếu có tín hiệu, tạo và gửi
                         if analysis.get('action') in ['LONG', 'SHORT']:
@@ -354,6 +356,9 @@ class TradingBotApp:
             logger.info("=" * 50)
             logger.info("AI Trading Signal Bot Starting...")
             logger.info("=" * 50)
+            logger.info(f"AI Score Threshold: {AI_SCORE_THRESHOLD}")
+            logger.info(f"Min Confidence: {MIN_CONFIDENCE}")
+            logger.info(f"Trading Symbols: {', '.join(SYMBOLS)}")
 
             # Initialize components
             bot_app = await self.initialize()
@@ -364,9 +369,12 @@ class TradingBotApp:
             # Start Telegram bot
             self.running = True
 
-            # Start Telegram polling
-            await telegram_bot.run_polling()
-            logger.info("Telegram bot polling started")
+            # Start Telegram polling (only once)
+            if not telegram_bot.running:
+                await telegram_bot.run_polling()
+                logger.info("Telegram bot polling started")
+            else:
+                logger.warning("Telegram bot polling already running, skipping")
 
             # Create tasks
             self.tasks = [

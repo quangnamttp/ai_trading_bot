@@ -237,6 +237,8 @@ class SignalEngine:
     async def format_signal_message(self, analysis: Dict) -> Optional[str]:
         """Định dạng tin nhắn tín hiệu - simplified compact format"""
         try:
+            from core.config import clean_symbol
+
             symbol = analysis.get('symbol')
             action = analysis.get('action')
             confidence = analysis.get('confidence', 0)
@@ -250,13 +252,16 @@ class SignalEngine:
             else:
                 return None
 
+            # Clean symbol for user-facing display
+            display_symbol = clean_symbol(symbol)
+
             # Tính levels
             entry_range = await self.calculate_entry_range(price, action, symbol)
             take_profits = self.calculate_take_profit(price, action)
             stop_loss = self.calculate_stop_loss(price, action)
 
             # Format message - simplified compact format
-            message = f"{emoji} {symbol} | {action}\n"
+            message = f"{emoji} {display_symbol} | {action}\n"
             message += f"📍 Entry: {entry_range}\n"
             message += f"🎯 TP: {take_profits['TP1']:.2f}\n"
             message += f"🛑 SL: {stop_loss:.2f}\n"
