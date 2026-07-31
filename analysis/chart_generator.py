@@ -36,7 +36,7 @@ class ChartGenerator:
         """Tạo biểu đồ cho tín hiệu"""
         try:
             # Lấy dữ liệu nến
-            from ..data.market_data import market_data_engine
+            from data.market_data import market_data_engine
             df = await market_data_engine.get_ohlcv(symbol, timeframe, limit=100)
             
             if df is None or df.empty:

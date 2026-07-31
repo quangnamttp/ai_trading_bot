@@ -77,22 +77,22 @@ Bot này sẽ giúp bạn:
 ⚠️ *Lưu ý:* Bot chỉ cung cấp tín hiệu phân tích, không tự động giao dịch. Bạn tự quyết định vào lệnh thủ công.
         """
         
-        await update.message.reply_text(welcome_message, parse_mode='Markdown')
+        await update.message.reply_text(welcome_message, parse_mode='HTML')
         logger.info(f"User {user.id} started the bot")
     
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Lệnh /help - Hiển thị trợ giúp"""
         help_message = f"""
-🤖 *AI Trading Signal Bot - Hướng dẫn sử dụng*
+🤖 <b>AI Trading Signal Bot - Hướng dẫn sử dụng</b>
 
-🔹 *Lệnh cơ bản:*
+🔹 <b>Lệnh cơ bản:</b>
 /start - Bắt đầu sử dụng bot
 /help - Hiển thị trợ giúp này
 /status - Trạng thái bot
 /market - Thông tin thị trường
 /news - Tin tức Crypto & Forex mới nhất
 
-🔹 *Quản trị (Chỉ Admin):*
+🔹 <b>Quản trị (Chỉ Admin):</b>
 /adduser <user_id> - Thêm user nhận tín hiệu
 /removeuser <user_id> - Xóa user
 /ban <user_id> - Ban user
@@ -101,15 +101,15 @@ Bot này sẽ giúp bạn:
 /settings - Cấu hình bot
 /broadcast <message> - Gửi thông báo đến tất cả users
 
-📊 *Thống kê:*
+📊 <b>Thống kê:</b>
 /stats - Xem thống kê tín hiệu
 
-🤖 *Bot hoạt động 24/7 quét dữ liệu thị trường và gửi tín hiệu khi AI Score > {AI_SCORE_THRESHOLD}%*
+🤖 <b>Bot hoạt động 24/7 quét dữ liệu thị trường và gửi tín hiệu khi AI Score > {AI_SCORE_THRESHOLD}%</b>
 
-⚠️ *Bot không tự động giao dịch. Tín hiệu chỉ để tham khảo.*
+⚠️ <b>Bot không tự động giao dịch. Tín hiệu chỉ để tham khảo.</b>
         """
 
-        await update.message.reply_text(help_message, parse_mode='Markdown')
+        await update.message.reply_text(help_message, parse_mode='HTML')
     
     async def status_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Lệnh /status - Trạng thái bot"""
@@ -127,7 +127,7 @@ Bot này sẽ giúp bạn:
         recent_ai_logs = db.get_recent_ai_logs(limit=5)
 
         status_message = f"""
-📊 *Trạng thái Bot*
+📊 <b>Trạng thái Bot</b>
 
 🕒 Thời gian: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 
@@ -140,7 +140,7 @@ Bot này sẽ giúp bạn:
 🎯 Gửi tín hiệu khi AI Score > {AI_SCORE_THRESHOLD}%
         """
 
-        await update.message.reply_text(status_message, parse_mode='Markdown')
+        await update.message.reply_text(status_message, parse_mode='HTML')
     
     async def market_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Lệnh /market - Thông tin thị trường"""
@@ -406,7 +406,7 @@ Bot này sẽ giúp bạn:
                     period = period_arg
             
             stats_message = statistics_manager.format_stats_message(period)
-            await update.message.reply_text(stats_message, parse_mode='Markdown')
+            await update.message.reply_text(stats_message, parse_mode='HTML')
             logger.info(f"User {user_id} requested stats (period: {period})")
         except Exception as e:
             logger.error(f"Error in stats command: {e}")
@@ -432,7 +432,7 @@ Bot này sẽ giúp bạn:
                 MARKET_DATA_INTERVAL, NEWS_CHECK_INTERVAL, AI_UPDATE_INTERVAL,
                 SYMBOLS, EXCHANGE, clean_symbol
             )
-            config_text = "📊 *Cấu hình hiện tại:*\n\n"
+            config_text = "📊 <b>Cấu hình hiện tại:</b>\n\n"
             config_text += f"• AI Score Threshold: {AI_SCORE_THRESHOLD}\n"
             config_text += f"• Min Confidence: {MIN_CONFIDENCE}\n"
             config_text += f"• Max Risk Per Trade: {MAX_RISK_PER_TRADE}\n"
@@ -450,7 +450,7 @@ Bot này sẽ giúp bạn:
                 [InlineKeyboardButton("🔙 Quay lại", callback_data="config_back")]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
-            await query.edit_message_text(config_text, reply_markup=reply_markup, parse_mode='Markdown')
+            await query.edit_message_text(config_text, reply_markup=reply_markup, parse_mode='HTML')
 
         elif query.data == "config_ai_threshold":
             from core.config import AI_SCORE_THRESHOLD
@@ -459,12 +459,12 @@ Bot này sẽ giúp bạn:
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             await query.edit_message_text(
-                f"🔧 *Đổi ngưỡng AI Score*\n\n"
+                f"🔧 <b>Đổi ngưỡng AI Score</b>\n\n"
                 f"Ngưỡng hiện tại: {AI_SCORE_THRESHOLD}\n"
                 "Để đổi, sử dụng lệnh: /set_ai_threshold <value>\n"
                 "Ví dụ: /set_ai_threshold 90",
                 reply_markup=reply_markup,
-                parse_mode='Markdown'
+                parse_mode='HTML'
             )
 
         elif query.data == "config_back":
@@ -474,7 +474,7 @@ Bot này sẽ giúp bạn:
                 [InlineKeyboardButton("🔙 Quay lại", callback_data="config_back")]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
-            await query.edit_message_text("⚙️ *Cấu hình Bot*", reply_markup=reply_markup, parse_mode='Markdown')
+            await query.edit_message_text("⚙️ <b>Cấu hình Bot</b>", reply_markup=reply_markup, parse_mode='HTML')
     
     # ==================== BOT STARTUP ====================
 
@@ -585,7 +585,7 @@ Bot này sẽ giúp bạn:
                 await self.application.bot.send_message(
                     chat_id=user['telegram_id'],
                     text=signal_text,
-                    parse_mode='Markdown'
+                    parse_mode='HTML'
                 )
                 success_count += 1
             except Exception as e:

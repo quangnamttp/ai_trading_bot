@@ -29,7 +29,7 @@ class SignalEngine:
             # Try to get technical levels if symbol is provided
             if symbol:
                 try:
-                    from ..data.market_data import market_data_engine
+                    from data.market_data import market_data_engine
                     symbol_data = await market_data_engine.get_symbol_data(symbol)
                     if symbol_data:
                         indicators = symbol_data.get('indicators', {})
@@ -377,10 +377,10 @@ class SignalEngine:
         """Phân tích symbol và trả về kết quả"""
         try:
             # Import dependencies để avoid circular import
-            from ..data.market_data import market_data_engine
-            from ..data.smart_money import smart_money_tracker
-            from ..analysis.ai_engine import ai_engine
-            from ..data.news_engine import news_engine
+            from data.market_data import market_data_engine
+            from data.smart_money import smart_money_tracker
+            from analysis.ai_engine import ai_engine
+            from data.news_engine import news_engine
             
             # Phân tích AI
             analysis = await ai_engine.analyze(symbol, market_data_engine, smart_money_tracker, news_engine)
@@ -401,7 +401,7 @@ class SignalEngine:
                     return signal['message']
             
             # Nếu không phải tín hiệu, trả về analysis summary
-            from ..analysis.ai_engine import ai_engine
+            from analysis.ai_engine import ai_engine
             return ai_engine.get_analysis_summary(symbol)
         except Exception as e:
             logger.error(f"Error analyzing symbol {symbol}: {e}")

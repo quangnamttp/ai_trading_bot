@@ -58,29 +58,29 @@ class StatisticsManager:
             }.get(period, 'Tất cả')
             
             message = f"""
-📊 *THỐNG KÊ TÍN HIỆU - {period_text.upper()}*
+📊 <b>THỐNG KÊ TÍN HIỆU - {period_text.upper()}</b>
 
-📈 *Tổng quan:*
+📈 <b>Tổng quan:</b>
 • Tổng tín hiệu: {stats['total_signals']}
 • Tín hiệu thắng: {stats['winning_signals']}
 • Tín hiệu thua: {stats['losing_signals']}
 • Win Rate: {stats['win_rate']:.1f}%
 
-🎯 *Take Profit:*
+🎯 <b>Take Profit:</b>
 • TP1 đạt: {stats['tp1_hits']}
 • TP2 đạt: {stats['tp2_hits']}
 • TP3 đạt: {stats['tp3_hits']}
 
-🛑 *Stop Loss:*
+🛑 <b>Stop Loss:</b>
 • SL đạt: {stats['sl_hits']}
 
-🤖 *AI:*
+🤖 <b>AI:</b>
 • AI Score trung bình: {stats['avg_ai_score']:.1f}/100
 
-💰 *Lợi nhuận giả lập:*
+💰 <b>Lợi nhuận giả lập:</b>
 • Tổng PNL: {stats['total_pnl']:.2f}%
 
-⏰ *Cập nhật:* {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+⏰ <b>Cập nhật:</b> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
             """
             
             return message.strip()
