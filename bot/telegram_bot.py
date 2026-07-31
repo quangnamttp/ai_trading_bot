@@ -81,22 +81,15 @@ Bot này sẽ giúp bạn:
         logger.info(f"User {user.id} started the bot")
     
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Lệnh /help - Trợ giúp"""
-        help_message = """
-📖 *Trợ giúp AI Trading Signal Bot*
+        """Lệnh /help - Hiển thị trợ giúp"""
+        help_message = f"""
+🤖 *AI Trading Signal Bot - Hướng dẫn sử dụng*
 
-🔹 *Các lệnh cơ bản:*
-/start - Khởi động bot
-/help - Xem trợ giúp này
-/status - Trạng thái hệ thống
-/id - Xem Telegram ID của bạn
-
-🔹 *Phân tích thị trường:*
-/btc - Phân tích Bitcoin (BTCUSDT)
-/gold - Phân tích Vàng (XAUUSD)
-/market - Tổng quan thị trường
-
-🔹 *Tin tức:*
+🔹 *Lệnh cơ bản:*
+/start - Bắt đầu sử dụng bot
+/help - Hiển thị trợ giúp này
+/status - Trạng thái bot
+/market - Thông tin thị trường
 /news - Tin tức Crypto & Forex mới nhất
 
 🔹 *Quản trị (Chỉ Admin):*
@@ -108,30 +101,31 @@ Bot này sẽ giúp bạn:
 /settings - Cấu hình bot
 /broadcast <message> - Gửi thông báo đến tất cả users
 
-� *Thống kê:*
+📊 *Thống kê:*
 /stats - Xem thống kê tín hiệu
 
-� *Bot hoạt động 24/7 quét dữ liệu thị trường và gửi tín hiệu khi AI Score > 85%*
+🤖 *Bot hoạt động 24/7 quét dữ liệu thị trường và gửi tín hiệu khi AI Score > {AI_SCORE_THRESHOLD}%*
 
 ⚠️ *Bot không tự động giao dịch. Tín hiệu chỉ để tham khảo.*
         """
-        
+
         await update.message.reply_text(help_message, parse_mode='Markdown')
     
     async def status_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Lệnh /status - Trạng thái bot"""
+        from core.config import AI_SCORE_THRESHOLD
         user_id = update.effective_user.id
-        
+
         # Kiểm tra quyền truy cập
         if not db.is_authorized(user_id):
             await update.message.reply_text("❌ Bạn không có quyền sử dụng bot này.")
             return
-        
+
         # Lấy thống kê
         total_users = len(db.get_all_users())
         recent_signals = db.get_recent_signals(limit=5)
         recent_ai_logs = db.get_recent_ai_logs(limit=5)
-        
+
         status_message = f"""
 📊 *Trạng thái Bot*
 
@@ -143,9 +137,9 @@ Bot này sẽ giúp bạn:
 
 ✅ Bot đang hoạt động 24/7
 🔄 Quét dữ liệu thị trường liên tục
-🎯 Gửi tín hiệu khi AI Score > 85%
+🎯 Gửi tín hiệu khi AI Score > {AI_SCORE_THRESHOLD}%
         """
-        
+
         await update.message.reply_text(status_message, parse_mode='Markdown')
     
     async def market_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -436,7 +430,7 @@ Bot này sẽ giúp bạn:
                 AI_SCORE_THRESHOLD, MIN_CONFIDENCE, MAX_RISK_PER_TRADE,
                 MAX_POSITIONS, SIGNAL_COOLDOWN_MINUTES, MAX_SIGNALS_PER_HOUR,
                 MARKET_DATA_INTERVAL, NEWS_CHECK_INTERVAL, AI_UPDATE_INTERVAL,
-                SYMBOLS, EXCHANGE
+                SYMBOLS, EXCHANGE, clean_symbol
             )
             config_text = "📊 *Cấu hình hiện tại:*\n\n"
             config_text += f"• AI Score Threshold: {AI_SCORE_THRESHOLD}\n"
@@ -448,7 +442,8 @@ Bot này sẽ giúp bạn:
             config_text += f"• Market Data Interval: {MARKET_DATA_INTERVAL}s\n"
             config_text += f"• News Check Interval: {NEWS_CHECK_INTERVAL}s\n"
             config_text += f"• AI Update Interval: {AI_UPDATE_INTERVAL}s\n"
-            config_text += f"• Trading Symbols: {', '.join(SYMBOLS)}\n"
+            clean_symbols = [clean_symbol(s) for s in SYMBOLS]
+            config_text += f"• Trading Symbols: {', '.join(clean_symbols)}\n"
             config_text += f"• Exchange: {EXCHANGE}\n"
 
             keyboard = [

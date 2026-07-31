@@ -186,7 +186,7 @@ class AIEngine:
     
     def generate_ai_decision(self, probabilities: Dict, risk_level: str,
                             trend_analysis: Dict) -> Dict:
-        """Tạo quyết định AI - recalibrated for conservative scoring"""
+        """Tạo quyết định AI - recalibrated for realistic threshold achievement"""
         try:
             long_prob = probabilities.get('long_probability', 50)
             short_prob = probabilities.get('short_probability', 50)
@@ -199,43 +199,72 @@ class AIEngine:
                 'reasons': []
             }
 
-            # Start with conservative base score (lower than probability)
-            base_score = max(long_prob, short_prob) * 0.7  # 70% of probability
+            # Log individual scoring components
+            logger.info(f"=== AI Scoring Components ===")
+            logger.info(f"Long Probability: {long_prob:.1f}%")
+            logger.info(f"Short Probability: {short_prob:.1f}%")
+            logger.info(f"Trend Strength: {trend_strength}")
+            logger.info(f"Risk Level: {risk_level}")
 
-            # Only add bonuses for strong confirmations
+            # Start with probability as base score (more aggressive)
+            base_score = max(long_prob, short_prob)
+            logger.info(f"Base Score (from probability): {base_score:.1f}")
+
+            # Add bonuses for strong confirmations
             trend_signals = trend_analysis.get('signals', [])
+            bonus_score = 0
 
             # Multiple EMA alignment (strong signal)
             if 'EMA bullish alignment' in trend_signals or 'EMA bearish alignment' in trend_signals:
-                base_score += 5
+                bonus_score += 8
+                logger.info(f"EMA alignment bonus: +8")
 
             # RSI at extreme levels (contrarian signal)
             if 'RSI oversold' in trend_signals or 'RSI overbought' in trend_signals:
-                base_score += 3
+                bonus_score += 5
+                logger.info(f"RSI extreme bonus: +5")
 
             # MACD crossover (momentum confirmation)
             if 'MACD bullish crossover' in trend_signals or 'MACD bearish crossover' in trend_signals:
-                base_score += 3
+                bonus_score += 5
+                logger.info(f"MACD crossover bonus: +5")
 
             # Price at Bollinger Bands (extreme levels)
             if 'Price below BB lower' in trend_signals or 'Price above BB upper' in trend_signals:
-                base_score += 2
+                bonus_score += 4
+                logger.info(f"Bollinger Bands bonus: +4")
 
             # Strong trend (multiple confirmations)
             if trend_strength >= 3:
-                base_score += 4
+                bonus_score += 6
+                logger.info(f"Strong trend bonus (strength >= 3): +6")
             elif trend_strength >= 2:
-                base_score += 2
+                bonus_score += 3
+                logger.info(f"Moderate trend bonus (strength >= 2): +3")
 
-            # Significant penalty for high risk
+            logger.info(f"Total Bonus Score: {bonus_score}")
+
+            # Apply bonuses
+            base_score += bonus_score
+
+            # Apply risk penalties
+            penalty_score = 0
             if risk_level == 'high':
-                base_score -= 15
+                penalty_score = 10
+                logger.info(f"High risk penalty: -10")
             elif risk_level == 'medium':
-                base_score -= 8
+                penalty_score = 5
+                logger.info(f"Medium risk penalty: -5")
 
-            # Clamp AI Score - make 90+ very rare
+            base_score -= penalty_score
+
+            # Clamp AI Score - allow 80+ for strong setups
             decision['ai_score'] = max(0, min(95, base_score))
             decision['confidence'] = decision['ai_score'] / 100
+
+            logger.info(f"Final AI Score: {decision['ai_score']:.1f}")
+            logger.info(f"Threshold: {AI_SCORE_THRESHOLD}")
+            logger.info(f"=== End AI Scoring ===")
 
             # Xác định action
             if decision['ai_score'] >= AI_SCORE_THRESHOLD:
