@@ -351,13 +351,13 @@ class TradingBotApp:
                     update_json = request.get_json(force=True)
                     update = Update.de_json(update_json, telegram_bot.application.bot)
 
-                    # Process update asynchronously
+                    # Process update using application.process_update()
                     import asyncio
                     loop = asyncio.new_event_loop()
                     asyncio.set_event_loop(loop)
                     try:
                         loop.run_until_complete(
-                            telegram_bot.application.update_queue.put(update)
+                            telegram_bot.application.process_update(update)
                         )
                     finally:
                         loop.close()

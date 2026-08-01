@@ -510,17 +510,21 @@ Bot này sẽ giúp bạn:
             await self.application.initialize()
             logger.info("Telegram bot application initialized successfully")
 
-            # Setup webhook if TELEGRAM_WEBHOOK_URL is configured
-            if TELEGRAM_WEBHOOK_URL:
-                await self.application.bot.set_webhook(url=TELEGRAM_WEBHOOK_URL)
-                logger.info(f"Telegram webhook set to: {TELEGRAM_WEBHOOK_URL}")
-            else:
-                logger.warning("TELEGRAM_WEBHOOK_URL not configured, webhook not set")
-
             # Start the application (without polling)
             await self.application.start()
             logger.info("Telegram bot application started successfully")
             self.running = True
+
+            # Setup webhook if TELEGRAM_WEBHOOK_URL is configured
+            if TELEGRAM_WEBHOOK_URL:
+                # Auto-append /webhook if not present
+                webhook_url = TELEGRAM_WEBHOOK_URL
+                if not webhook_url.endswith('/webhook'):
+                    webhook_url = webhook_url.rstrip('/') + '/webhook'
+                await self.application.bot.set_webhook(url=webhook_url)
+                logger.info(f"Telegram webhook set to: {webhook_url}")
+            else:
+                logger.warning("TELEGRAM_WEBHOOK_URL not configured, webhook not set")
 
             return self.application
         except Exception as e:
