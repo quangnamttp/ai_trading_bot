@@ -105,6 +105,7 @@ class TelegramBot:
             first_name=user.first_name,
             is_admin=(str(user.id) == TELEGRAM_ADMIN_ID)
         )
+        logger.info(f"Registered chat: {user.id}")
         
         welcome_message = f"""
 🤖 *Chào mừng bạn đến với AI Trading Signal Bot!*
@@ -655,7 +656,12 @@ Bot này sẽ giúp bạn:
                             )
                         success_count += 1
                     except Exception as e:
-                        logger.error(f"Error sending chart to {user['telegram_id']}: {e}")
+                        error_str = str(e)
+                        if "Chat not found" in error_str or "chat not found" in error_str.lower():
+                            logger.warning(f"Chat {user['telegram_id']} not found, deactivating user")
+                            db.remove_user(user['telegram_id'])
+                        else:
+                            logger.error(f"Error sending chart to {user['telegram_id']}: {e}")
                         # Fallback to text message if chart fails
                         try:
                             await self.application.bot.send_message(
@@ -665,17 +671,35 @@ Bot này sẽ giúp bạn:
                             )
                             success_count += 1
                         except Exception as e2:
-                            logger.error(f"Error sending fallback message to {user['telegram_id']}: {e2}")
+                            error_str2 = str(e2)
+                            if "Chat not found" in error_str2 or "chat not found" in error_str2.lower():
+                                logger.warning(f"Chat {user['telegram_id']} not found, deactivating user")
+                                db.remove_user(user['telegram_id'])
+                            else:
+                                logger.error(f"Error sending fallback message to {user['telegram_id']}: {e2}")
                 else:
                     # Send text message only if no chart
-                    await self.application.bot.send_message(
-                        chat_id=user['telegram_id'],
-                        text=signal_text,
-                        parse_mode='HTML'
-                    )
-                    success_count += 1
+                    try:
+                        await self.application.bot.send_message(
+                            chat_id=user['telegram_id'],
+                            text=signal_text,
+                            parse_mode='HTML'
+                        )
+                        success_count += 1
+                    except Exception as e:
+                        error_str = str(e)
+                        if "Chat not found" in error_str or "chat not found" in error_str.lower():
+                            logger.warning(f"Chat {user['telegram_id']} not found, deactivating user")
+                            db.remove_user(user['telegram_id'])
+                        else:
+                            logger.error(f"Error sending signal to {user['telegram_id']}: {e}")
             except Exception as e:
-                logger.error(f"Error sending signal to {user['telegram_id']}: {e}")
+                error_str = str(e)
+                if "Chat not found" in error_str or "chat not found" in error_str.lower():
+                    logger.warning(f"Chat {user['telegram_id']} not found, deactivating user")
+                    db.remove_user(user['telegram_id'])
+                else:
+                    logger.error(f"Error sending signal to {user['telegram_id']}: {e}")
 
         logger.info(f"Signal sent to {success_count}/{len(users)} users")
 
