@@ -15,7 +15,6 @@ from core.config import (
 )
 
 logger = logging.getLogger(__name__)
-logger.info(f"IMPORT core.main - PID: {os.getpid()}")
 from core.database import db
 from core.signal_tracker import signal_tracker
 from core.statistics import statistics_manager
@@ -33,8 +32,6 @@ from utils.message_queue import message_queue
 from utils.anti_duplicate import anti_duplicate
 from utils.cache_manager import cache_manager
 from utils.auto_cleanup import auto_cleanup
-
-logger = logging.getLogger(__name__)
 
 
 class TradingBotApp:
@@ -322,10 +319,10 @@ class TradingBotApp:
                 await async_sleep(30)
     
     def run_flask_server(self):
-        """Chạy Flask server cho health check"""
+        """Chạy Flask server cho health check và Telegram webhook"""
         try:
             # Create Flask app locally to avoid module-level import issues
-            from flask import Flask
+            from flask import Flask, request
             app = Flask(__name__)
 
             @app.route('/')
@@ -341,6 +338,33 @@ class TradingBotApp:
             def health():
                 """Simple health endpoint"""
                 return 'OK', 200
+
+            @app.route('/webhook', methods=['POST'])
+            def webhook():
+                """Telegram webhook endpoint"""
+                if telegram_bot.application:
+                    from telegram import Update
+                    from telegram.ext import Application
+                    import json
+
+                    # Get update from request
+                    update_json = request.get_json(force=True)
+                    update = Update.de_json(update_json, telegram_bot.application.bot)
+
+                    # Process update asynchronously
+                    import asyncio
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    try:
+                        loop.run_until_complete(
+                            telegram_bot.application.update_queue.put(update)
+                        )
+                    finally:
+                        loop.close()
+
+                    return 'OK', 200
+                else:
+                    return 'Bot not initialized', 503
 
             # Run Flask in a separate thread
             import threading
@@ -373,20 +397,9 @@ class TradingBotApp:
             # Start Telegram bot
             self.running = True
 
-            # Start Telegram polling (only once, only in main process)
-            # Use environment variable to ensure only one process polls
-            import os
-            is_main_process = os.environ.get('RENDER', '') == '' or os.environ.get('DYNO', '') == '' or os.environ.get('WORKER_ID', '0') == '0'
-
-            logger.info(f"About to call telegram_bot.run_polling() - PID: {os.getpid()}, is_main_process: {is_main_process}, telegram_bot.running: {telegram_bot.running}")
-
-            if is_main_process and not telegram_bot.running:
-                await telegram_bot.run_polling()
-                logger.info("Telegram bot polling started (main process)")
-            elif telegram_bot.running:
-                logger.warning("Telegram bot polling already running, skipping")
-            else:
-                logger.info(f"Skipping Telegram polling in worker process (WORKER_ID: {os.environ.get('WORKER_ID', 'unknown')})")
+            # Start Telegram bot with webhook (no polling)
+            await telegram_bot.start()
+            logger.info("Telegram bot started with webhook")
 
             # Create tasks
             self.tasks = [

@@ -15,65 +15,11 @@ from telegram.ext import (
     filters,
     ContextTypes
 )
-from core.config import TELEGRAM_BOT_TOKEN, TELEGRAM_ADMIN_ID
+from core.config import TELEGRAM_BOT_TOKEN, TELEGRAM_ADMIN_ID, TELEGRAM_WEBHOOK_URL
 from core.database import db
 from core.statistics import statistics_manager
 
 logger = logging.getLogger(__name__)
-logger.info(f"IMPORT telegram_bot - PID: {os.getpid()}")
-
-# PID lock file to prevent multiple polling instances
-POLLING_LOCK_FILE = "temp/telegram_polling.lock"
-
-
-def acquire_polling_lock() -> bool:
-    """Acquire polling lock using PID file. Returns True if lock acquired."""
-    try:
-        # Ensure temp directory exists
-        os.makedirs("temp", exist_ok=True)
-
-        # Check if lock file exists
-        if os.path.exists(POLLING_LOCK_FILE):
-            try:
-                with open(POLLING_LOCK_FILE, 'r') as f:
-                    old_pid = int(f.read().strip())
-
-                # Check if process with that PID is still running
-                try:
-                    os.kill(old_pid, 0)  # Signal 0 checks if process exists
-                    logger.warning(f"Polling lock held by process {old_pid}, skipping")
-                    return False
-                except OSError:
-                    # Process not running, stale lock
-                    logger.info(f"Stale lock from process {old_pid}, removing")
-                    os.remove(POLLING_LOCK_FILE)
-            except (ValueError, IOError) as e:
-                logger.warning(f"Error reading lock file: {e}, removing")
-                try:
-                    os.remove(POLLING_LOCK_FILE)
-                except:
-                    pass
-
-        # Write current PID to lock file
-        current_pid = os.getpid()
-        with open(POLLING_LOCK_FILE, 'w') as f:
-            f.write(str(current_pid))
-
-        logger.info(f"Polling lock acquired for PID {current_pid}")
-        return True
-    except Exception as e:
-        logger.error(f"Error acquiring polling lock: {e}")
-        return False
-
-
-def release_polling_lock():
-    """Release polling lock by removing PID file."""
-    try:
-        if os.path.exists(POLLING_LOCK_FILE):
-            os.remove(POLLING_LOCK_FILE)
-            logger.info("Polling lock released")
-    except Exception as e:
-        logger.error(f"Error releasing polling lock: {e}")
 
 
 class TelegramBot:
@@ -535,15 +481,13 @@ Bot này sẽ giúp bạn:
     # ==================== BOT STARTUP ====================
 
     async def start(self):
-        """Khởi động bot - chỉ tạo Application, không start polling"""
+        """Khởi động bot - tạo Application và setup webhook"""
         try:
             if self.application is not None:
-                logger.warning(f"Telegram bot application already initialized - Application ID: {id(self.application)}, PID: {os.getpid()}")
+                logger.warning("Telegram bot application already initialized")
                 return self.application
 
-            logger.info(f"Creating new Application - PID: {os.getpid()}")
             self.application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
-            logger.info(f"Application created - Application ID: {id(self.application)}, PID: {os.getpid()}")
 
             # Đăng ký handlers
             self.application.add_handler(CommandHandler("start", self.start_command))
@@ -562,72 +506,25 @@ Bot này sẽ giúp bạn:
             self.application.add_handler(CommandHandler("stats", self.stats_command))
             self.application.add_handler(CallbackQueryHandler(self.button_callback))
 
-            # Initialize the application (không start polling ở đây)
-            logger.info(f"ENTER application.initialize() - Application ID: {id(self.application)}, PID: {os.getpid()}")
+            # Initialize the application
             await self.application.initialize()
-            logger.info(f"EXIT application.initialize() - Application ID: {id(self.application)}, PID: {os.getpid()}")
             logger.info("Telegram bot application initialized successfully")
+
+            # Setup webhook if TELEGRAM_WEBHOOK_URL is configured
+            if TELEGRAM_WEBHOOK_URL:
+                await self.application.bot.set_webhook(url=TELEGRAM_WEBHOOK_URL)
+                logger.info(f"Telegram webhook set to: {TELEGRAM_WEBHOOK_URL}")
+            else:
+                logger.warning("TELEGRAM_WEBHOOK_URL not configured, webhook not set")
+
+            # Start the application (without polling)
+            await self.application.start()
+            logger.info("Telegram bot application started successfully")
+            self.running = True
+
             return self.application
         except Exception as e:
             logger.error(f"Error starting Telegram bot: {e}")
-            raise
-
-    async def run_polling(self):
-        """Chạy polling trong background task"""
-        try:
-            import asyncio
-            current_task = asyncio.current_task()
-            task_id = id(current_task) if current_task else None
-
-            logger.info(f"ENTER run_polling() - PID: {os.getpid()}, Task ID: {task_id}")
-
-            # Print stack trace to see who called this
-            import traceback
-            logger.info(f"CALL STACK for run_polling() - PID: {os.getpid()}, Task ID: {task_id}")
-            traceback.print_stack()
-
-            if self.running:
-                logger.warning(f"Telegram bot polling already running - Application ID: {id(self.application)}, PID: {os.getpid()}")
-                return
-
-            # Acquire PID lock to prevent race condition during deployment
-            if not acquire_polling_lock():
-                logger.error("Could not acquire polling lock, skipping")
-                return
-
-            logger.info(f"Application ID: {id(self.application)}")
-            logger.info(f"Updater ID: {id(self.application.updater) if self.application.updater else None}")
-            logger.info(f"PID: {os.getpid()}")
-            logger.info(f"Process ID: {os.getpid()}")
-            logger.info(f"Task ID: {task_id}")
-            logger.info("START TELEGRAM POLLING")
-
-            # Delete webhook before starting polling to avoid conflicts
-            try:
-                await self.application.bot.delete_webhook(drop_pending_updates=True)
-                logger.info("Telegram webhook deleted successfully")
-            except Exception as e:
-                logger.warning(f"Could not delete webhook (may not exist): {e}")
-
-            self.running = True
-
-            # Use manual async lifecycle to avoid event loop conflicts
-            # The application is already running in an existing event loop
-            # application.run_polling() creates its own event loop, which causes conflicts
-            logger.info(f"ENTER application.start() - Application ID: {id(self.application)}, PID: {os.getpid()}, Task ID: {task_id}")
-            await self.application.start()
-            logger.info(f"EXIT application.start() - Application ID: {id(self.application)}, PID: {os.getpid()}, Task ID: {task_id}")
-
-            logger.info(f"START updater.start_polling() - Application ID: {id(self.application)}, Updater ID: {id(self.application.updater)}, PID: {os.getpid()}, Task ID: {task_id}")
-            await self.application.updater.start_polling(drop_pending_updates=True)
-            logger.info(f"EXIT updater.start_polling() - Application ID: {id(self.application)}, Updater ID: {id(self.application.updater)}, PID: {os.getpid()}, Task ID: {task_id}")
-
-            logger.info("Telegram polling started")
-            logger.info(f"EXIT run_polling() - Application ID: {id(self.application)}, PID: {os.getpid()}, Task ID: {task_id}")
-        except Exception as e:
-            logger.error(f"Error starting Telegram bot polling: {e}")
-            self.running = False
-            release_polling_lock()
             raise
 
     async def stop(self):
@@ -639,17 +536,13 @@ Bot này sẽ giúp bạn:
 
             self.running = False
 
-            # Release polling lock
-            release_polling_lock()
-
             if self.application:
-                # Manual async lifecycle: stop updater, then application, then shutdown
-                if hasattr(self.application, 'updater') and self.application.updater:
-                    try:
-                        await self.application.updater.stop()
-                        logger.info("Telegram bot updater stopped")
-                    except Exception as e:
-                        logger.error(f"Error stopping updater: {e}")
+                # Delete webhook on shutdown
+                try:
+                    await self.application.bot.delete_webhook()
+                    logger.info("Telegram webhook deleted successfully")
+                except Exception as e:
+                    logger.warning(f"Could not delete webhook: {e}")
 
                 try:
                     await self.application.stop()
