@@ -20,6 +20,7 @@ from core.database import db
 from core.statistics import statistics_manager
 
 logger = logging.getLogger(__name__)
+logger.info(f"IMPORT telegram_bot - PID: {os.getpid()}")
 
 # PID lock file to prevent multiple polling instances
 POLLING_LOCK_FILE = "temp/telegram_polling.lock"
@@ -560,7 +561,9 @@ Bot này sẽ giúp bạn:
             self.application.add_handler(CallbackQueryHandler(self.button_callback))
 
             # Initialize the application (không start polling ở đây)
+            logger.info(f"ENTER application.initialize() - PID: {os.getpid()}")
             await self.application.initialize()
+            logger.info(f"EXIT application.initialize() - PID: {os.getpid()}")
             logger.info("Telegram bot application initialized successfully")
             return self.application
         except Exception as e:
@@ -570,6 +573,13 @@ Bot này sẽ giúp bạn:
     async def run_polling(self):
         """Chạy polling trong background task"""
         try:
+            logger.info(f"ENTER run_polling() - PID: {os.getpid()}")
+
+            # Print stack trace to see who called this
+            import traceback
+            logger.info(f"CALL STACK for run_polling() - PID: {os.getpid()}")
+            traceback.print_stack()
+
             if self.running:
                 logger.warning("Telegram bot polling already running")
                 return
@@ -591,9 +601,16 @@ Bot này sẽ giúp bạn:
                 logger.warning(f"Could not delete webhook (may not exist): {e}")
 
             self.running = True
+            logger.info(f"ENTER application.start() - PID: {os.getpid()}")
             await self.application.start()
+            logger.info(f"EXIT application.start() - PID: {os.getpid()}")
+
+            logger.info(f"START updater.start_polling() - PID: {os.getpid()}")
             await self.application.updater.start_polling(drop_pending_updates=True)
+            logger.info(f"EXIT updater.start_polling() - PID: {os.getpid()}")
+
             logger.info("Telegram polling started")
+            logger.info(f"EXIT run_polling() - PID: {os.getpid()}")
         except Exception as e:
             logger.error(f"Error starting Telegram bot polling: {e}")
             self.running = False

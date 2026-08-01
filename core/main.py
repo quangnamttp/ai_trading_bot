@@ -6,12 +6,16 @@ import asyncio
 import logging
 import signal
 import sys
+import os
 from datetime import datetime
 from core.config import (
     TELEGRAM_BOT_TOKEN, TELEGRAM_ADMIN_ID,
     MARKET_DATA_INTERVAL, NEWS_CHECK_INTERVAL, AI_UPDATE_INTERVAL,
     validate_config, PORT, SYMBOLS, AI_SCORE_THRESHOLD, MIN_CONFIDENCE
 )
+
+logger = logging.getLogger(__name__)
+logger.info(f"IMPORT core.main - PID: {os.getpid()}")
 from core.database import db
 from core.signal_tracker import signal_tracker
 from core.statistics import statistics_manager
@@ -373,6 +377,8 @@ class TradingBotApp:
             # Use environment variable to ensure only one process polls
             import os
             is_main_process = os.environ.get('RENDER', '') == '' or os.environ.get('DYNO', '') == '' or os.environ.get('WORKER_ID', '0') == '0'
+
+            logger.info(f"About to call telegram_bot.run_polling() - PID: {os.getpid()}, is_main_process: {is_main_process}, telegram_bot.running: {telegram_bot.running}")
 
             if is_main_process and not telegram_bot.running:
                 await telegram_bot.run_polling()
