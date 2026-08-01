@@ -3,6 +3,7 @@ Module Telegram Bot cho AI Trading Signal Bot
 Xử lý tất cả các lệnh và tin nhắn từ người dùng
 """
 import logging
+import os
 from datetime import datetime
 from typing import Optional
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -19,6 +20,59 @@ from core.database import db
 from core.statistics import statistics_manager
 
 logger = logging.getLogger(__name__)
+
+# PID lock file to prevent multiple polling instances
+POLLING_LOCK_FILE = "temp/telegram_polling.lock"
+
+
+def acquire_polling_lock() -> bool:
+    """Acquire polling lock using PID file. Returns True if lock acquired."""
+    try:
+        # Ensure temp directory exists
+        os.makedirs("temp", exist_ok=True)
+
+        # Check if lock file exists
+        if os.path.exists(POLLING_LOCK_FILE):
+            try:
+                with open(POLLING_LOCK_FILE, 'r') as f:
+                    old_pid = int(f.read().strip())
+
+                # Check if process with that PID is still running
+                try:
+                    os.kill(old_pid, 0)  # Signal 0 checks if process exists
+                    logger.warning(f"Polling lock held by process {old_pid}, skipping")
+                    return False
+                except OSError:
+                    # Process not running, stale lock
+                    logger.info(f"Stale lock from process {old_pid}, removing")
+                    os.remove(POLLING_LOCK_FILE)
+            except (ValueError, IOError) as e:
+                logger.warning(f"Error reading lock file: {e}, removing")
+                try:
+                    os.remove(POLLING_LOCK_FILE)
+                except:
+                    pass
+
+        # Write current PID to lock file
+        current_pid = os.getpid()
+        with open(POLLING_LOCK_FILE, 'w') as f:
+            f.write(str(current_pid))
+
+        logger.info(f"Polling lock acquired for PID {current_pid}")
+        return True
+    except Exception as e:
+        logger.error(f"Error acquiring polling lock: {e}")
+        return False
+
+
+def release_polling_lock():
+    """Release polling lock by removing PID file."""
+    try:
+        if os.path.exists(POLLING_LOCK_FILE):
+            os.remove(POLLING_LOCK_FILE)
+            logger.info("Polling lock released")
+    except Exception as e:
+        logger.error(f"Error releasing polling lock: {e}")
 
 
 class TelegramBot:
@@ -519,6 +573,13 @@ Bot này sẽ giúp bạn:
                 logger.warning("Telegram bot polling already running")
                 return
 
+            # Acquire PID lock to prevent race condition during deployment
+            if not acquire_polling_lock():
+                logger.error("Could not acquire polling lock, skipping")
+                return
+
+            logger.info(f"PID: {os.getpid()}")
+            logger.info(f"Process ID: {os.getpid()}")
             logger.info("START TELEGRAM POLLING")
 
             # Delete webhook before starting polling to avoid conflicts
@@ -535,6 +596,7 @@ Bot này sẽ giúp bạn:
         except Exception as e:
             logger.error(f"Error starting Telegram bot polling: {e}")
             self.running = False
+            release_polling_lock()
             raise
 
     async def stop(self):
@@ -545,6 +607,9 @@ Bot này sẽ giúp bạn:
                 return
 
             self.running = False
+
+            # Release polling lock
+            release_polling_lock()
 
             if self.application:
                 if hasattr(self.application, 'updater') and self.application.updater:
