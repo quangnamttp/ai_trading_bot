@@ -7,7 +7,6 @@ import logging
 import signal
 import sys
 from datetime import datetime
-from flask import Flask
 from core.config import (
     TELEGRAM_BOT_TOKEN, TELEGRAM_ADMIN_ID,
     MARKET_DATA_INTERVAL, NEWS_CHECK_INTERVAL, AI_UPDATE_INTERVAL,
@@ -32,23 +31,6 @@ from utils.cache_manager import cache_manager
 from utils.auto_cleanup import auto_cleanup
 
 logger = logging.getLogger(__name__)
-
-# Flask app cho Render health check
-app = Flask(__name__)
-
-@app.route('/')
-def health_check():
-    """Health check endpoint cho Render"""
-    return {
-        'status': 'running',
-        'timestamp': datetime.now().isoformat(),
-        'bot_status': 'active'
-    }
-
-@app.route('/health')
-def health():
-    """Simple health endpoint"""
-    return 'OK', 200
 
 
 class TradingBotApp:
@@ -338,12 +320,30 @@ class TradingBotApp:
     def run_flask_server(self):
         """Chạy Flask server cho health check"""
         try:
+            # Create Flask app locally to avoid module-level import issues
+            from flask import Flask
+            app = Flask(__name__)
+
+            @app.route('/')
+            def health_check():
+                """Health check endpoint cho Render"""
+                return {
+                    'status': 'running',
+                    'timestamp': datetime.now().isoformat(),
+                    'bot_status': 'active'
+                }
+
+            @app.route('/health')
+            def health():
+                """Simple health endpoint"""
+                return 'OK', 200
+
             # Run Flask in a separate thread
             import threading
-            
+
             def run_flask():
                 app.run(host='0.0.0.0', port=PORT, debug=False, use_reloader=False, threaded=True)
-            
+
             flask_thread = threading.Thread(target=run_flask, daemon=True)
             flask_thread.start()
             logger.info(f"Flask server started on port {PORT}")

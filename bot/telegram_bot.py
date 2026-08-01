@@ -519,6 +519,8 @@ Bot này sẽ giúp bạn:
                 logger.warning("Telegram bot polling already running")
                 return
 
+            logger.info("START TELEGRAM POLLING")
+
             # Delete webhook before starting polling to avoid conflicts
             try:
                 await self.application.bot.delete_webhook(drop_pending_updates=True)
