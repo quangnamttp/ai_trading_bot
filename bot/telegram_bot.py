@@ -602,13 +602,16 @@ Bot này sẽ giúp bạn:
 
             self.running = True
 
-            # Use application.run_polling() instead of manual start() + updater.start_polling()
-            # This is the correct lifecycle according to python-telegram-bot v21 documentation
-            logger.info(f"START application.run_polling() - PID: {os.getpid()}")
-            logger.info(f"CALL STACK before application.run_polling() - PID: {os.getpid()}")
-            logger.info(traceback.format_stack())
-            await self.application.run_polling(drop_pending_updates=True)
-            logger.info(f"EXIT application.run_polling() - PID: {os.getpid()}")
+            # Use manual async lifecycle to avoid event loop conflicts
+            # The application is already running in an existing event loop
+            # application.run_polling() creates its own event loop, which causes conflicts
+            logger.info(f"ENTER application.start() - PID: {os.getpid()}")
+            await self.application.start()
+            logger.info(f"EXIT application.start() - PID: {os.getpid()}")
+
+            logger.info(f"START updater.start_polling() - PID: {os.getpid()}")
+            await self.application.updater.start_polling(drop_pending_updates=True)
+            logger.info(f"EXIT updater.start_polling() - PID: {os.getpid()}")
 
             logger.info("Telegram polling started")
             logger.info(f"EXIT run_polling() - PID: {os.getpid()}")
@@ -631,8 +634,14 @@ Bot này sẽ giúp bạn:
             release_polling_lock()
 
             if self.application:
-                # When using application.run_polling(), we only need to stop and shutdown
-                # The run_polling() method handles the updater lifecycle internally
+                # Manual async lifecycle: stop updater, then application, then shutdown
+                if hasattr(self.application, 'updater') and self.application.updater:
+                    try:
+                        await self.application.updater.stop()
+                        logger.info("Telegram bot updater stopped")
+                    except Exception as e:
+                        logger.error(f"Error stopping updater: {e}")
+
                 try:
                     await self.application.stop()
                     logger.info("Telegram bot application stopped")
