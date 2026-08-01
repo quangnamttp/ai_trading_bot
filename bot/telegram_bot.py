@@ -538,10 +538,12 @@ Bot này sẽ giúp bạn:
         """Khởi động bot - chỉ tạo Application, không start polling"""
         try:
             if self.application is not None:
-                logger.warning("Telegram bot application already initialized")
+                logger.warning(f"Telegram bot application already initialized - Application ID: {id(self.application)}, PID: {os.getpid()}")
                 return self.application
 
+            logger.info(f"Creating new Application - PID: {os.getpid()}")
             self.application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
+            logger.info(f"Application created - Application ID: {id(self.application)}, PID: {os.getpid()}")
 
             # Đăng ký handlers
             self.application.add_handler(CommandHandler("start", self.start_command))
@@ -561,9 +563,9 @@ Bot này sẽ giúp bạn:
             self.application.add_handler(CallbackQueryHandler(self.button_callback))
 
             # Initialize the application (không start polling ở đây)
-            logger.info(f"ENTER application.initialize() - PID: {os.getpid()}")
+            logger.info(f"ENTER application.initialize() - Application ID: {id(self.application)}, PID: {os.getpid()}")
             await self.application.initialize()
-            logger.info(f"EXIT application.initialize() - PID: {os.getpid()}")
+            logger.info(f"EXIT application.initialize() - Application ID: {id(self.application)}, PID: {os.getpid()}")
             logger.info("Telegram bot application initialized successfully")
             return self.application
         except Exception as e:
@@ -573,15 +575,19 @@ Bot này sẽ giúp bạn:
     async def run_polling(self):
         """Chạy polling trong background task"""
         try:
-            logger.info(f"ENTER run_polling() - PID: {os.getpid()}")
+            import asyncio
+            current_task = asyncio.current_task()
+            task_id = id(current_task) if current_task else None
+
+            logger.info(f"ENTER run_polling() - PID: {os.getpid()}, Task ID: {task_id}")
 
             # Print stack trace to see who called this
             import traceback
-            logger.info(f"CALL STACK for run_polling() - PID: {os.getpid()}")
+            logger.info(f"CALL STACK for run_polling() - PID: {os.getpid()}, Task ID: {task_id}")
             traceback.print_stack()
 
             if self.running:
-                logger.warning("Telegram bot polling already running")
+                logger.warning(f"Telegram bot polling already running - Application ID: {id(self.application)}, PID: {os.getpid()}")
                 return
 
             # Acquire PID lock to prevent race condition during deployment
@@ -589,8 +595,11 @@ Bot này sẽ giúp bạn:
                 logger.error("Could not acquire polling lock, skipping")
                 return
 
+            logger.info(f"Application ID: {id(self.application)}")
+            logger.info(f"Updater ID: {id(self.application.updater) if self.application.updater else None}")
             logger.info(f"PID: {os.getpid()}")
             logger.info(f"Process ID: {os.getpid()}")
+            logger.info(f"Task ID: {task_id}")
             logger.info("START TELEGRAM POLLING")
 
             # Delete webhook before starting polling to avoid conflicts
@@ -605,16 +614,16 @@ Bot này sẽ giúp bạn:
             # Use manual async lifecycle to avoid event loop conflicts
             # The application is already running in an existing event loop
             # application.run_polling() creates its own event loop, which causes conflicts
-            logger.info(f"ENTER application.start() - PID: {os.getpid()}")
+            logger.info(f"ENTER application.start() - Application ID: {id(self.application)}, PID: {os.getpid()}, Task ID: {task_id}")
             await self.application.start()
-            logger.info(f"EXIT application.start() - PID: {os.getpid()}")
+            logger.info(f"EXIT application.start() - Application ID: {id(self.application)}, PID: {os.getpid()}, Task ID: {task_id}")
 
-            logger.info(f"START updater.start_polling() - PID: {os.getpid()}")
+            logger.info(f"START updater.start_polling() - Application ID: {id(self.application)}, Updater ID: {id(self.application.updater)}, PID: {os.getpid()}, Task ID: {task_id}")
             await self.application.updater.start_polling(drop_pending_updates=True)
-            logger.info(f"EXIT updater.start_polling() - PID: {os.getpid()}")
+            logger.info(f"EXIT updater.start_polling() - Application ID: {id(self.application)}, Updater ID: {id(self.application.updater)}, PID: {os.getpid()}, Task ID: {task_id}")
 
             logger.info("Telegram polling started")
-            logger.info(f"EXIT run_polling() - PID: {os.getpid()}")
+            logger.info(f"EXIT run_polling() - Application ID: {id(self.application)}, PID: {os.getpid()}, Task ID: {task_id}")
         except Exception as e:
             logger.error(f"Error starting Telegram bot polling: {e}")
             self.running = False
