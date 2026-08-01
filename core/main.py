@@ -346,21 +346,28 @@ class TradingBotApp:
                     from telegram import Update
                     from telegram.ext import Application
                     import json
+                    import threading
 
                     # Get update from request
                     update_json = request.get_json(force=True)
                     update = Update.de_json(update_json, telegram_bot.application.bot)
 
-                    # Process update using application.process_update()
-                    import asyncio
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-                    try:
-                        loop.run_until_complete(
-                            telegram_bot.application.process_update(update)
-                        )
-                    finally:
-                        loop.close()
+                    # Return HTTP 200 immediately to Telegram
+                    # Process update in background thread
+                    def process_update_async():
+                        import asyncio
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                        try:
+                            loop.run_until_complete(
+                                telegram_bot.application.process_update(update)
+                            )
+                        finally:
+                            loop.close()
+
+                    # Start background thread for processing
+                    thread = threading.Thread(target=process_update_async, daemon=True)
+                    thread.start()
 
                     return 'OK', 200
                 else:
