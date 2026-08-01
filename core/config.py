@@ -2,10 +2,24 @@
 Cấu hình hệ thống AI Trading Signal Bot
 """
 import os
+from datetime import datetime, timezone, timedelta
 from dotenv import load_dotenv
 
 # Load environment variables
 load_dotenv()
+
+# Timezone Configuration
+TIMEZONE = timezone(timedelta(hours=7))  # UTC+7 (Asia/Ho_Chi_Minh)
+
+def get_current_time():
+    """Get current time in UTC+7"""
+    return datetime.now(TIMEZONE)
+
+def format_time(dt=None):
+    """Format datetime to UTC+7 string"""
+    if dt is None:
+        dt = datetime.now(TIMEZONE)
+    return dt.strftime("%H:%M (GMT+7)")
 
 # Telegram Bot Configuration
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")

@@ -237,7 +237,7 @@ class SignalEngine:
     async def format_signal_message(self, analysis: Dict) -> Optional[str]:
         """Định dạng tin nhắn tín hiệu - simplified compact format"""
         try:
-            from core.config import clean_symbol
+            from core.config import clean_symbol, format_time
 
             symbol = analysis.get('symbol')
             action = analysis.get('action')
@@ -267,7 +267,7 @@ class SignalEngine:
             message += f"🛑 SL: {stop_loss:.2f}\n"
             message += f"💎 Confidence: {int(confidence * 100)}%\n"
             message += f"📈 Trend: {trend}\n"
-            message += f"⏰ {datetime.now().strftime('%H:%M')}"
+            message += f"🕒 {format_time()}"
 
             return message
         except Exception as e:

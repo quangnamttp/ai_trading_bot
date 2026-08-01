@@ -519,10 +519,17 @@ Bot này sẽ giúp bạn:
                 logger.warning("Telegram bot polling already running")
                 return
 
+            # Delete webhook before starting polling to avoid conflicts
+            try:
+                await self.application.bot.delete_webhook(drop_pending_updates=True)
+                logger.info("Telegram webhook deleted successfully")
+            except Exception as e:
+                logger.warning(f"Could not delete webhook (may not exist): {e}")
+
             self.running = True
             await self.application.start()
             await self.application.updater.start_polling(drop_pending_updates=True)
-            logger.info("Telegram bot polling started successfully")
+            logger.info("Telegram polling started")
         except Exception as e:
             logger.error(f"Error starting Telegram bot polling: {e}")
             self.running = False
@@ -569,29 +576,52 @@ Bot này sẽ giúp bạn:
         success_count = 0
         for user in users:
             try:
-                # Send chart first if available
+                # Send chart with signal as caption if available
                 if chart_path:
                     try:
                         with open(chart_path, 'rb') as photo:
                             await self.application.bot.send_photo(
                                 chat_id=user['telegram_id'],
                                 photo=photo,
-                                caption="📊 Chart Analysis"
+                                caption=signal_text,
+                                parse_mode='HTML'
                             )
+                        success_count += 1
                     except Exception as e:
                         logger.error(f"Error sending chart to {user['telegram_id']}: {e}")
-
-                # Send signal message
-                await self.application.bot.send_message(
-                    chat_id=user['telegram_id'],
-                    text=signal_text,
-                    parse_mode='HTML'
-                )
-                success_count += 1
+                        # Fallback to text message if chart fails
+                        try:
+                            await self.application.bot.send_message(
+                                chat_id=user['telegram_id'],
+                                text=signal_text,
+                                parse_mode='HTML'
+                            )
+                            success_count += 1
+                        except Exception as e2:
+                            logger.error(f"Error sending fallback message to {user['telegram_id']}: {e2}")
+                else:
+                    # Send text message only if no chart
+                    await self.application.bot.send_message(
+                        chat_id=user['telegram_id'],
+                        text=signal_text,
+                        parse_mode='HTML'
+                    )
+                    success_count += 1
             except Exception as e:
                 logger.error(f"Error sending signal to {user['telegram_id']}: {e}")
 
         logger.info(f"Signal sent to {success_count}/{len(users)} users")
+
+        # Delete chart file after sending to all users
+        if chart_path:
+            try:
+                import os
+                if os.path.exists(chart_path):
+                    os.remove(chart_path)
+                    logger.info(f"Chart file deleted: {chart_path}")
+            except Exception as e:
+                logger.warning(f"Could not delete chart file {chart_path}: {e}")
+
         return success_count
 
 
