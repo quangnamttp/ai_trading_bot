@@ -226,7 +226,7 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
     # ==================== ADMIN COMMANDS ====================
     
     async def adduser_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Lệnh /adduser - Thêm người nhận (Admin only)"""
+        """Lệnh /adduser - Thêm người nhận (Admin only) - Single-line parsing"""
         user_id = update.effective_user.id
 
         if not db.is_admin(user_id):
@@ -234,20 +234,72 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
             return
 
         if not context.args or len(context.args) < 1:
-            await update.message.reply_text("❌ Sử dụng: /adduser <telegram_id>")
+            await update.message.reply_text("❌ Sử dụng: /adduser <tên> <telegram_id> [username]\n\nVí dụ:\n/adduser Anh Trương 5335165612 anhtruong\n/adduser VIP 01 6021458788")
             return
 
         try:
-            target_user_id = int(context.args[0])
+            # Parse single-line input
+            input_str = " ".join(context.args)
+
+            # Find the Telegram ID (numeric string)
+            import re
+            numbers = re.findall(r'\d+', input_str)
+
+            if not numbers:
+                await update.message.reply_text("❌ Không tìm thấy Telegram ID trong đầu vào.")
+                return
+
+            target_user_id = int(numbers[0])
             if target_user_id <= 0:
                 await update.message.reply_text("❌ Telegram ID phải là số dương.")
                 return
 
-            db.add_user(target_user_id, is_active=True)
-            await update.message.reply_text(f"✅ Đã thêm người nhận {target_user_id} vào danh sách.")
-            logger.info(f"Admin {user_id} added user {target_user_id}")
-        except ValueError:
-            await update.message.reply_text("❌ Telegram ID phải là số.")
+            # Check if user already exists
+            existing_user = db.get_user(target_user_id)
+            if existing_user:
+                await update.message.reply_text(f"❌ Người dùng với ID {target_user_id} đã tồn tại trong danh sách.")
+                return
+
+            # Extract display_name (everything before the ID)
+            id_str = str(target_user_id)
+            id_index = input_str.find(id_str)
+            if id_index > 0:
+                display_name = input_str[:id_index].strip()
+            else:
+                display_name = "Người dùng"
+
+            # Extract username (everything after the ID)
+            if id_index + len(id_str) < len(input_str):
+                username_part = input_str[id_index + len(id_str):].strip()
+                # Remove @ if present
+                if username_part.startswith('@'):
+                    username = username_part[1:]
+                else:
+                    username = username_part if username_part else None
+            else:
+                username = None
+
+            # Add user to database
+            db.add_user(
+                telegram_id=target_user_id,
+                username=username,
+                display_name=display_name,
+                is_active=True
+            )
+
+            # Display added user info
+            added_message = f"""
+✅ <b>Đã thêm người nhận thành công!</b>
+
+👤 <b>Tên:</b> {display_name}
+🆔 <b>Telegram ID:</b> {target_user_id}
+📛 <b>Username:</b> @{username if username else '-'}
+📅 <b>Ngày thêm:</b> {datetime.now().strftime('%d/%m/%Y')}
+🟢 <b>Trạng thái:</b> Đang nhận tín hiệu
+            """
+
+            await update.message.reply_text(added_message, parse_mode='HTML')
+            logger.info(f"Admin {user_id} added user {target_user_id} with display_name '{display_name}' and username '{username}'")
         except Exception as e:
             logger.error(f"Error adding user: {e}")
             await update.message.reply_text(f"❌ Lỗi: {str(e)}")
@@ -382,6 +434,89 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
             await update.message.reply_text("❌ Telegram ID phải là số.")
         except Exception as e:
             logger.error(f"Error unbanning user: {e}")
+            await update.message.reply_text(f"❌ Lỗi: {str(e)}")
+
+    async def editname_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Lệnh /editname - Sửa tên người nhận (Admin only)"""
+        user_id = update.effective_user.id
+
+        if not db.is_admin(user_id):
+            await update.message.reply_text("❌ Chỉ Admin mới sử dụng lệnh này.")
+            return
+
+        if not context.args or len(context.args) < 2:
+            await update.message.reply_text("❌ Sử dụng: /editname <telegram_id> <tên mới>")
+            return
+
+        try:
+            target_user_id = int(context.args[0])
+            if target_user_id <= 0:
+                await update.message.reply_text("❌ Telegram ID phải là số dương.")
+                return
+
+            new_name = " ".join(context.args[1:])
+
+            db.update_display_name(target_user_id, new_name)
+            await update.message.reply_text(f"✅ Đã sửa tên người nhận {target_user_id} thành: {new_name}")
+            logger.info(f"Admin {user_id} edited name for user {target_user_id} to '{new_name}'")
+        except ValueError:
+            await update.message.reply_text("❌ Telegram ID phải là số.")
+        except Exception as e:
+            logger.error(f"Error editing name: {e}")
+            await update.message.reply_text(f"❌ Lỗi: {str(e)}")
+
+    async def disable_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Lệnh /disable - Tắt nhận tín hiệu (Admin only)"""
+        user_id = update.effective_user.id
+
+        if not db.is_admin(user_id):
+            await update.message.reply_text("❌ Chỉ Admin mới sử dụng lệnh này.")
+            return
+
+        if not context.args or len(context.args) < 1:
+            await update.message.reply_text("❌ Sử dụng: /disable <telegram_id>")
+            return
+
+        try:
+            target_user_id = int(context.args[0])
+            if target_user_id <= 0:
+                await update.message.reply_text("❌ Telegram ID phải là số dương.")
+                return
+
+            db.toggle_user_status(target_user_id)
+            await update.message.reply_text(f"✅ Đã thay đổi trạng thái nhận tín hiệu cho người dùng {target_user_id}")
+            logger.info(f"Admin {user_id} toggled status for user {target_user_id}")
+        except ValueError:
+            await update.message.reply_text("❌ Telegram ID phải là số.")
+        except Exception as e:
+            logger.error(f"Error toggling status: {e}")
+            await update.message.reply_text(f"❌ Lỗi: {str(e)}")
+
+    async def enable_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Lệnh /enable - Bật nhận tín hiệu (Admin only)"""
+        user_id = update.effective_user.id
+
+        if not db.is_admin(user_id):
+            await update.message.reply_text("❌ Chỉ Admin mới sử dụng lệnh này.")
+            return
+
+        if not context.args or len(context.args) < 1:
+            await update.message.reply_text("❌ Sử dụng: /enable <telegram_id>")
+            return
+
+        try:
+            target_user_id = int(context.args[0])
+            if target_user_id <= 0:
+                await update.message.reply_text("❌ Telegram ID phải là số dương.")
+                return
+
+            db.toggle_user_status(target_user_id)
+            await update.message.reply_text(f"✅ Đã thay đổi trạng thái nhận tín hiệu cho người dùng {target_user_id}")
+            logger.info(f"Admin {user_id} toggled status for user {target_user_id}")
+        except ValueError:
+            await update.message.reply_text("❌ Telegram ID phải là số.")
+        except Exception as e:
+            logger.error(f"Error toggling status: {e}")
             await update.message.reply_text(f"❌ Lỗi: {str(e)}")
     
     async def stats_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -665,8 +800,11 @@ Liên hệ Admin nếu cần trợ giúp.
 
             keyboard = [
                 [InlineKeyboardButton("➕ Thêm người nhận", callback_data="recipient_add")],
-                [InlineKeyboardButton("➖ Xóa người nhận", callback_data="recipient_remove")],
+                [InlineKeyboardButton("✏️ Sửa tên", callback_data="recipient_edit")],
+                [InlineKeyboardButton("🗑 Xóa người nhận", callback_data="recipient_remove")],
                 [InlineKeyboardButton("📋 Danh sách người nhận", callback_data="recipient_list")],
+                [InlineKeyboardButton("🔕 Tắt nhận tín hiệu", callback_data="recipient_disable")],
+                [InlineKeyboardButton("🔔 Bật nhận tín hiệu", callback_data="recipient_enable")],
                 [InlineKeyboardButton("⬅️ Quay lại", callback_data="menu_settings")]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
@@ -723,19 +861,79 @@ Liên hệ Admin nếu cần trợ giúp.
             if not users:
                 users_list = "📋 <b>Danh sách người nhận</b>\n\nKhông có người nhận nào."
             else:
-                users_list = "📋 <b>Danh sách người nhận</b>\n\n"
-                for user in users:
-                    admin_badge = " 👑" if user['is_admin'] else ""
-                    active_badge = " ✅" if user['is_active'] else " ❌"
-                    users_list += f"• ID: `{user['telegram_id']}`{admin_badge}{active_badge}\n"
-                    users_list += f"  Username: @{user['username'] or 'N/A'}\n"
-                    users_list += f"  Name: {user['first_name'] or 'N/A'}\n\n"
+                users_list = "� <b>Danh sách người nhận</b>\n\n"
+                for idx, user in enumerate(users, 1):
+                    display_name = user.get('display_name') or user.get('first_name') or 'Người dùng'
+                    username = user.get('username')
+                    username_display = f"@{username}" if username else "-"
+                    status_emoji = "�" if user['is_active'] else "🔴"
+                    status_text = "Đang nhận tín hiệu" if user['is_active'] else "Không nhận tín hiệu"
+
+                    users_list += f"{idx}️⃣ {display_name}\n"
+                    users_list += f"🆔 ID: {user['telegram_id']}\n"
+                    users_list += f"📛 Username: {username_display}\n"
+                    users_list += f"{status_emoji} {status_text}\n"
+                    users_list += "----------------------\n\n"
 
             keyboard = [
                 [InlineKeyboardButton("⬅️ Quay lại", callback_data="manage_recipients")]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             await query.edit_message_text(users_list, reply_markup=reply_markup, parse_mode='HTML')
+
+        # Sửa tên người nhận
+        elif query.data == "recipient_edit":
+            if not db.is_admin(user_id):
+                await query.edit_message_text("❌ Chỉ Admin mới sử dụng chức năng này.")
+                return
+
+            keyboard = [
+                [InlineKeyboardButton("⬅️ Quay lại", callback_data="manage_recipients")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await query.edit_message_text(
+                "✏️ <b>Sửa tên người nhận</b>\n\n"
+                "Sử dụng lệnh: /editname <telegram_id> <tên mới>\n\n"
+                "Ví dụ: /editname 5335165612 Anh Trương VIP",
+                reply_markup=reply_markup,
+                parse_mode='HTML'
+            )
+
+        # Tắt nhận tín hiệu
+        elif query.data == "recipient_disable":
+            if not db.is_admin(user_id):
+                await query.edit_message_text("❌ Chỉ Admin mới sử dụng chức năng này.")
+                return
+
+            keyboard = [
+                [InlineKeyboardButton("⬅️ Quay lại", callback_data="manage_recipients")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await query.edit_message_text(
+                "🔕 <b>Tắt nhận tín hiệu</b>\n\n"
+                "Sử dụng lệnh: /disable <telegram_id>\n\n"
+                "Ví dụ: /disable 5335165612",
+                reply_markup=reply_markup,
+                parse_mode='HTML'
+            )
+
+        # Bật nhận tín hiệu
+        elif query.data == "recipient_enable":
+            if not db.is_admin(user_id):
+                await query.edit_message_text("❌ Chỉ Admin mới sử dụng chức năng này.")
+                return
+
+            keyboard = [
+                [InlineKeyboardButton("⬅️ Quay lại", callback_data="manage_recipients")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await query.edit_message_text(
+                "🔔 <b>Bật nhận tín hiệu</b>\n\n"
+                "Sử dụng lệnh: /enable <telegram_id>\n\n"
+                "Ví dụ: /enable 5335165612",
+                reply_markup=reply_markup,
+                parse_mode='HTML'
+            )
 
         # Xem cấu hình (Admin)
         elif query.data == "config_view":
@@ -797,8 +995,11 @@ Liên hệ Admin nếu cần trợ giúp.
                     "👥 <b>Quản lý người nhận tín hiệu</b>\n\nChọn chức năng:",
                     reply_markup=InlineKeyboardMarkup([
                         [InlineKeyboardButton("➕ Thêm người nhận", callback_data="recipient_add")],
-                        [InlineKeyboardButton("➖ Xóa người nhận", callback_data="recipient_remove")],
+                        [InlineKeyboardButton("✏️ Sửa tên", callback_data="recipient_edit")],
+                        [InlineKeyboardButton("🗑 Xóa người nhận", callback_data="recipient_remove")],
                         [InlineKeyboardButton("📋 Danh sách người nhận", callback_data="recipient_list")],
+                        [InlineKeyboardButton("🔕 Tắt nhận tín hiệu", callback_data="recipient_disable")],
+                        [InlineKeyboardButton("🔔 Bật nhận tín hiệu", callback_data="recipient_enable")],
                         [InlineKeyboardButton("⬅️ Quay lại", callback_data="menu_settings")]
                     ]),
                     parse_mode='HTML'
@@ -830,6 +1031,9 @@ Liên hệ Admin nếu cần trợ giúp.
             self.application.add_handler(CommandHandler("users", self.users_command))
             self.application.add_handler(CommandHandler("broadcast", self.broadcast_command))
             self.application.add_handler(CommandHandler("stats", self.stats_command))
+            self.application.add_handler(CommandHandler("editname", self.editname_command))
+            self.application.add_handler(CommandHandler("disable", self.disable_command))
+            self.application.add_handler(CommandHandler("enable", self.enable_command))
             self.application.add_handler(CallbackQueryHandler(self.button_callback))
 
             # Initialize the application

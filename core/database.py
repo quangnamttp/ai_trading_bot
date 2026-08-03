@@ -38,6 +38,7 @@ class DatabaseManager:
                         telegram_id INTEGER UNIQUE NOT NULL,
                         username TEXT,
                         first_name TEXT,
+                        display_name TEXT,
                         is_admin BOOLEAN DEFAULT 0,
                         is_active BOOLEAN DEFAULT 1,
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -178,21 +179,21 @@ class DatabaseManager:
     
     # ==================== USER MANAGEMENT ====================
     
-    def add_user(self, telegram_id: int, username: str = None, 
-                 first_name: str = None, is_admin: bool = False) -> bool:
+    def add_user(self, telegram_id: int, username: str = None,
+                 first_name: str = None, display_name: str = None, is_admin: bool = False) -> bool:
         """Thêm user mới vào database"""
         try:
             if not isinstance(telegram_id, int) or telegram_id <= 0:
                 logger.error(f"Invalid telegram_id: {telegram_id}")
                 return False
-            
+
             with self.get_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute("""
-                    INSERT OR REPLACE INTO users 
-                    (telegram_id, username, first_name, is_admin, updated_at)
-                    VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
-                """, (telegram_id, username, first_name, is_admin))
+                    INSERT OR REPLACE INTO users
+                    (telegram_id, username, first_name, display_name, is_admin, updated_at)
+                    VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                """, (telegram_id, username, first_name, display_name, is_admin))
                 conn.commit()
                 logger.info(f"User {telegram_id} added/updated successfully")
                 return True
@@ -205,13 +206,41 @@ class DatabaseManager:
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
-                cursor.execute("UPDATE users SET is_active = 0 WHERE telegram_id = ?", 
+                cursor.execute("UPDATE users SET is_active = 0 WHERE telegram_id = ?",
                              (telegram_id,))
                 conn.commit()
                 logger.info(f"User {telegram_id} deactivated")
                 return True
         except Exception as e:
             logger.error(f"Error removing user: {e}")
+            return False
+
+    def update_display_name(self, telegram_id: int, display_name: str) -> bool:
+        """Cập nhật display_name cho user"""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("UPDATE users SET display_name = ?, updated_at = CURRENT_TIMESTAMP WHERE telegram_id = ?",
+                             (display_name, telegram_id))
+                conn.commit()
+                logger.info(f"User {telegram_id} display_name updated to {display_name}")
+                return True
+        except Exception as e:
+            logger.error(f"Error updating display_name: {e}")
+            return False
+
+    def toggle_user_status(self, telegram_id: int) -> bool:
+        """Bật/tắt trạng thái nhận tín hiệu của user"""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("UPDATE users SET is_active = NOT is_active, updated_at = CURRENT_TIMESTAMP WHERE telegram_id = ?",
+                             (telegram_id,))
+                conn.commit()
+                logger.info(f"User {telegram_id} status toggled")
+                return True
+        except Exception as e:
+            logger.error(f"Error toggling user status: {e}")
             return False
     
     def get_user(self, telegram_id: int) -> Optional[Dict]:
