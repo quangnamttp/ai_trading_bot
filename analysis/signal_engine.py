@@ -245,8 +245,8 @@ class SignalEngine:
             price = analysis.get('price', 0)
             trend = analysis.get('trend', 'Neutral')
 
-            # Vietnamese action mapping with original in parentheses
-            action_vi = "MUA (LONG)" if action == 'LONG' else "BÁN (SHORT)" if action == 'SHORT' else action
+            # Vietnamese action mapping
+            action_vi = "MUA" if action == 'LONG' else "BÁN" if action == 'SHORT' else action
 
             if action == 'LONG':
                 emoji = "🟢"
@@ -263,7 +263,7 @@ class SignalEngine:
             take_profits = self.calculate_take_profit(price, action)
             stop_loss = self.calculate_stop_loss(price, action)
 
-            # Vietnamese trend mapping with emoji
+            # Vietnamese trend mapping with emoji - 100% Vietnamese
             trend_vi = trend
             trend_emoji = ""
             trend_mapping = {
@@ -275,10 +275,22 @@ class SignalEngine:
                 'Uptrend': ('Tăng', '🟢'),
                 'Downtrend': ('Giảm', '🔴'),
                 'Strong Uptrend': ('Tăng mạnh', '🟢'),
-                'Strong Downtrend': ('Giảm mạnh', '🔴')
+                'Strong Downtrend': ('Giảm mạnh', '🔴'),
+                # Fallback for any other trend values
+                'strong_uptrend': ('Tăng mạnh', '🟢'),
+                'uptrend': ('Tăng', '🟢'),
+                'neutral': ('Đi ngang', '⚪'),
+                'downtrend': ('Giảm', '🔴'),
+                'strong_downtrend': ('Giảm mạnh', '🔴'),
+                'bullish': ('Tăng', '🟢'),
+                'bearish': ('Giảm', '🔴')
             }
             if trend in trend_mapping:
                 trend_vi, trend_emoji = trend_mapping[trend]
+            else:
+                # Default fallback for unknown trends
+                trend_vi = "Đi ngang"
+                trend_emoji = "⚪"
 
             # Format numbers with thousand separators
             def format_number(num):
@@ -291,23 +303,14 @@ class SignalEngine:
             else:
                 entry_formatted = format_number(float(entry_range))
 
-            # Format message - Vietnamese with professional formatting and separator
-            separator = "━━━━━━━━━━━━━━━━━━"
-            message = f"{separator}\n\n"
-            message += f"{emoji} {display_symbol} | {action_vi}\n\n"
-            message += f"💰 <b>Vùng vào lệnh:</b>\n"
-            message += f"{entry_formatted}\n\n"
-            message += f"🎯 <b>Chốt lời:</b>\n"
-            message += f"{format_number(take_profits['TP1'])}\n\n"
-            message += f"🛑 <b>Cắt lỗ:</b>\n"
-            message += f"{format_number(stop_loss)}\n\n"
-            message += f"🤖 <b>Độ tin cậy AI:</b>\n"
-            message += f"{int(confidence * 100)}%\n\n"
-            message += f"📈 <b>Xu hướng:</b>\n"
-            message += f"{trend_emoji} {trend_vi}\n\n"
-            message += f"🕒 <b>Thời gian:</b>\n"
-            message += f"{format_time()}\n\n"
-            message += f"{separator}"
+            # Format message - Vietnamese with compact formatting
+            message = f"{emoji} {display_symbol} | {action_vi}\n"
+            message += f"💰 Vùng vào lệnh: {entry_formatted}\n"
+            message += f"🎯 Giá chốt lời: {format_number(take_profits['TP1'])}\n"
+            message += f"🛑 Giá cắt lỗ: {format_number(stop_loss)}\n"
+            message += f"🤖 Độ tin cậy AI: {int(confidence * 100)}%\n"
+            message += f"📈 Xu hướng: {trend_emoji} {trend_vi}\n"
+            message += f"🕒 Thời gian: {format_time()}"
 
             return message
         except Exception as e:

@@ -6,7 +6,7 @@ import logging
 import os
 from datetime import datetime
 from typing import Optional
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand, BotCommandScopeAllPrivateChats
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -50,21 +50,13 @@ class TelegramBot:
             telegram_id=user.id,
             username=user.username,
             first_name=user.first_name,
-            is_admin=(str(user.id) == TELEGRAM_ADMIN_ID)
+            is_admin=db.is_admin(user.id)
         )
         logger.info(f"Registered chat: {user.id}")
 
-        # Hiển thị menu chính với inline keyboard
-        keyboard = [
-            [InlineKeyboardButton("📊 Phân tích", callback_data="menu_analysis")],
-            [InlineKeyboardButton("📨 Tín hiệu", callback_data="menu_signals")],
-            [InlineKeyboardButton("👤 Tài khoản", callback_data="menu_account")],
-            [InlineKeyboardButton("⚙️ Cài đặt", callback_data="menu_settings")],
-            [InlineKeyboardButton("📈 Thị trường", callback_data="menu_market")],
-            [InlineKeyboardButton("📰 Tin tức", callback_data="menu_news")],
-            [InlineKeyboardButton("📋 Danh sách lệnh", callback_data="menu_commands")],
-            [InlineKeyboardButton("❓ Trợ giúp", callback_data="menu_help")]
-        ]
+        # Hiển thị menu chính với inline keyboard - tùy theo quyền
+        is_admin = db.is_admin(user.id)
+        keyboard = self.get_main_menu_keyboard(is_admin)
         reply_markup = InlineKeyboardMarkup(keyboard)
 
         welcome_message = f"""
@@ -550,18 +542,30 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
     
     # ==================== CALLBACK HANDLERS ====================
 
-    def get_main_menu_keyboard(self):
-        """Trả về keyboard menu chính"""
-        return [
-            [InlineKeyboardButton("📊 Phân tích", callback_data="menu_analysis")],
-            [InlineKeyboardButton("📨 Tín hiệu", callback_data="menu_signals")],
-            [InlineKeyboardButton("👤 Tài khoản", callback_data="menu_account")],
-            [InlineKeyboardButton("⚙️ Cài đặt", callback_data="menu_settings")],
-            [InlineKeyboardButton("📈 Thị trường", callback_data="menu_market")],
-            [InlineKeyboardButton("📰 Tin tức", callback_data="menu_news")],
-            [InlineKeyboardButton("📋 Danh sách lệnh", callback_data="menu_commands")],
-            [InlineKeyboardButton("❓ Trợ giúp", callback_data="menu_help")]
-        ]
+    def get_main_menu_keyboard(self, is_admin: bool = False):
+        """Tạo keyboard cho menu chính - tùy theo quyền Admin/User"""
+        if is_admin:
+            return [
+                [InlineKeyboardButton("📊 Phân tích", callback_data="menu_analysis")],
+                [InlineKeyboardButton("📨 Tín hiệu", callback_data="menu_signals")],
+                [InlineKeyboardButton("👤 Tài khoản", callback_data="menu_account")],
+                [InlineKeyboardButton("⚙️ Cài đặt", callback_data="menu_settings")],
+                [InlineKeyboardButton("📈 Thị trường", callback_data="menu_market")],
+                [InlineKeyboardButton("📰 Tin tức", callback_data="menu_news")],
+                [InlineKeyboardButton("📋 Danh sách lệnh", callback_data="menu_commands")],
+                [InlineKeyboardButton("❓ Trợ giúp", callback_data="menu_help")]
+            ]
+        else:
+            # User menu - không có Cài đặt (quản trị)
+            return [
+                [InlineKeyboardButton("📊 Phân tích", callback_data="menu_analysis")],
+                [InlineKeyboardButton("📨 Tín hiệu", callback_data="menu_signals")],
+                [InlineKeyboardButton("👤 Tài khoản", callback_data="menu_account")],
+                [InlineKeyboardButton("📈 Thị trường", callback_data="menu_market")],
+                [InlineKeyboardButton("📰 Tin tức", callback_data="menu_news")],
+                [InlineKeyboardButton("📋 Danh sách lệnh", callback_data="menu_commands")],
+                [InlineKeyboardButton("❓ Trợ giúp", callback_data="menu_help")]
+            ]
 
     def get_navigation_keyboard(self, back_to="menu_main"):
         """Trả về keyboard điều hướng (Quay lại, Trang chủ)"""
@@ -579,7 +583,8 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
 
         # Menu chính
         if query.data == "menu_main":
-            keyboard = self.get_main_menu_keyboard()
+            is_admin = db.is_admin(user_id)
+            keyboard = self.get_main_menu_keyboard(is_admin)
             reply_markup = InlineKeyboardMarkup(keyboard)
             await query.edit_message_text(
                 "🤖 <b>AI Trading Signal Bot</b>\n\nChọn chức năng từ menu bên dưới:",
@@ -1005,6 +1010,22 @@ Liên hệ Admin nếu cần trợ giúp.
                     parse_mode='HTML'
                 )
     
+    async def setup_menu_button(self):
+        """Set up Telegram Menu Button"""
+        try:
+            commands = [
+                BotCommand("start", "Bắt đầu sử dụng bot"),
+                BotCommand("help", "Trợ giúp"),
+                BotCommand("status", "Trạng thái bot"),
+                BotCommand("market", "Thông tin thị trường"),
+                BotCommand("news", "Tin tức"),
+                BotCommand("stats", "Thống kê tín hiệu")
+            ]
+            await self.application.bot.set_my_commands(commands, scope=BotCommandScopeAllPrivateChats())
+            logger.info("Telegram Menu Button set up successfully")
+        except Exception as e:
+            logger.error(f"Error setting up menu button: {e}")
+
     # ==================== BOT STARTUP ====================
 
     async def start(self):
@@ -1039,6 +1060,9 @@ Liên hệ Admin nếu cần trợ giúp.
             # Initialize the application
             await self.application.initialize()
             logger.info("Telegram bot application initialized successfully")
+
+            # Set up Telegram Menu Button
+            await self.setup_menu_button()
 
             # Start the application (without polling)
             await self.application.start()
