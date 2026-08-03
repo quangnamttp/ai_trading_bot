@@ -39,12 +39,12 @@ class TelegramBot:
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Lệnh /start - Khởi động bot"""
         user = update.effective_user
-        
+
         # Kiểm tra xem user có bị ban không
         if db.is_banned(user.id):
             await update.message.reply_text("❌ Bạn đã bị ban khỏi bot.")
             return
-        
+
         # Lưu user vào database
         db.add_user(
             telegram_id=user.id,
@@ -53,37 +53,36 @@ class TelegramBot:
             is_admin=(str(user.id) == TELEGRAM_ADMIN_ID)
         )
         logger.info(f"Registered chat: {user.id}")
-        
+
+        # Hiển thị menu chính với inline keyboard
+        keyboard = [
+            [InlineKeyboardButton("📊 Phân tích", callback_data="menu_analysis")],
+            [InlineKeyboardButton("📨 Tín hiệu", callback_data="menu_signals")],
+            [InlineKeyboardButton("👤 Tài khoản", callback_data="menu_account")],
+            [InlineKeyboardButton("⚙️ Cài đặt", callback_data="menu_settings")],
+            [InlineKeyboardButton("📈 Thị trường", callback_data="menu_market")],
+            [InlineKeyboardButton("📰 Tin tức", callback_data="menu_news")],
+            [InlineKeyboardButton("📋 Danh sách lệnh", callback_data="menu_commands")],
+            [InlineKeyboardButton("❓ Trợ giúp", callback_data="menu_help")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
         welcome_message = f"""
-🤖 *Chào mừng bạn đến với AI Trading Signal Bot!*
+🤖 <b>AI Trading Signal Bot</b>
 
-👤 Xin chào {user.first_name}!
+👤 Xin chào, {user.first_name}!
 
-Bot này sẽ giúp bạn:
-• 📊 Phân tích thị trường 24/7
-• 🎯 Gửi tín hiệu giao dịch BTC và Vàng
-• 🤖 AI phân tích với độ chính xác cao
-• 📰 Cập nhật tin tức thị trường
+Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với độ chính xác cao.
 
-📋 *Các lệnh có sẵn:*
-/start - Khởi động bot
-/help - Xem trợ giúp
-/status - Trạng thái bot
-/btc - Phân tích BTC
-/gold - Phân tích Vàng
-/market - Thông tin thị trường
-/news - Tin tức mới nhất
-/settings - Cấu hình
-/id - Xem Telegram ID của bạn
-
-⚠️ *Lưu ý:* Bot chỉ cung cấp tín hiệu phân tích, không tự động giao dịch. Bạn tự quyết định vào lệnh thủ công.
+⚠️ <b>Lưu ý:</b> Bot chỉ cung cấp tín hiệu phân tích, không tự động giao dịch. Bạn tự quyết định vào lệnh thủ công.
         """
-        
-        await update.message.reply_text(welcome_message, parse_mode='HTML')
+
+        await update.message.reply_text(welcome_message, reply_markup=reply_markup, parse_mode='HTML')
         logger.info(f"User {user.id} started the bot")
     
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Lệnh /help - Hiển thị trợ giúp"""
+        from core.config import AI_SCORE_THRESHOLD
         help_message = f"""
 🤖 <b>AI Trading Signal Bot - Hướng dẫn sử dụng</b>
 
@@ -95,18 +94,18 @@ Bot này sẽ giúp bạn:
 /news - Tin tức Crypto & Forex mới nhất
 
 🔹 <b>Quản trị (Chỉ Admin):</b>
-/adduser <user_id> - Thêm user nhận tín hiệu
-/removeuser <user_id> - Xóa user
-/ban <user_id> - Ban user
-/unban <user_id> - Unban user
-/users - Danh sách users
+/adduser <user_id> - Thêm người nhận tín hiệu
+/removeuser <user_id> - Xóa người nhận
+/ban <user_id> - Cấm người dùng
+/unban <user_id> - Bỏ cấm người dùng
+/users - Danh sách người dùng
 /settings - Cấu hình bot
-/broadcast <message> - Gửi thông báo đến tất cả users
+/broadcast <message> - Gửi thông báo đến tất cả
 
 📊 <b>Thống kê:</b>
 /stats - Xem thống kê tín hiệu
 
-🤖 <b>Bot hoạt động 24/7 quét dữ liệu thị trường và gửi tín hiệu khi AI Score > {AI_SCORE_THRESHOLD}%</b>
+🤖 <b>Bot hoạt động 24/7 quét dữ liệu thị trường và gửi tín hiệu khi Điểm AI > {AI_SCORE_THRESHOLD}%</b>
 
 ⚠️ <b>Bot không tự động giao dịch. Tín hiệu chỉ để tham khảo.</b>
         """
@@ -133,13 +132,13 @@ Bot này sẽ giúp bạn:
 
 🕒 Thời gian: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 
-👥 Users: {total_users}
+👥 Người dùng: {total_users}
 📈 Tín hiệu gần đây: {len(recent_signals)}
-🤖 AI Logs: {len(recent_ai_logs)}
+🤖 Nhật ký AI: {len(recent_ai_logs)}
 
 ✅ Bot đang hoạt động 24/7
 🔄 Quét dữ liệu thị trường liên tục
-🎯 Gửi tín hiệu khi AI Score > {AI_SCORE_THRESHOLD}%
+🎯 Gửi tín hiệu khi Điểm AI > {AI_SCORE_THRESHOLD}%
         """
 
         await update.message.reply_text(status_message, parse_mode='HTML')
@@ -227,25 +226,25 @@ Bot này sẽ giúp bạn:
     # ==================== ADMIN COMMANDS ====================
     
     async def adduser_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Lệnh /adduser - Thêm user (Admin only)"""
+        """Lệnh /adduser - Thêm người nhận (Admin only)"""
         user_id = update.effective_user.id
-        
+
         if not db.is_admin(user_id):
             await update.message.reply_text("❌ Chỉ Admin mới sử dụng lệnh này.")
             return
-        
+
         if not context.args or len(context.args) < 1:
             await update.message.reply_text("❌ Sử dụng: /adduser <telegram_id>")
             return
-        
+
         try:
             target_user_id = int(context.args[0])
             if target_user_id <= 0:
                 await update.message.reply_text("❌ Telegram ID phải là số dương.")
                 return
-            
+
             db.add_user(target_user_id, is_active=True)
-            await update.message.reply_text(f"✅ Đã thêm user {target_user_id} vào danh sách.")
+            await update.message.reply_text(f"✅ Đã thêm người nhận {target_user_id} vào danh sách.")
             logger.info(f"Admin {user_id} added user {target_user_id}")
         except ValueError:
             await update.message.reply_text("❌ Telegram ID phải là số.")
@@ -254,25 +253,25 @@ Bot này sẽ giúp bạn:
             await update.message.reply_text(f"❌ Lỗi: {str(e)}")
     
     async def removeuser_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Lệnh /removeuser - Xóa user (Admin only)"""
+        """Lệnh /removeuser - Xóa người nhận (Admin only)"""
         user_id = update.effective_user.id
-        
+
         if not db.is_admin(user_id):
             await update.message.reply_text("❌ Chỉ Admin mới sử dụng lệnh này.")
             return
-        
+
         if not context.args or len(context.args) < 1:
             await update.message.reply_text("❌ Sử dụng: /removeuser <telegram_id>")
             return
-        
+
         try:
             target_user_id = int(context.args[0])
             if target_user_id <= 0:
                 await update.message.reply_text("❌ Telegram ID phải là số dương.")
                 return
-            
+
             db.remove_user(target_user_id)
-            await update.message.reply_text(f"✅ Đã xóa user {target_user_id} khỏi danh sách.")
+            await update.message.reply_text(f"✅ Đã xóa người nhận {target_user_id} khỏi danh sách.")
             logger.info(f"Admin {user_id} removed user {target_user_id}")
         except ValueError:
             await update.message.reply_text("❌ Telegram ID phải là số.")
@@ -281,43 +280,43 @@ Bot này sẽ giúp bạn:
             await update.message.reply_text(f"❌ Lỗi: {str(e)}")
     
     async def users_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Lệnh /users - Danh sách users (Admin only)"""
+        """Lệnh /users - Danh sách người dùng (Admin only)"""
         user_id = update.effective_user.id
-        
+
         if not db.is_admin(user_id):
             await update.message.reply_text("❌ Chỉ Admin mới sử dụng lệnh này.")
             return
-        
+
         users = db.get_all_users()
-        
+
         if not users:
-            await update.message.reply_text("📋 Không có user nào.")
+            await update.message.reply_text("📋 Không có người dùng nào.")
             return
-        
-        users_list = "📋 *Danh sách Users:*\n\n"
+
+        users_list = "📋 *Danh sách người dùng:*\n\n"
         for user in users:
             admin_badge = " 👑" if user['is_admin'] else ""
             users_list += f"• ID: `{user['telegram_id']}`{admin_badge}\n"
             users_list += f"  Username: @{user['username'] or 'N/A'}\n"
-            users_list += f"  Name: {user['first_name'] or 'N/A'}\n\n"
-        
+            users_list += f"  Tên: {user['first_name'] or 'N/A'}\n\n"
+
         await update.message.reply_text(users_list, parse_mode='Markdown')
     
     async def broadcast_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Lệnh /broadcast - Gửi thông báo (Admin only)"""
         user_id = update.effective_user.id
-        
+
         if not db.is_admin(user_id):
             await update.message.reply_text("❌ Chỉ Admin mới sử dụng lệnh này.")
             return
-        
+
         if not context.args:
             await update.message.reply_text("❌ Sử dụng: /broadcast <message>")
             return
-        
+
         message = " ".join(context.args)
         users = db.get_all_users()
-        
+
         success_count = 0
         for user in users:
             try:
@@ -325,32 +324,32 @@ Bot này sẽ giúp bạn:
                 success_count += 1
             except Exception as e:
                 logger.error(f"Error sending broadcast to {user['telegram_id']}: {e}")
-        
-        await update.message.reply_text(f"✅ Đã gửi thông báo đến {success_count}/{len(users)} users.")
+
+        await update.message.reply_text(f"✅ Đã gửi thông báo đến {success_count}/{len(users)} người dùng.")
         logger.info(f"Admin {user_id} broadcasted message to {success_count} users")
     
     async def ban_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Lệnh /ban - Ban user (Admin only)"""
+        """Lệnh /ban - Cấm người dùng (Admin only)"""
         user_id = update.effective_user.id
-        
+
         if not db.is_admin(user_id):
             await update.message.reply_text("❌ Chỉ Admin mới sử dụng lệnh này.")
             return
-        
+
         if not context.args or len(context.args) < 1:
             await update.message.reply_text("❌ Sử dụng: /ban <telegram_id> [reason]")
             return
-        
+
         try:
             target_user_id = int(context.args[0])
             if target_user_id <= 0:
                 await update.message.reply_text("❌ Telegram ID phải là số dương.")
                 return
-            
+
             reason = " ".join(context.args[1:]) if len(context.args) > 1 else None
-            
+
             db.ban_user(target_user_id, banned_by=user_id, reason=reason)
-            await update.message.reply_text(f"✅ Đã ban user {target_user_id}")
+            await update.message.reply_text(f"✅ Đã cấm người dùng {target_user_id}")
             logger.info(f"Admin {user_id} banned user {target_user_id}")
         except ValueError:
             await update.message.reply_text("❌ Telegram ID phải là số.")
@@ -359,25 +358,25 @@ Bot này sẽ giúp bạn:
             await update.message.reply_text(f"❌ Lỗi: {str(e)}")
     
     async def unban_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Lệnh /unban - Unban user (Admin only)"""
+        """Lệnh /unban - Bỏ cấm người dùng (Admin only)"""
         user_id = update.effective_user.id
-        
+
         if not db.is_admin(user_id):
             await update.message.reply_text("❌ Chỉ Admin mới sử dụng lệnh này.")
             return
-        
+
         if not context.args or len(context.args) < 1:
             await update.message.reply_text("❌ Sử dụng: /unban <telegram_id>")
             return
-        
+
         try:
             target_user_id = int(context.args[0])
             if target_user_id <= 0:
                 await update.message.reply_text("❌ Telegram ID phải là số dương.")
                 return
-            
+
             db.unban_user(target_user_id)
-            await update.message.reply_text(f"✅ Đã unban user {target_user_id}")
+            await update.message.reply_text(f"✅ Đã bỏ cấm người dùng {target_user_id}")
             logger.info(f"Admin {user_id} unbanned user {target_user_id}")
         except ValueError:
             await update.message.reply_text("❌ Telegram ID phải là số.")
@@ -388,17 +387,17 @@ Bot này sẽ giúp bạn:
     async def stats_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Lệnh /stats - Xem thống kê tín hiệu"""
         user_id = update.effective_user.id
-        
+
         # Kiểm tra xem user có bị ban không
         if db.is_banned(user_id):
-            await update.message.reply_text("❌ Bạn đã bị ban khỏi bot.")
+            await update.message.reply_text("❌ Bạn đã bị cấm sử dụng bot.")
             return
-        
+
         # Kiểm tra xem user có được phép sử dụng không
         if not db.is_authorized(user_id):
             await update.message.reply_text("❌ Bạn chưa được phép sử dụng bot.")
             return
-        
+
         try:
             # Lấy tham số period (default: all)
             period = 'all'
@@ -406,7 +405,7 @@ Bot này sẽ giúp bạn:
                 period_arg = context.args[0].lower()
                 if period_arg in ['day', 'week', 'month']:
                     period = period_arg
-            
+
             stats_message = statistics_manager.format_stats_message(period)
             await update.message.reply_text(stats_message, parse_mode='HTML')
             logger.info(f"User {user_id} requested stats (period: {period})")
@@ -415,7 +414,27 @@ Bot này sẽ giúp bạn:
             await update.message.reply_text("❌ Không thể lấy thống kê.")
     
     # ==================== CALLBACK HANDLERS ====================
-    
+
+    def get_main_menu_keyboard(self):
+        """Trả về keyboard menu chính"""
+        return [
+            [InlineKeyboardButton("📊 Phân tích", callback_data="menu_analysis")],
+            [InlineKeyboardButton("📨 Tín hiệu", callback_data="menu_signals")],
+            [InlineKeyboardButton("👤 Tài khoản", callback_data="menu_account")],
+            [InlineKeyboardButton("⚙️ Cài đặt", callback_data="menu_settings")],
+            [InlineKeyboardButton("📈 Thị trường", callback_data="menu_market")],
+            [InlineKeyboardButton("📰 Tin tức", callback_data="menu_news")],
+            [InlineKeyboardButton("📋 Danh sách lệnh", callback_data="menu_commands")],
+            [InlineKeyboardButton("❓ Trợ giúp", callback_data="menu_help")]
+        ]
+
+    def get_navigation_keyboard(self, back_to="menu_main"):
+        """Trả về keyboard điều hướng (Quay lại, Trang chủ)"""
+        return [
+            [InlineKeyboardButton("⬅️ Quay lại", callback_data=f"back_{back_to}")],
+            [InlineKeyboardButton("🏠 Trang chủ", callback_data="menu_main")]
+        ]
+
     async def button_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Xử lý callback từ inline keyboard"""
         query = update.callback_query
@@ -423,11 +442,307 @@ Bot này sẽ giúp bạn:
 
         user_id = query.from_user.id
 
-        if not db.is_admin(user_id):
-            await query.edit_message_text("❌ Chỉ Admin mới sử dụng chức năng này.")
-            return
+        # Menu chính
+        if query.data == "menu_main":
+            keyboard = self.get_main_menu_keyboard()
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await query.edit_message_text(
+                "🤖 <b>AI Trading Signal Bot</b>\n\nChọn chức năng từ menu bên dưới:",
+                reply_markup=reply_markup,
+                parse_mode='HTML'
+            )
 
-        if query.data == "config_view":
+        # Menu Phân tích
+        elif query.data == "menu_analysis":
+            keyboard = self.get_navigation_keyboard("menu_main")
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await query.edit_message_text(
+                "📊 <b>Phân tích</b>\n\n"
+                "Bot phân tích thị trường 24/7 sử dụng AI để phát hiện tín hiệu giao dịch.\n\n"
+                "🤖 <b>AI Engine:</b>\n"
+                "• Phân tích xu hướng thị trường\n"
+                "• Phát hiện vùng vào lệnh tối ưu\n"
+                "• Tính toán điểm tin cậy\n\n"
+                "📈 <b>Cặp tiền giao dịch:</b>\n"
+                "• BTC/USDT\n"
+                "• XAU/USD (Vàng)",
+                reply_markup=reply_markup,
+                parse_mode='HTML'
+            )
+
+        # Menu Tín hiệu
+        elif query.data == "menu_signals":
+            keyboard = self.get_navigation_keyboard("menu_main")
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await query.edit_message_text(
+                "📨 <b>Tín hiệu</b>\n\n"
+                "Bot gửi tín hiệu giao dịch tự động khi:\n\n"
+                "🎯 <b>Điều kiện:</b>\n"
+                "• Điểm AI vượt ngưỡng cấu hình\n"
+                "• Độ tin cậy cao\n"
+                "• Xu hướng thị trường rõ ràng\n\n"
+                "📊 <b>Thông tin tín hiệu bao gồm:</b>\n"
+                "• Hành động (MUA/BÁN)\n"
+                "• Vùng vào lệnh\n"
+                "• Giá chốt lời\n"
+                "• Giá cắt lỗ\n"
+                "• Độ tin cậy AI\n"
+                "• Biểu đồ kỹ thuật\n\n"
+                "⚠️ Tín hiệu chỉ để tham khảo, không tự động giao dịch.",
+                reply_markup=reply_markup,
+                parse_mode='HTML'
+            )
+
+        # Menu Tài khoản
+        elif query.data == "menu_account":
+            user = query.from_user
+            user_data = db.get_user(user_id)
+
+            if user_data:
+                join_date = user_data.get('created_at', 'N/A')
+                is_active = user_data.get('is_active', False)
+                status = "✅ Đang nhận tín hiệu" if is_active else "❌ Không nhận tín hiệu"
+            else:
+                join_date = "N/A"
+                status = "❌ Không nhận tín hiệu"
+
+            account_message = f"""
+👤 <b>Tài khoản</b>
+
+🆔 <b>Telegram ID:</b> {user.id}
+📛 <b>Username:</b> @{user.username or 'N/A'}
+👤 <b>Họ tên:</b> {user.first_name or 'N/A'}
+📅 <b>Ngày tham gia:</b> {join_date}
+📊 <b>Trạng thái:</b> {status}
+            """
+
+            keyboard = self.get_navigation_keyboard("menu_main")
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await query.edit_message_text(account_message, reply_markup=reply_markup, parse_mode='HTML')
+
+        # Menu Cài đặt (Admin only)
+        elif query.data == "menu_settings":
+            if not db.is_admin(user_id):
+                await query.edit_message_text("❌ Chỉ Admin mới sử dụng chức năng này.")
+                return
+
+            keyboard = [
+                [InlineKeyboardButton("📊 Xem cấu hình", callback_data="config_view")],
+                [InlineKeyboardButton("👥 Quản lý người nhận", callback_data="manage_recipients")],
+                [InlineKeyboardButton("⬅️ Quay lại", callback_data="menu_main")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await query.edit_message_text(
+                "⚙️ <b>Cài đặt</b>\n\nChọn chức năng quản trị:",
+                reply_markup=reply_markup,
+                parse_mode='HTML'
+            )
+
+        # Menu Thị trường
+        elif query.data == "menu_market":
+            keyboard = self.get_navigation_keyboard("menu_main")
+            reply_markup = InlineKeyboardMarkup(keyboard)
+
+            try:
+                if self.market_data:
+                    market_info = await self.market_data.get_market_overview()
+                    if market_info:
+                        await query.edit_message_text(
+                            f"📈 <b>Thị trường</b>\n\n{market_info}",
+                            reply_markup=reply_markup,
+                            parse_mode='Markdown'
+                        )
+                    else:
+                        await query.edit_message_text(
+                            "📈 <b>Thị trường</b>\n\n❌ Dữ liệu thị trường không khả dụng lúc này.",
+                            reply_markup=reply_markup,
+                            parse_mode='HTML'
+                        )
+                else:
+                    await query.edit_message_text(
+                        "📈 <b>Thị trường</b>\n\n❌ Dữ liệu thị trường không khả dụng lúc này.",
+                        reply_markup=reply_markup,
+                        parse_mode='HTML'
+                    )
+            except Exception as e:
+                logger.error(f"Error in menu_market: {e}")
+                await query.edit_message_text(
+                    "📈 <b>Thị trường</b>\n\n❌ Lỗi khi tải dữ liệu thị trường.",
+                    reply_markup=reply_markup,
+                    parse_mode='HTML'
+                )
+
+        # Menu Tin tức
+        elif query.data == "menu_news":
+            keyboard = self.get_navigation_keyboard("menu_main")
+            reply_markup = InlineKeyboardMarkup(keyboard)
+
+            try:
+                from data.news_engine import news_engine
+                news_summary = await news_engine.get_news_summary()
+
+                if news_summary:
+                    await query.edit_message_text(
+                        f"📰 <b>Tin tức</b>\n\n{news_summary}",
+                        reply_markup=reply_markup,
+                        parse_mode='Markdown'
+                    )
+                else:
+                    await query.edit_message_text(
+                        "📰 <b>Tin tức</b>\n\n❌ Tin tức không khả dụng lúc này.",
+                        reply_markup=reply_markup,
+                        parse_mode='HTML'
+                    )
+            except Exception as e:
+                logger.error(f"Error in menu_news: {e}")
+                await query.edit_message_text(
+                    "📰 <b>Tin tức</b>\n\n❌ Lỗi khi tải tin tức.",
+                    reply_markup=reply_markup,
+                    parse_mode='HTML'
+                )
+
+        # Menu Danh sách lệnh
+        elif query.data == "menu_commands":
+            keyboard = self.get_navigation_keyboard("menu_main")
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            commands_message = """
+📋 <b>Danh sách lệnh</b>
+
+🔹 <b>Lệnh cơ bản:</b>
+/start - Bắt đầu sử dụng bot
+/help - Hiển thị trợ giúp
+/status - Trạng thái bot
+/market - Thông tin thị trường
+/news - Tin tức mới nhất
+
+🔹 <b>Quản trị (Chỉ Admin):</b>
+/adduser <user_id> - Thêm user nhận tín hiệu
+/removeuser <user_id> - Xóa user
+/ban <user_id> - Ban user
+/unban <user_id> - Unban user
+/users - Danh sách users
+/settings - Cấu hình bot
+/broadcast <message> - Gửi thông báo
+
+📊 <b>Thống kê:</b>
+/stats - Xem thống kê tín hiệu
+            """
+            await query.edit_message_text(commands_message, reply_markup=reply_markup, parse_mode='HTML')
+
+        # Menu Trợ giúp
+        elif query.data == "menu_help":
+            keyboard = self.get_navigation_keyboard("menu_main")
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            help_message = """
+❓ <b>Trợ giúp</b>
+
+🤖 <b>Bot hoạt động như thế nào?</b>
+• Phân tích thị trường 24/7
+• Gửi tín hiệu khi AI Score vượt ngưỡng
+• Không tự động giao dịch
+
+📊 <b>Cách sử dụng:</b>
+1. Sử dụng menu để điều hướng
+2. Nhận tín hiệu tự động nếu được cấp quyền
+3. Tự quyết định vào lệnh thủ công
+
+⚠️ <b>Lưu ý quan trọng:</b>
+• Tín hiệu chỉ để tham khảo
+• Không tự động giao dịch
+• Quản lý rủi ro cẩn thận
+• Không đầu tư quá khả năng
+
+👨‍💻 <b>Hỗ trợ:</b>
+Liên hệ Admin nếu cần trợ giúp.
+            """
+            await query.edit_message_text(help_message, reply_markup=reply_markup, parse_mode='HTML')
+
+        # Quản lý người nhận tín hiệu (Admin)
+        elif query.data == "manage_recipients":
+            if not db.is_admin(user_id):
+                await query.edit_message_text("❌ Chỉ Admin mới sử dụng chức năng này.")
+                return
+
+            keyboard = [
+                [InlineKeyboardButton("➕ Thêm người nhận", callback_data="recipient_add")],
+                [InlineKeyboardButton("➖ Xóa người nhận", callback_data="recipient_remove")],
+                [InlineKeyboardButton("📋 Danh sách người nhận", callback_data="recipient_list")],
+                [InlineKeyboardButton("⬅️ Quay lại", callback_data="menu_settings")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await query.edit_message_text(
+                "👥 <b>Quản lý người nhận tín hiệu</b>\n\nChọn chức năng:",
+                reply_markup=reply_markup,
+                parse_mode='HTML'
+            )
+
+        # Thêm người nhận
+        elif query.data == "recipient_add":
+            if not db.is_admin(user_id):
+                await query.edit_message_text("❌ Chỉ Admin mới sử dụng chức năng này.")
+                return
+
+            keyboard = [
+                [InlineKeyboardButton("⬅️ Quay lại", callback_data="manage_recipients")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await query.edit_message_text(
+                "➕ <b>Thêm người nhận</b>\n\n"
+                "Sử dụng lệnh: /adduser <telegram_id>\n\n"
+                "Ví dụ: /adduser 123456789",
+                reply_markup=reply_markup,
+                parse_mode='HTML'
+            )
+
+        # Xóa người nhận
+        elif query.data == "recipient_remove":
+            if not db.is_admin(user_id):
+                await query.edit_message_text("❌ Chỉ Admin mới sử dụng chức năng này.")
+                return
+
+            keyboard = [
+                [InlineKeyboardButton("⬅️ Quay lại", callback_data="manage_recipients")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await query.edit_message_text(
+                "➖ <b>Xóa người nhận</b>\n\n"
+                "Sử dụng lệnh: /removeuser <telegram_id>\n\n"
+                "Ví dụ: /removeuser 123456789",
+                reply_markup=reply_markup,
+                parse_mode='HTML'
+            )
+
+        # Danh sách người nhận
+        elif query.data == "recipient_list":
+            if not db.is_admin(user_id):
+                await query.edit_message_text("❌ Chỉ Admin mới sử dụng chức năng này.")
+                return
+
+            users = db.get_all_users()
+
+            if not users:
+                users_list = "📋 <b>Danh sách người nhận</b>\n\nKhông có người nhận nào."
+            else:
+                users_list = "📋 <b>Danh sách người nhận</b>\n\n"
+                for user in users:
+                    admin_badge = " 👑" if user['is_admin'] else ""
+                    active_badge = " ✅" if user['is_active'] else " ❌"
+                    users_list += f"• ID: `{user['telegram_id']}`{admin_badge}{active_badge}\n"
+                    users_list += f"  Username: @{user['username'] or 'N/A'}\n"
+                    users_list += f"  Name: {user['first_name'] or 'N/A'}\n\n"
+
+            keyboard = [
+                [InlineKeyboardButton("⬅️ Quay lại", callback_data="manage_recipients")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await query.edit_message_text(users_list, reply_markup=reply_markup, parse_mode='HTML')
+
+        # Xem cấu hình (Admin)
+        elif query.data == "config_view":
+            if not db.is_admin(user_id):
+                await query.edit_message_text("❌ Chỉ Admin mới sử dụng chức năng này.")
+                return
+
             from core.config import (
                 AI_SCORE_THRESHOLD, MIN_CONFIDENCE, MAX_RISK_PER_TRADE,
                 MAX_POSITIONS, SIGNAL_COOLDOWN_MINUTES, MAX_SIGNALS_PER_HOUR,
@@ -435,48 +750,59 @@ Bot này sẽ giúp bạn:
                 SYMBOLS, EXCHANGE, clean_symbol
             )
             config_text = "📊 <b>Cấu hình hiện tại:</b>\n\n"
-            config_text += f"• AI Score Threshold: {AI_SCORE_THRESHOLD}\n"
-            config_text += f"• Min Confidence: {MIN_CONFIDENCE}\n"
-            config_text += f"• Max Risk Per Trade: {MAX_RISK_PER_TRADE}\n"
-            config_text += f"• Max Positions: {MAX_POSITIONS}\n"
-            config_text += f"• Signal Cooldown: {SIGNAL_COOLDOWN_MINUTES} minutes\n"
-            config_text += f"• Max Signals Per Hour: {MAX_SIGNALS_PER_HOUR}\n"
-            config_text += f"• Market Data Interval: {MARKET_DATA_INTERVAL}s\n"
-            config_text += f"• News Check Interval: {NEWS_CHECK_INTERVAL}s\n"
-            config_text += f"• AI Update Interval: {AI_UPDATE_INTERVAL}s\n"
+            config_text += f"• Ngưỡng điểm AI: {AI_SCORE_THRESHOLD}\n"
+            config_text += f"• Độ tin cậy tối thiểu: {MIN_CONFIDENCE}\n"
+            config_text += f"• Rủi ro tối đa mỗi lệnh: {MAX_RISK_PER_TRADE}\n"
+            config_text += f"• Số vị thế tối đa: {MAX_POSITIONS}\n"
+            config_text += f"• Thời gian chờ tín hiệu: {SIGNAL_COOLDOWN_MINUTES} phút\n"
+            config_text += f"• Số tín hiệu tối đa mỗi giờ: {MAX_SIGNALS_PER_HOUR}\n"
+            config_text += f"• Cập nhật dữ liệu thị trường: {MARKET_DATA_INTERVAL} giây\n"
+            config_text += f"• Kiểm tra tin tức: {NEWS_CHECK_INTERVAL} giây\n"
+            config_text += f"• Cập nhật AI: {AI_UPDATE_INTERVAL} giây\n"
             clean_symbols = [clean_symbol(s) for s in SYMBOLS]
-            config_text += f"• Trading Symbols: {', '.join(clean_symbols)}\n"
-            config_text += f"• Exchange: {EXCHANGE}\n"
+            config_text += f"• Cặp tiền giao dịch: {', '.join(clean_symbols)}\n"
+            config_text += f"• Sàn giao dịch: {EXCHANGE}\n"
 
             keyboard = [
-                [InlineKeyboardButton("🔙 Quay lại", callback_data="config_back")]
+                [InlineKeyboardButton("⬅️ Quay lại", callback_data="menu_settings")]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             await query.edit_message_text(config_text, reply_markup=reply_markup, parse_mode='HTML')
 
-        elif query.data == "config_ai_threshold":
-            from core.config import AI_SCORE_THRESHOLD
-            keyboard = [
-                [InlineKeyboardButton("🔙 Quay lại", callback_data="config_view")]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            await query.edit_message_text(
-                f"🔧 <b>Đổi ngưỡng AI Score</b>\n\n"
-                f"Ngưỡng hiện tại: {AI_SCORE_THRESHOLD}\n"
-                "Để đổi, sử dụng lệnh: /set_ai_threshold <value>\n"
-                "Ví dụ: /set_ai_threshold 90",
-                reply_markup=reply_markup,
-                parse_mode='HTML'
-            )
-
-        elif query.data == "config_back":
-            keyboard = [
-                [InlineKeyboardButton("📊 Xem cấu hình", callback_data="config_view")],
-                [InlineKeyboardButton("🔧 Đổi ngưỡng AI Score", callback_data="config_ai_threshold")],
-                [InlineKeyboardButton("🔙 Quay lại", callback_data="config_back")]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            await query.edit_message_text("⚙️ <b>Cấu hình Bot</b>", reply_markup=reply_markup, parse_mode='HTML')
+        # Quay lại
+        elif query.data.startswith("back_"):
+            target = query.data.replace("back_", "")
+            if target == "menu_main":
+                keyboard = self.get_main_menu_keyboard()
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                await query.edit_message_text(
+                    "🤖 <b>AI Trading Signal Bot</b>\n\nChọn chức năng từ menu bên dưới:",
+                    reply_markup=reply_markup,
+                    parse_mode='HTML'
+                )
+            elif target == "menu_settings":
+                # Navigate back to settings
+                await query.edit_message_text(
+                    "⚙️ <b>Cài đặt</b>\n\nChọn chức năng quản trị:",
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("📊 Xem cấu hình", callback_data="config_view")],
+                        [InlineKeyboardButton("👥 Quản lý người nhận", callback_data="manage_recipients")],
+                        [InlineKeyboardButton("⬅️ Quay lại", callback_data="menu_main")]
+                    ]),
+                    parse_mode='HTML'
+                )
+            elif target == "manage_recipients":
+                # Navigate back to manage recipients
+                await query.edit_message_text(
+                    "👥 <b>Quản lý người nhận tín hiệu</b>\n\nChọn chức năng:",
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("➕ Thêm người nhận", callback_data="recipient_add")],
+                        [InlineKeyboardButton("➖ Xóa người nhận", callback_data="recipient_remove")],
+                        [InlineKeyboardButton("📋 Danh sách người nhận", callback_data="recipient_list")],
+                        [InlineKeyboardButton("⬅️ Quay lại", callback_data="menu_settings")]
+                    ]),
+                    parse_mode='HTML'
+                )
     
     # ==================== BOT STARTUP ====================
 

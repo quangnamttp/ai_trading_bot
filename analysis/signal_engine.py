@@ -235,7 +235,7 @@ class SignalEngine:
             return False
     
     async def format_signal_message(self, analysis: Dict) -> Optional[str]:
-        """Định dạng tin nhắn tín hiệu - simplified compact format"""
+        """Định dạng tin nhắn tín hiệu - Vietnamese localization with professional formatting"""
         try:
             from core.config import clean_symbol, format_time
 
@@ -244,6 +244,9 @@ class SignalEngine:
             confidence = analysis.get('confidence', 0)
             price = analysis.get('price', 0)
             trend = analysis.get('trend', 'Neutral')
+
+            # Vietnamese action mapping
+            action_vi = "MUA" if action == 'LONG' else "BÁN" if action == 'SHORT' else action
 
             if action == 'LONG':
                 emoji = "🟢"
@@ -260,14 +263,47 @@ class SignalEngine:
             take_profits = self.calculate_take_profit(price, action)
             stop_loss = self.calculate_stop_loss(price, action)
 
-            # Format message - simplified compact format
-            message = f"{emoji} {display_symbol} | {action}\n"
-            message += f"📍 Entry: {entry_range}\n"
-            message += f"🎯 TP: {take_profits['TP1']:.2f}\n"
-            message += f"🛑 SL: {stop_loss:.2f}\n"
-            message += f"💎 Confidence: {int(confidence * 100)}%\n"
-            message += f"📈 Trend: {trend}\n"
-            message += f"🕒 {format_time()}"
+            # Vietnamese trend mapping
+            trend_vi = trend
+            trend_mapping = {
+                'Bullish': 'Tăng',
+                'Strong Bullish': 'Tăng mạnh',
+                'Bearish': 'Giảm',
+                'Strong Bearish': 'Giảm mạnh',
+                'Neutral': 'Đi ngang',
+                'Uptrend': 'Xu hướng tăng',
+                'Downtrend': 'Xu hướng giảm',
+                'Strong Uptrend': 'Xu hướng tăng mạnh',
+                'Strong Downtrend': 'Xu hướng giảm mạnh'
+            }
+            if trend in trend_mapping:
+                trend_vi = trend_mapping[trend]
+
+            # Format numbers with thousand separators
+            def format_number(num):
+                return f"{num:,.2f}"
+
+            # Parse entry range
+            if '-' in entry_range:
+                entry_low, entry_high = map(float, entry_range.split(' - '))
+                entry_formatted = f"{format_number(entry_low)} → {format_number(entry_high)}"
+            else:
+                entry_formatted = format_number(float(entry_range))
+
+            # Format message - Vietnamese with professional formatting
+            message = f"{emoji} {display_symbol} | {action_vi}\n\n"
+            message += f"� <b>Vùng vào lệnh</b>\n"
+            message += f"{entry_formatted}\n\n"
+            message += f"🎯 <b>Giá chốt lời</b>\n"
+            message += f"{format_number(take_profits['TP1'])}\n\n"
+            message += f"🛑 <b>Giá cắt lỗ</b>\n"
+            message += f"{format_number(stop_loss)}\n\n"
+            message += f"🤖 <b>Độ tin cậy AI</b>\n"
+            message += f"{int(confidence * 100)}%\n\n"
+            message += f"📈 <b>Xu hướng thị trường</b>\n"
+            message += f"{trend_vi}\n\n"
+            message += f"🕒 <b>Thời gian</b>\n"
+            message += f"{format_time()}"
 
             return message
         except Exception as e:
