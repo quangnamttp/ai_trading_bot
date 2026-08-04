@@ -353,23 +353,36 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
             logger.error(f"Error in stats command: {e}")
             await update.message.reply_text("❌ Không thể lấy thống kê.")
     
+    async def signals_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Lệnh /signals - Hiển thị tín hiệu"""
+        user_id = update.effective_user.id
+
+        if not db.is_authorized(user_id):
+            await update.message.reply_text("❌ Bạn không có quyền sử dụng bot này.")
+            return
+
+        is_admin = db.is_admin(user_id)
+        await self.show_signals(update, is_admin)
+    
+    async def analyze_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Lệnh /analyze - Hiển thị phân tích"""
+        user_id = update.effective_user.id
+
+        if not db.is_authorized(user_id):
+            await update.message.reply_text("❌ Bạn không có quyền sử dụng bot này.")
+            return
+
+        is_admin = db.is_admin(user_id)
+        await self.show_analysis(update, is_admin)
+    
     # ==================== CALLBACK HANDLERS ====================
 
     def get_reply_keyboard(self, is_admin: bool = False):
-        """Tạo Reply Keyboard cho menu chính - tùy theo quyền Admin/User"""
-        if is_admin:
-            keyboard = [
-                [KeyboardButton("📊 Phân tích"), KeyboardButton("📨 Tín hiệu")],
-                [KeyboardButton("📈 Thị trường"), KeyboardButton("📰 Tin tức")],
-                [KeyboardButton("👤 Tài khoản"), KeyboardButton("⚙️ Cài đặt")],
-                [KeyboardButton(" Danh sách lệnh"), KeyboardButton("❓ Trợ giúp")]
-            ]
-        else:
-            # User menu - chỉ các chức năng cơ bản
-            keyboard = [
-                [KeyboardButton("📨 Tín hiệu"), KeyboardButton("📈 Thị trường")],
-                [KeyboardButton("📰 Tin tức"), KeyboardButton("❓ Trợ giúp")]
-            ]
+        """Tạo Reply Keyboard đơn giản với 4 nút chính"""
+        keyboard = [
+            [KeyboardButton("📰 Tin tức"), KeyboardButton("📈 Thị trường")],
+            [KeyboardButton("📨 Tín hiệu"), KeyboardButton("📊 Phân tích")]
+        ]
         return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False, is_persistent=True)
 
     def get_main_menu_keyboard(self, is_admin: bool = False):
@@ -418,7 +431,7 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
         logger.info(f"User {user.id} requested menu")
 
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Xử lý tin nhắn văn bản từ Reply Keyboard"""
+        """Xử lý tin nhắn văn bản từ Reply Keyboard - gọi trực tiếp các handler"""
         user = update.effective_user
         text = update.message.text
 
@@ -429,37 +442,19 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
             await update.message.reply_text("❌ Bạn đã bị ban khỏi bot.")
             return
 
-        is_admin = db.is_admin(user.id)
-        logger.info(f"User {user.id} is_admin: {is_admin}")
-
-        # Xử lý các nút menu
-        if text == "📊 Phân tích":
-            logger.info(f"Processing: Phân tích")
-            await self.show_analysis(update, is_admin)
-        elif text == "📨 Tín hiệu":
-            logger.info(f"Processing: Tín hiệu")
-            await self.show_signals(update, is_admin)
+        # Xử lý các nút menu - gọi trực tiếp các command handlers
+        if text == "� Tin tức":
+            logger.info(f"Processing: Tin tức - calling news_command")
+            await self.news_command(update, context)
         elif text == "📈 Thị trường":
-            logger.info(f"Processing: Thị trường")
-            await self.show_market(update, is_admin)
-        elif text == "📰 Tin tức":
-            logger.info(f"Processing: Tin tức")
-            await self.show_news(update, is_admin)
-        elif text == "👤 Tài khoản":
-            logger.info(f"Processing: Tài khoản")
-            await self.show_account(update, is_admin)
-        elif text == "⚙️ Cài đặt":
-            logger.info(f"Processing: Cài đặt")
-            if is_admin:
-                await self.show_settings(update, is_admin)
-            else:
-                await update.message.reply_text("⛔ Bạn không có quyền sử dụng chức năng này.")
-        elif text == " Danh sách lệnh":
-            logger.info(f"Processing: Danh sách lệnh")
-            await self.show_commands(update, is_admin)
-        elif text == "❓ Trợ giúp":
-            logger.info(f"Processing: Trợ giúp")
-            await self.show_help(update, is_admin)
+            logger.info(f"Processing: Thị trường - calling market_command")
+            await self.market_command(update, context)
+        elif text == "� Tín hiệu":
+            logger.info(f"Processing: Tín hiệu - calling signals_command")
+            await self.signals_command(update, context)
+        elif text == "📊 Phân tích":
+            logger.info(f"Processing: Phân tích - calling analyze_command")
+            await self.analyze_command(update, context)
         else:
             # Tin nhắn không phải menu - có thể xử lý khác hoặc bỏ qua
             logger.info(f"Unknown message: '{text}'")
@@ -894,26 +889,22 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
 
             self.application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 
-            # Đăng ký handlers
+            # Đăng ký handlers - chỉ giữ admin commands cần thiết
             self.application.add_handler(CommandHandler("start", self.start_command))
-            self.application.add_handler(CommandHandler("menu", self.menu_command))
-            self.application.add_handler(CommandHandler("help", self.help_command))
-            self.application.add_handler(CommandHandler("status", self.status_command))
-            self.application.add_handler(CommandHandler("market", self.market_command))
-            self.application.add_handler(CommandHandler("news", self.news_command))
-            self.application.add_handler(CommandHandler("settings", self.settings_command))
-            self.application.add_handler(CommandHandler("id", self.id_command))
             self.application.add_handler(CommandHandler("ban", self.ban_command))
             self.application.add_handler(CommandHandler("unban", self.unban_command))
             self.application.add_handler(CommandHandler("users", self.users_command))
             self.application.add_handler(CommandHandler("broadcast", self.broadcast_command))
-            self.application.add_handler(CommandHandler("stats", self.stats_command))
             self.application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
             self.application.add_handler(CallbackQueryHandler(self.button_callback))
 
             # Initialize the application
             await self.application.initialize()
             logger.info("Telegram bot application initialized successfully")
+
+            # Delete all slash commands from Telegram UI
+            await self.application.bot.delete_my_commands()
+            logger.info("Deleted all slash commands from Telegram UI")
 
             # Start the application (without polling)
             await self.application.start()
