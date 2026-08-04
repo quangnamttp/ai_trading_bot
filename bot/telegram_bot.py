@@ -558,7 +558,7 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
                 [KeyboardButton("📨 Tín hiệu"), KeyboardButton("📈 Thị trường")],
                 [KeyboardButton("📰 Tin tức"), KeyboardButton("❓ Trợ giúp")]
             ]
-        return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False)
+        return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False, is_persistent=True)
 
     def get_main_menu_keyboard(self, is_admin: bool = False):
         """Tạo keyboard cho menu chính - tùy theo quyền Admin/User (Inline Keyboard for submenus)"""
@@ -648,8 +648,6 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
 
     async def show_analysis(self, update: Update, is_admin: bool):
         """Hiển thị phân tích"""
-        keyboard = self.get_main_menu_keyboard(is_admin)
-        reply_markup = InlineKeyboardMarkup(keyboard)
         await update.message.reply_text(
             "📊 <b>Phân tích</b>\n\n"
             "Bot phân tích thị trường 24/7 sử dụng AI để phát hiện tín hiệu giao dịch.\n\n"
@@ -660,14 +658,11 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
             "📈 <b>Cặp tiền giao dịch:</b>\n"
             "• BTC/USDT\n"
             "• XAU/USD (Vàng)",
-            reply_markup=reply_markup,
             parse_mode='HTML'
         )
 
     async def show_signals(self, update: Update, is_admin: bool):
         """Hiển thị tín hiệu"""
-        keyboard = self.get_main_menu_keyboard(is_admin)
-        reply_markup = InlineKeyboardMarkup(keyboard)
         await update.message.reply_text(
             "📨 <b>Tín hiệu</b>\n\n"
             "Bot gửi tín hiệu giao dịch tự động khi:\n\n"
@@ -682,7 +677,6 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
             "• Giá cắt lỗ\n"
             "• Độ tin cậy AI\n"
             "• Xu hướng thị trường",
-            reply_markup=reply_markup,
             parse_mode='HTML'
         )
 
@@ -690,9 +684,7 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
         """Hiển thị thị trường"""
         if self.market_data:
             market_info = self.market_data.get_market_summary()
-            keyboard = self.get_main_menu_keyboard(is_admin)
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            await update.message.reply_text(market_info, reply_markup=reply_markup, parse_mode='HTML')
+            await update.message.reply_text(market_info, parse_mode='HTML')
         else:
             await update.message.reply_text("❌ Dữ liệu thị trường chưa sẵn sàng.")
 
@@ -700,17 +692,13 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
         """Hiển thị tin tức"""
         if self.market_data:
             news = self.market_data.get_latest_news()
-            keyboard = self.get_main_menu_keyboard(is_admin)
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            await update.message.reply_text(news, reply_markup=reply_markup, parse_mode='HTML')
+            await update.message.reply_text(news, parse_mode='HTML')
         else:
             await update.message.reply_text("❌ Tin tức chưa sẵn sàng.")
 
     async def show_account(self, update: Update, is_admin: bool):
         """Hiển thị tài khoản"""
         user = update.effective_user
-        keyboard = self.get_main_menu_keyboard(is_admin)
-        reply_markup = InlineKeyboardMarkup(keyboard)
 
         account_message = f"""
 👤 <b>Tài khoản</b>
@@ -721,7 +709,7 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
 {'👑 <b>Quyền:</b> Admin' if is_admin else '👤 <b>Quyền:</b> Người dùng'}
         """
 
-        await update.message.reply_text(account_message, reply_markup=reply_markup, parse_mode='HTML')
+        await update.message.reply_text(account_message, parse_mode='HTML')
 
     async def show_settings(self, update: Update, is_admin: bool):
         """Hiển thị cài đặt (Admin only)"""
@@ -757,9 +745,6 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
 
     async def show_commands(self, update: Update, is_admin: bool):
         """Hiển thị danh sách lệnh"""
-        keyboard = self.get_main_menu_keyboard(is_admin)
-        reply_markup = InlineKeyboardMarkup(keyboard)
-
         if is_admin:
             commands_message = """
 📋 <b>Danh sách lệnh</b>
@@ -798,13 +783,11 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
 /stats - Xem thống kê tín hiệu
             """
 
-        await update.message.reply_text(commands_message, reply_markup=reply_markup, parse_mode='HTML')
+        await update.message.reply_text(commands_message, parse_mode='HTML')
 
     async def show_help(self, update: Update, is_admin: bool):
         """Hiển thị trợ giúp"""
         from core.config import AI_SCORE_THRESHOLD
-        keyboard = self.get_main_menu_keyboard(is_admin)
-        reply_markup = InlineKeyboardMarkup(keyboard)
 
         help_message = f"""
 ❓ <b>Trợ giúp</b>
@@ -830,7 +813,7 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
 ⚠️ <b>Bot không tự động giao dịch. Tín hiệu chỉ để tham khảo.</b>
         """
 
-        await update.message.reply_text(help_message, reply_markup=reply_markup, parse_mode='HTML')
+        await update.message.reply_text(help_message, parse_mode='HTML')
 
     # ==================== CALLBACK HANDLERS ====================
 
