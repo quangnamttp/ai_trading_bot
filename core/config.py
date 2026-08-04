@@ -25,7 +25,8 @@ def format_time(dt=None):
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_ADMIN_ID = os.getenv("TELEGRAM_ADMIN_ID")
 ADMIN_IDS = os.getenv("ADMIN_IDS", TELEGRAM_ADMIN_ID or "").split(",")
-ADMIN_IDS = [int(id.strip()) for id in ADMIN_IDS if id.strip().isdigit()] if ADMIN_IDS else []
+# Filter out invalid IDs (placeholders, non-numeric)
+ADMIN_IDS = [int(id.strip()) for id in ADMIN_IDS if id.strip() and id.strip().isdigit() and not id.strip().startswith("your_")] if ADMIN_IDS else []
 TELEGRAM_WEBHOOK_URL = os.getenv("TELEGRAM_WEBHOOK_URL", "")
 
 # Database Configuration

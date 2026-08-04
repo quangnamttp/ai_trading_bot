@@ -47,16 +47,16 @@ class TelegramBot:
             return
 
         # Lưu user vào database
+        is_admin = db.is_admin(user.id)
         db.add_user(
             telegram_id=user.id,
             username=user.username,
             first_name=user.first_name,
-            is_admin=db.is_admin(user.id)
+            is_admin=is_admin
         )
-        logger.info(f"Registered chat: {user.id}")
+        logger.info(f"Registered chat: {user.id}, is_admin: {is_admin}")
 
         # Hiển thị menu chính với Reply Keyboard - tùy theo quyền
-        is_admin = db.is_admin(user.id)
         reply_markup = self.get_reply_keyboard(is_admin)
 
         welcome_message = f"""
@@ -70,7 +70,7 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
         """
 
         await update.message.reply_text(welcome_message, reply_markup=reply_markup, parse_mode='HTML')
-        logger.info(f"User {user.id} started the bot")
+        logger.info(f"User {user.id} started the bot, is_admin: {is_admin}")
     
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Lệnh /help - Hiển thị trợ giúp"""
@@ -610,40 +610,53 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
         user = update.effective_user
         text = update.message.text
 
+        logger.info(f"Received message from user {user.id}: '{text}'")
+
         # Kiểm tra xem user có bị ban không
         if db.is_banned(user.id):
             await update.message.reply_text("❌ Bạn đã bị ban khỏi bot.")
             return
 
         is_admin = db.is_admin(user.id)
+        logger.info(f"User {user.id} is_admin: {is_admin}")
 
         # Xử lý các nút menu
         if text == "📊 Phân tích":
+            logger.info(f"Processing: Phân tích")
             await self.show_analysis(update, is_admin)
         elif text == "📨 Tín hiệu":
+            logger.info(f"Processing: Tín hiệu")
             await self.show_signals(update, is_admin)
         elif text == "📈 Thị trường":
+            logger.info(f"Processing: Thị trường")
             await self.show_market(update, is_admin)
         elif text == "📰 Tin tức":
+            logger.info(f"Processing: Tin tức")
             await self.show_news(update, is_admin)
         elif text == "👤 Tài khoản":
+            logger.info(f"Processing: Tài khoản")
             await self.show_account(update, is_admin)
         elif text == "⚙️ Cài đặt":
+            logger.info(f"Processing: Cài đặt")
             if is_admin:
                 await self.show_settings(update, is_admin)
             else:
                 await update.message.reply_text("⛔ Bạn không có quyền sử dụng chức năng này.")
         elif text == "👥 Quản lý người nhận":
+            logger.info(f"Processing: Quản lý người nhận")
             if is_admin:
                 await self.show_recipient_management(update)
             else:
                 await update.message.reply_text("⛔ Bạn không có quyền sử dụng chức năng này.")
         elif text == "📋 Danh sách lệnh":
+            logger.info(f"Processing: Danh sách lệnh")
             await self.show_commands(update, is_admin)
         elif text == "❓ Trợ giúp":
+            logger.info(f"Processing: Trợ giúp")
             await self.show_help(update, is_admin)
         else:
             # Tin nhắn không phải menu - có thể xử lý khác hoặc bỏ qua
+            logger.info(f"Unknown message: '{text}'")
             pass
 
     async def show_analysis(self, update: Update, is_admin: bool):

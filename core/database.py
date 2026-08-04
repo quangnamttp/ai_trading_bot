@@ -271,7 +271,9 @@ class DatabaseManager:
     def is_admin(self, telegram_id: int) -> bool:
         """Kiểm tra xem user có phải admin không"""
         from core.config import ADMIN_IDS
-        return telegram_id in ADMIN_IDS
+        is_admin = telegram_id in ADMIN_IDS
+        logger.info(f"Admin check: user_id={telegram_id}, is_admin={is_admin}, ADMIN_IDS={ADMIN_IDS}")
+        return is_admin
     
     def is_authorized(self, telegram_id: int) -> bool:
         """Kiểm tra xem user có được phép nhận tín hiệu không"""
