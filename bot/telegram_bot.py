@@ -6,14 +6,15 @@ import logging
 import os
 from datetime import datetime
 from typing import Optional
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand, BotCommandScopeAllPrivateChats
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand, BotCommandScopeAllPrivateChats, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import (
     Application,
     CommandHandler,
     CallbackQueryHandler,
     MessageHandler,
     filters,
-    ContextTypes
+    ContextTypes,
+    TypeHandler
 )
 from core.config import TELEGRAM_BOT_TOKEN, TELEGRAM_ADMIN_ID, TELEGRAM_WEBHOOK_URL
 from core.database import db
@@ -54,10 +55,9 @@ class TelegramBot:
         )
         logger.info(f"Registered chat: {user.id}")
 
-        # Hiển thị menu chính với inline keyboard - tùy theo quyền
+        # Hiển thị menu chính với Reply Keyboard - tùy theo quyền
         is_admin = db.is_admin(user.id)
-        keyboard = self.get_main_menu_keyboard(is_admin)
-        reply_markup = InlineKeyboardMarkup(keyboard)
+        reply_markup = self.get_reply_keyboard(is_admin)
 
         welcome_message = f"""
 🤖 <b>AI Trading Signal Bot</b>
@@ -542,8 +542,26 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
     
     # ==================== CALLBACK HANDLERS ====================
 
+    def get_reply_keyboard(self, is_admin: bool = False):
+        """Tạo Reply Keyboard cho menu chính - tùy theo quyền Admin/User"""
+        if is_admin:
+            keyboard = [
+                [KeyboardButton("📊 Phân tích"), KeyboardButton("📨 Tín hiệu")],
+                [KeyboardButton("📈 Thị trường"), KeyboardButton("📰 Tin tức")],
+                [KeyboardButton("👤 Tài khoản"), KeyboardButton("⚙️ Cài đặt")],
+                [KeyboardButton("👥 Quản lý người nhận"), KeyboardButton("📋 Danh sách lệnh")],
+                [KeyboardButton("❓ Trợ giúp")]
+            ]
+        else:
+            # User menu - chỉ các chức năng cơ bản
+            keyboard = [
+                [KeyboardButton("📨 Tín hiệu"), KeyboardButton("📈 Thị trường")],
+                [KeyboardButton("📰 Tin tức"), KeyboardButton("❓ Trợ giúp")]
+            ]
+        return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False)
+
     def get_main_menu_keyboard(self, is_admin: bool = False):
-        """Tạo keyboard cho menu chính - tùy theo quyền Admin/User"""
+        """Tạo keyboard cho menu chính - tùy theo quyền Admin/User (Inline Keyboard for submenus)"""
         if is_admin:
             return [
                 [InlineKeyboardButton("📊 Phân tích", callback_data="menu_analysis")],
@@ -567,12 +585,254 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
                 [InlineKeyboardButton("❓ Trợ giúp", callback_data="menu_help")]
             ]
 
-    def get_navigation_keyboard(self, back_to="menu_main"):
-        """Trả về keyboard điều hướng (Quay lại, Trang chủ)"""
-        return [
-            [InlineKeyboardButton("⬅️ Quay lại", callback_data=f"back_{back_to}")],
-            [InlineKeyboardButton("🏠 Trang chủ", callback_data="menu_main")]
+    async def menu_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Lệnh /menu - Hiển thị menu"""
+        user = update.effective_user
+
+        # Kiểm tra xem user có bị ban không
+        if db.is_banned(user.id):
+            await update.message.reply_text("❌ Bạn đã bị ban khỏi bot.")
+            return
+
+        # Hiển thị menu với Reply Keyboard
+        is_admin = db.is_admin(user.id)
+        reply_markup = self.get_reply_keyboard(is_admin)
+
+        await update.message.reply_text(
+            "🤖 <b>Menu chính</b>\n\nChọn chức năng từ menu bên dưới:",
+            reply_markup=reply_markup,
+            parse_mode='HTML'
+        )
+        logger.info(f"User {user.id} requested menu")
+
+    async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Xử lý tin nhắn văn bản từ Reply Keyboard"""
+        user = update.effective_user
+        text = update.message.text
+
+        # Kiểm tra xem user có bị ban không
+        if db.is_banned(user.id):
+            await update.message.reply_text("❌ Bạn đã bị ban khỏi bot.")
+            return
+
+        is_admin = db.is_admin(user.id)
+
+        # Xử lý các nút menu
+        if text == "📊 Phân tích":
+            await self.show_analysis(update, is_admin)
+        elif text == "📨 Tín hiệu":
+            await self.show_signals(update, is_admin)
+        elif text == "📈 Thị trường":
+            await self.show_market(update, is_admin)
+        elif text == "📰 Tin tức":
+            await self.show_news(update, is_admin)
+        elif text == "👤 Tài khoản":
+            await self.show_account(update, is_admin)
+        elif text == "⚙️ Cài đặt":
+            if is_admin:
+                await self.show_settings(update, is_admin)
+            else:
+                await update.message.reply_text("⛔ Bạn không có quyền sử dụng chức năng này.")
+        elif text == "👥 Quản lý người nhận":
+            if is_admin:
+                await self.show_recipient_management(update)
+            else:
+                await update.message.reply_text("⛔ Bạn không có quyền sử dụng chức năng này.")
+        elif text == "📋 Danh sách lệnh":
+            await self.show_commands(update, is_admin)
+        elif text == "❓ Trợ giúp":
+            await self.show_help(update, is_admin)
+        else:
+            # Tin nhắn không phải menu - có thể xử lý khác hoặc bỏ qua
+            pass
+
+    async def show_analysis(self, update: Update, is_admin: bool):
+        """Hiển thị phân tích"""
+        keyboard = self.get_main_menu_keyboard(is_admin)
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text(
+            "📊 <b>Phân tích</b>\n\n"
+            "Bot phân tích thị trường 24/7 sử dụng AI để phát hiện tín hiệu giao dịch.\n\n"
+            "🤖 <b>AI Engine:</b>\n"
+            "• Phân tích xu hướng thị trường\n"
+            "• Phát hiện vùng vào lệnh tối ưu\n"
+            "• Tính toán điểm tin cậy\n\n"
+            "📈 <b>Cặp tiền giao dịch:</b>\n"
+            "• BTC/USDT\n"
+            "• XAU/USD (Vàng)",
+            reply_markup=reply_markup,
+            parse_mode='HTML'
+        )
+
+    async def show_signals(self, update: Update, is_admin: bool):
+        """Hiển thị tín hiệu"""
+        keyboard = self.get_main_menu_keyboard(is_admin)
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text(
+            "📨 <b>Tín hiệu</b>\n\n"
+            "Bot gửi tín hiệu giao dịch tự động khi:\n\n"
+            "🎯 <b>Điều kiện:</b>\n"
+            "• Điểm AI vượt ngưỡng cấu hình\n"
+            "• Độ tin cậy cao\n"
+            "• Xu hướng thị trường rõ ràng\n\n"
+            "📊 <b>Thông tin tín hiệu bao gồm:</b>\n"
+            "• Hành động (MUA/BÁN)\n"
+            "• Vùng vào lệnh\n"
+            "• Giá chốt lời\n"
+            "• Giá cắt lỗ\n"
+            "• Độ tin cậy AI\n"
+            "• Xu hướng thị trường",
+            reply_markup=reply_markup,
+            parse_mode='HTML'
+        )
+
+    async def show_market(self, update: Update, is_admin: bool):
+        """Hiển thị thị trường"""
+        if self.market_data:
+            market_info = self.market_data.get_market_summary()
+            keyboard = self.get_main_menu_keyboard(is_admin)
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await update.message.reply_text(market_info, reply_markup=reply_markup, parse_mode='HTML')
+        else:
+            await update.message.reply_text("❌ Dữ liệu thị trường chưa sẵn sàng.")
+
+    async def show_news(self, update: Update, is_admin: bool):
+        """Hiển thị tin tức"""
+        if self.market_data:
+            news = self.market_data.get_latest_news()
+            keyboard = self.get_main_menu_keyboard(is_admin)
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await update.message.reply_text(news, reply_markup=reply_markup, parse_mode='HTML')
+        else:
+            await update.message.reply_text("❌ Tin tức chưa sẵn sàng.")
+
+    async def show_account(self, update: Update, is_admin: bool):
+        """Hiển thị tài khoản"""
+        user = update.effective_user
+        keyboard = self.get_main_menu_keyboard(is_admin)
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        account_message = f"""
+👤 <b>Tài khoản</b>
+
+🆔 <b>Telegram ID:</b> {user.id}
+📛 <b>Username:</b> @{user.username if user.username else 'N/A'}
+👤 <b>Tên:</b> {user.first_name}
+{'👑 <b>Quyền:</b> Admin' if is_admin else '👤 <b>Quyền:</b> Người dùng'}
+        """
+
+        await update.message.reply_text(account_message, reply_markup=reply_markup, parse_mode='HTML')
+
+    async def show_settings(self, update: Update, is_admin: bool):
+        """Hiển thị cài đặt (Admin only)"""
+        keyboard = [
+            [InlineKeyboardButton("📊 Xem cấu hình", callback_data="config_view")],
+            [InlineKeyboardButton("👥 Quản lý người nhận", callback_data="manage_recipients")],
+            [InlineKeyboardButton("⬅️ Quay lại", callback_data="menu_main")]
         ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text(
+            "⚙️ <b>Cài đặt</b>\n\nChọn chức năng quản trị:",
+            reply_markup=reply_markup,
+            parse_mode='HTML'
+        )
+
+    async def show_recipient_management(self, update: Update):
+        """Hiển thị quản lý người nhận (Admin only)"""
+        keyboard = [
+            [InlineKeyboardButton("➕ Thêm người nhận", callback_data="recipient_add")],
+            [InlineKeyboardButton("✏️ Sửa tên", callback_data="recipient_edit")],
+            [InlineKeyboardButton("🗑 Xóa người nhận", callback_data="recipient_remove")],
+            [InlineKeyboardButton("📋 Danh sách người nhận", callback_data="recipient_list")],
+            [InlineKeyboardButton("🔕 Tắt nhận tín hiệu", callback_data="recipient_disable")],
+            [InlineKeyboardButton("🔔 Bật nhận tín hiệu", callback_data="recipient_enable")],
+            [InlineKeyboardButton("⬅️ Quay lại", callback_data="menu_main")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text(
+            "👥 <b>Quản lý người nhận tín hiệu</b>\n\nChọn chức năng:",
+            reply_markup=reply_markup,
+            parse_mode='HTML'
+        )
+
+    async def show_commands(self, update: Update, is_admin: bool):
+        """Hiển thị danh sách lệnh"""
+        keyboard = self.get_main_menu_keyboard(is_admin)
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        if is_admin:
+            commands_message = """
+📋 <b>Danh sách lệnh</b>
+
+🔹 <b>Lệnh cơ bản:</b>
+/start - Bắt đầu sử dụng bot
+/menu - Hiển thị menu
+/help - Hiển thị trợ giúp
+/status - Trạng thái bot
+/market - Thông tin thị trường
+/news - Tin tức Crypto & Forex
+/stats - Xem thống kê tín hiệu
+
+🔹 <b>Quản trị (Chỉ Admin):</b>
+/adduser <tên> <id> [username] - Thêm người nhận
+/removeuser <id> - Xóa người nhận
+/ban <id> - Cấm người dùng
+/unban <id> - Bỏ cấm người dùng
+/users - Danh sách người dùng
+/broadcast <message> - Gửi thông báo
+/editname <id> <tên mới> - Sửa tên
+/disable <id> - Tắt nhận tín hiệu
+/enable <id> - Bật nhận tín hiệu
+            """
+        else:
+            commands_message = """
+📋 <b>Danh sách lệnh</b>
+
+🔹 <b>Lệnh cơ bản:</b>
+/start - Bắt đầu sử dụng bot
+/menu - Hiển thị menu
+/help - Hiển thị trợ giúp
+/status - Trạng thái bot
+/market - Thông tin thị trường
+/news - Tin tức Crypto & Forex
+/stats - Xem thống kê tín hiệu
+            """
+
+        await update.message.reply_text(commands_message, reply_markup=reply_markup, parse_mode='HTML')
+
+    async def show_help(self, update: Update, is_admin: bool):
+        """Hiển thị trợ giúp"""
+        from core.config import AI_SCORE_THRESHOLD
+        keyboard = self.get_main_menu_keyboard(is_admin)
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        help_message = f"""
+❓ <b>Trợ giúp</b>
+
+🤖 <b>Bot hoạt động như thế nào?</b>
+• Phân tích thị trường 24/7
+• Gửi tín hiệu khi AI Score vượt ngưỡng
+• Không tự động giao dịch
+
+📊 <b>Cách sử dụng:</b>
+1. Sử dụng menu để điều hướng
+2. Nhận tín hiệu tự động nếu được cấp quyền
+3. Tự quyết định vào lệnh thủ công
+
+⚠️ <b>Lưu ý quan trọng:</b>
+• Tín hiệu chỉ để tham khảo
+• Không tự động giao dịch
+• Quản lý rủi ro cẩn thận
+• Không đầu tư quá khả năng
+
+🤖 <b>Bot hoạt động 24/7 quét dữ liệu thị trường và gửi tín hiệu khi Điểm AI > {AI_SCORE_THRESHOLD}%</b>
+
+⚠️ <b>Bot không tự động giao dịch. Tín hiệu chỉ để tham khảo.</b>
+        """
+
+        await update.message.reply_text(help_message, reply_markup=reply_markup, parse_mode='HTML')
+
+    # ==================== CALLBACK HANDLERS ====================
 
     async def button_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Xử lý callback từ inline keyboard"""
@@ -580,10 +840,10 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
         await query.answer()
 
         user_id = query.from_user.id
+        is_admin = db.is_admin(user_id)
 
         # Menu chính
         if query.data == "menu_main":
-            is_admin = db.is_admin(user_id)
             keyboard = self.get_main_menu_keyboard(is_admin)
             reply_markup = InlineKeyboardMarkup(keyboard)
             await query.edit_message_text(
@@ -627,43 +887,30 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
                 "• Giá chốt lời\n"
                 "• Giá cắt lỗ\n"
                 "• Độ tin cậy AI\n"
-                "• Biểu đồ kỹ thuật\n\n"
-                "⚠️ Tín hiệu chỉ để tham khảo, không tự động giao dịch.",
+                "• Xu hướng thị trường",
                 reply_markup=reply_markup,
                 parse_mode='HTML'
             )
 
         # Menu Tài khoản
         elif query.data == "menu_account":
+            keyboard = self.get_navigation_keyboard("menu_main")
+            reply_markup = InlineKeyboardMarkup(keyboard)
             user = query.from_user
-            user_data = db.get_user(user_id)
-
-            if user_data:
-                join_date = user_data.get('created_at', 'N/A')
-                is_active = user_data.get('is_active', False)
-                status = "✅ Đang nhận tín hiệu" if is_active else "❌ Không nhận tín hiệu"
-            else:
-                join_date = "N/A"
-                status = "❌ Không nhận tín hiệu"
-
             account_message = f"""
 👤 <b>Tài khoản</b>
 
 🆔 <b>Telegram ID:</b> {user.id}
-📛 <b>Username:</b> @{user.username or 'N/A'}
-👤 <b>Họ tên:</b> {user.first_name or 'N/A'}
-📅 <b>Ngày tham gia:</b> {join_date}
-📊 <b>Trạng thái:</b> {status}
+📛 <b>Username:</b> @{user.username if user.username else 'N/A'}
+👤 <b>Tên:</b> {user.first_name}
+{'👑 <b>Quyền:</b> Admin' if is_admin else '👤 <b>Quyền:</b> Người dùng'}
             """
-
-            keyboard = self.get_navigation_keyboard("menu_main")
-            reply_markup = InlineKeyboardMarkup(keyboard)
             await query.edit_message_text(account_message, reply_markup=reply_markup, parse_mode='HTML')
 
         # Menu Cài đặt (Admin only)
         elif query.data == "menu_settings":
-            if not db.is_admin(user_id):
-                await query.edit_message_text("❌ Chỉ Admin mới sử dụng chức năng này.")
+            if not is_admin:
+                await query.edit_message_text("⛔ Bạn không có quyền sử dụng chức năng này.")
                 return
 
             keyboard = [
@@ -682,32 +929,20 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
         elif query.data == "menu_market":
             keyboard = self.get_navigation_keyboard("menu_main")
             reply_markup = InlineKeyboardMarkup(keyboard)
-
-            try:
-                if self.market_data:
-                    market_info = await self.market_data.get_market_overview()
-                    if market_info:
-                        await query.edit_message_text(
-                            f"📈 <b>Thị trường</b>\n\n{market_info}",
-                            reply_markup=reply_markup,
-                            parse_mode='Markdown'
-                        )
-                    else:
-                        await query.edit_message_text(
-                            "📈 <b>Thị trường</b>\n\n❌ Dữ liệu thị trường không khả dụng lúc này.",
-                            reply_markup=reply_markup,
-                            parse_mode='HTML'
-                        )
-                else:
+            if self.market_data:
+                try:
+                    market_info = self.market_data.get_market_summary()
+                    await query.edit_message_text(market_info, reply_markup=reply_markup, parse_mode='HTML')
+                except Exception as e:
+                    logger.error(f"Error in menu_market: {e}")
                     await query.edit_message_text(
-                        "📈 <b>Thị trường</b>\n\n❌ Dữ liệu thị trường không khả dụng lúc này.",
+                        "📈 <b>Thị trường</b>\n\n❌ Lỗi khi tải dữ liệu thị trường.",
                         reply_markup=reply_markup,
                         parse_mode='HTML'
                     )
-            except Exception as e:
-                logger.error(f"Error in menu_market: {e}")
+            else:
                 await query.edit_message_text(
-                    "📈 <b>Thị trường</b>\n\n❌ Lỗi khi tải dữ liệu thị trường.",
+                    "📈 <b>Thị trường</b>\n\n❌ Dữ liệu thị trường chưa sẵn sàng.",
                     reply_markup=reply_markup,
                     parse_mode='HTML'
                 )
@@ -716,27 +951,20 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
         elif query.data == "menu_news":
             keyboard = self.get_navigation_keyboard("menu_main")
             reply_markup = InlineKeyboardMarkup(keyboard)
-
-            try:
-                from data.news_engine import news_engine
-                news_summary = await news_engine.get_news_summary()
-
-                if news_summary:
+            if self.market_data:
+                try:
+                    news = self.market_data.get_latest_news()
+                    await query.edit_message_text(news, reply_markup=reply_markup, parse_mode='HTML')
+                except Exception as e:
+                    logger.error(f"Error in menu_news: {e}")
                     await query.edit_message_text(
-                        f"📰 <b>Tin tức</b>\n\n{news_summary}",
-                        reply_markup=reply_markup,
-                        parse_mode='Markdown'
-                    )
-                else:
-                    await query.edit_message_text(
-                        "📰 <b>Tin tức</b>\n\n❌ Tin tức không khả dụng lúc này.",
+                        "📰 <b>Tin tức</b>\n\n❌ Lỗi khi tải tin tức.",
                         reply_markup=reply_markup,
                         parse_mode='HTML'
                     )
-            except Exception as e:
-                logger.error(f"Error in menu_news: {e}")
+            else:
                 await query.edit_message_text(
-                    "📰 <b>Tin tức</b>\n\n❌ Lỗi khi tải tin tức.",
+                    "📰 <b>Tin tức</b>\n\n❌ Tin tức chưa sẵn sàng.",
                     reply_markup=reply_markup,
                     parse_mode='HTML'
                 )
@@ -745,35 +973,51 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
         elif query.data == "menu_commands":
             keyboard = self.get_navigation_keyboard("menu_main")
             reply_markup = InlineKeyboardMarkup(keyboard)
-            commands_message = """
+            if is_admin:
+                commands_message = """
 📋 <b>Danh sách lệnh</b>
 
 🔹 <b>Lệnh cơ bản:</b>
 /start - Bắt đầu sử dụng bot
+/menu - Hiển thị menu
 /help - Hiển thị trợ giúp
 /status - Trạng thái bot
 /market - Thông tin thị trường
-/news - Tin tức mới nhất
+/news - Tin tức Crypto & Forex
+/stats - Xem thống kê tín hiệu
 
 🔹 <b>Quản trị (Chỉ Admin):</b>
-/adduser <user_id> - Thêm user nhận tín hiệu
-/removeuser <user_id> - Xóa user
-/ban <user_id> - Ban user
-/unban <user_id> - Unban user
-/users - Danh sách users
-/settings - Cấu hình bot
+/adduser <tên> <id> [username] - Thêm người nhận
+/removeuser <id> - Xóa người nhận
+/ban <id> - Cấm người dùng
+/unban <id> - Bỏ cấm người dùng
+/users - Danh sách người dùng
 /broadcast <message> - Gửi thông báo
+/editname <id> <tên mới> - Sửa tên
+/disable <id> - Tắt nhận tín hiệu
+/enable <id> - Bật nhận tín hiệu
+                """
+            else:
+                commands_message = """
+📋 <b>Danh sách lệnh</b>
 
-📊 <b>Thống kê:</b>
+🔹 <b>Lệnh cơ bản:</b>
+/start - Bắt đầu sử dụng bot
+/menu - Hiển thị menu
+/help - Hiển thị trợ giúp
+/status - Trạng thái bot
+/market - Thông tin thị trường
+/news - Tin tức Crypto & Forex
 /stats - Xem thống kê tín hiệu
-            """
+                """
             await query.edit_message_text(commands_message, reply_markup=reply_markup, parse_mode='HTML')
 
         # Menu Trợ giúp
         elif query.data == "menu_help":
+            from core.config import AI_SCORE_THRESHOLD
             keyboard = self.get_navigation_keyboard("menu_main")
             reply_markup = InlineKeyboardMarkup(keyboard)
-            help_message = """
+            help_message = f"""
 ❓ <b>Trợ giúp</b>
 
 🤖 <b>Bot hoạt động như thế nào?</b>
@@ -792,15 +1036,16 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
 • Quản lý rủi ro cẩn thận
 • Không đầu tư quá khả năng
 
-👨‍💻 <b>Hỗ trợ:</b>
-Liên hệ Admin nếu cần trợ giúp.
+🤖 <b>Bot hoạt động 24/7 quét dữ liệu thị trường và gửi tín hiệu khi Điểm AI > {AI_SCORE_THRESHOLD}%</b>
+
+⚠️ <b>Bot không tự động giao dịch. Tín hiệu chỉ để tham khảo.</b>
             """
             await query.edit_message_text(help_message, reply_markup=reply_markup, parse_mode='HTML')
 
         # Quản lý người nhận tín hiệu (Admin)
         elif query.data == "manage_recipients":
-            if not db.is_admin(user_id):
-                await query.edit_message_text("❌ Chỉ Admin mới sử dụng chức năng này.")
+            if not is_admin:
+                await query.edit_message_text("⛔ Bạn không có quyền sử dụng chức năng này.")
                 return
 
             keyboard = [
@@ -821,8 +1066,8 @@ Liên hệ Admin nếu cần trợ giúp.
 
         # Thêm người nhận
         elif query.data == "recipient_add":
-            if not db.is_admin(user_id):
-                await query.edit_message_text("❌ Chỉ Admin mới sử dụng chức năng này.")
+            if not is_admin:
+                await query.edit_message_text("⛔ Bạn không có quyền sử dụng chức năng này.")
                 return
 
             keyboard = [
@@ -831,16 +1076,16 @@ Liên hệ Admin nếu cần trợ giúp.
             reply_markup = InlineKeyboardMarkup(keyboard)
             await query.edit_message_text(
                 "➕ <b>Thêm người nhận</b>\n\n"
-                "Sử dụng lệnh: /adduser <telegram_id>\n\n"
-                "Ví dụ: /adduser 123456789",
+                "Sử dụng lệnh: /adduser <tên> <telegram_id> [username]\n\n"
+                "Ví dụ: /adduser Anh Trương 5335165612 anhtruong",
                 reply_markup=reply_markup,
                 parse_mode='HTML'
             )
 
         # Xóa người nhận
         elif query.data == "recipient_remove":
-            if not db.is_admin(user_id):
-                await query.edit_message_text("❌ Chỉ Admin mới sử dụng chức năng này.")
+            if not is_admin:
+                await query.edit_message_text("⛔ Bạn không có quyền sử dụng chức năng này.")
                 return
 
             keyboard = [
@@ -857,8 +1102,8 @@ Liên hệ Admin nếu cần trợ giúp.
 
         # Danh sách người nhận
         elif query.data == "recipient_list":
-            if not db.is_admin(user_id):
-                await query.edit_message_text("❌ Chỉ Admin mới sử dụng chức năng này.")
+            if not is_admin:
+                await query.edit_message_text("⛔ Bạn không có quyền sử dụng chức năng này.")
                 return
 
             users = db.get_all_users()
@@ -866,12 +1111,12 @@ Liên hệ Admin nếu cần trợ giúp.
             if not users:
                 users_list = "📋 <b>Danh sách người nhận</b>\n\nKhông có người nhận nào."
             else:
-                users_list = "� <b>Danh sách người nhận</b>\n\n"
+                users_list = "👥 <b>Danh sách người nhận</b>\n\n"
                 for idx, user in enumerate(users, 1):
                     display_name = user.get('display_name') or user.get('first_name') or 'Người dùng'
                     username = user.get('username')
                     username_display = f"@{username}" if username else "-"
-                    status_emoji = "�" if user['is_active'] else "🔴"
+                    status_emoji = "🟢" if user['is_active'] else "🔴"
                     status_text = "Đang nhận tín hiệu" if user['is_active'] else "Không nhận tín hiệu"
 
                     users_list += f"{idx}️⃣ {display_name}\n"
@@ -888,8 +1133,8 @@ Liên hệ Admin nếu cần trợ giúp.
 
         # Sửa tên người nhận
         elif query.data == "recipient_edit":
-            if not db.is_admin(user_id):
-                await query.edit_message_text("❌ Chỉ Admin mới sử dụng chức năng này.")
+            if not is_admin:
+                await query.edit_message_text("⛔ Bạn không có quyền sử dụng chức năng này.")
                 return
 
             keyboard = [
@@ -906,8 +1151,8 @@ Liên hệ Admin nếu cần trợ giúp.
 
         # Tắt nhận tín hiệu
         elif query.data == "recipient_disable":
-            if not db.is_admin(user_id):
-                await query.edit_message_text("❌ Chỉ Admin mới sử dụng chức năng này.")
+            if not is_admin:
+                await query.edit_message_text("⛔ Bạn không có quyền sử dụng chức năng này.")
                 return
 
             keyboard = [
@@ -924,8 +1169,8 @@ Liên hệ Admin nếu cần trợ giúp.
 
         # Bật nhận tín hiệu
         elif query.data == "recipient_enable":
-            if not db.is_admin(user_id):
-                await query.edit_message_text("❌ Chỉ Admin mới sử dụng chức năng này.")
+            if not is_admin:
+                await query.edit_message_text("⛔ Bạn không có quyền sử dụng chức năng này.")
                 return
 
             keyboard = [
@@ -942,8 +1187,8 @@ Liên hệ Admin nếu cần trợ giúp.
 
         # Xem cấu hình (Admin)
         elif query.data == "config_view":
-            if not db.is_admin(user_id):
-                await query.edit_message_text("❌ Chỉ Admin mới sử dụng chức năng này.")
+            if not is_admin:
+                await query.edit_message_text("⛔ Bạn không có quyền sử dụng chức năng này.")
                 return
 
             from core.config import (
@@ -976,7 +1221,7 @@ Liên hệ Admin nếu cần trợ giúp.
         elif query.data.startswith("back_"):
             target = query.data.replace("back_", "")
             if target == "menu_main":
-                keyboard = self.get_main_menu_keyboard()
+                keyboard = self.get_main_menu_keyboard(is_admin)
                 reply_markup = InlineKeyboardMarkup(keyboard)
                 await query.edit_message_text(
                     "🤖 <b>AI Trading Signal Bot</b>\n\nChọn chức năng từ menu bên dưới:",
@@ -1039,6 +1284,7 @@ Liên hệ Admin nếu cần trợ giúp.
 
             # Đăng ký handlers
             self.application.add_handler(CommandHandler("start", self.start_command))
+            self.application.add_handler(CommandHandler("menu", self.menu_command))
             self.application.add_handler(CommandHandler("help", self.help_command))
             self.application.add_handler(CommandHandler("status", self.status_command))
             self.application.add_handler(CommandHandler("market", self.market_command))
@@ -1055,6 +1301,7 @@ Liên hệ Admin nếu cần trợ giúp.
             self.application.add_handler(CommandHandler("editname", self.editname_command))
             self.application.add_handler(CommandHandler("disable", self.disable_command))
             self.application.add_handler(CommandHandler("enable", self.enable_command))
+            self.application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
             self.application.add_handler(CallbackQueryHandler(self.button_callback))
 
             # Initialize the application
