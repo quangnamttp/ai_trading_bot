@@ -378,10 +378,11 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
     # ==================== CALLBACK HANDLERS ====================
 
     def get_reply_keyboard(self, is_admin: bool = False):
-        """Tạo Reply Keyboard đơn giản với 4 nút chính"""
+        """Tạo Reply Keyboard với 6 nút chính"""
         keyboard = [
             [KeyboardButton("📰 Tin tức"), KeyboardButton("📈 Thị trường")],
-            [KeyboardButton("📨 Tín hiệu"), KeyboardButton("📊 Phân tích")]
+            [KeyboardButton("📨 Tín hiệu"), KeyboardButton("📊 Phân tích")],
+            [KeyboardButton("⚙️ Cài đặt"), KeyboardButton("📋 Danh sách lệnh")]
         ]
         return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False, is_persistent=True)
 
@@ -442,19 +443,30 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
             await update.message.reply_text("❌ Bạn đã bị ban khỏi bot.")
             return
 
+        is_admin = db.is_admin(user.id)
+
         # Xử lý các nút menu - gọi trực tiếp các command handlers
-        if text == "� Tin tức":
+        if text == "📰 Tin tức":
             logger.info(f"Processing: Tin tức - calling news_command")
             await self.news_command(update, context)
         elif text == "📈 Thị trường":
             logger.info(f"Processing: Thị trường - calling market_command")
             await self.market_command(update, context)
-        elif text == "� Tín hiệu":
+        elif text == "📨 Tín hiệu":
             logger.info(f"Processing: Tín hiệu - calling signals_command")
             await self.signals_command(update, context)
         elif text == "📊 Phân tích":
             logger.info(f"Processing: Phân tích - calling analyze_command")
             await self.analyze_command(update, context)
+        elif text == "⚙️ Cài đặt":
+            logger.info(f"Processing: Cài đặt")
+            if is_admin:
+                await self.show_settings(update, is_admin)
+            else:
+                await update.message.reply_text("⛔ Bạn không có quyền sử dụng chức năng này.")
+        elif text == "📋 Danh sách lệnh":
+            logger.info(f"Processing: Danh sách lệnh")
+            await self.show_commands(update, is_admin)
         else:
             # Tin nhắn không phải menu - có thể xử lý khác hoặc bỏ qua
             logger.info(f"Unknown message: '{text}'")
@@ -501,6 +513,44 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
             await update.message.reply_text(market_info, parse_mode='HTML')
         else:
             await update.message.reply_text("❌ Dữ liệu thị trường chưa sẵn sàng.")
+
+    async def show_settings(self, update: Update, is_admin: bool):
+        """Hiển thị cài đặt (Admin only)"""
+        keyboard = [
+            [InlineKeyboardButton("📊 Xem cấu hình", callback_data="config_view")],
+            [InlineKeyboardButton("⬅️ Quay lại", callback_data="menu_main")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text(
+            "⚙️ <b>Cài đặt</b>\n\nChọn chức năng quản trị:",
+            reply_markup=reply_markup,
+            parse_mode='HTML'
+        )
+
+    async def show_commands(self, update: Update, is_admin: bool):
+        """Hiển thị danh sách lệnh"""
+        if is_admin:
+            commands_message = """
+📋 <b>Danh sách lệnh</b>
+
+🔹 <b>Lệnh quản trị (Chỉ Admin):</b>
+/ban <id> - Cấm người dùng
+/unban <id> - Bỏ cấm người dùng
+/users - Danh sách người dùng
+/broadcast <message> - Gửi thông báo
+
+🔹 <b>Lệnh cơ bản:</b>
+/start - Bắt đầu sử dụng bot
+            """
+        else:
+            commands_message = """
+📋 <b>Danh sách lệnh</b>
+
+🔹 <b>Lệnh cơ bản:</b>
+/start - Bắt đầu sử dụng bot
+            """
+
+        await update.message.reply_text(commands_message, parse_mode='HTML')
 
     async def show_news(self, update: Update, is_admin: bool):
         """Hiển thị tin tức"""
