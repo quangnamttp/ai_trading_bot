@@ -29,6 +29,10 @@ ADMIN_IDS = os.getenv("ADMIN_IDS", TELEGRAM_ADMIN_ID or "").split(",")
 ADMIN_IDS = [int(id.strip()) for id in ADMIN_IDS if id.strip() and id.strip().isdigit() and not id.strip().startswith("your_")] if ADMIN_IDS else []
 TELEGRAM_WEBHOOK_URL = os.getenv("TELEGRAM_WEBHOOK_URL", "")
 
+# Signal Receiver Configuration - Simple list of Telegram IDs to receive signals
+SIGNAL_RECEIVER_IDS = os.getenv("SIGNAL_RECEIVER_IDS", TELEGRAM_ADMIN_ID or "").split(",")
+SIGNAL_RECEIVER_IDS = [int(id.strip()) for id in SIGNAL_RECEIVER_IDS if id.strip() and id.strip().isdigit() and not id.strip().startswith("your_")] if SIGNAL_RECEIVER_IDS else []
+
 # Database Configuration
 DATABASE_PATH = os.getenv("DATABASE_PATH", "database/trading_bot.db")
 
