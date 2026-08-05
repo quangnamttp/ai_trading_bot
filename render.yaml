@@ -11,6 +11,10 @@ services:
         sync: false
       - key: TELEGRAM_ADMIN_ID
         sync: false
+      - key: ADMIN_IDS
+        sync: false
+      - key: SIGNAL_RECEIVER_IDS
+        sync: false
       - key: TELEGRAM_WEBHOOK_URL
         value: ""
       - key: DATABASE_PATH
