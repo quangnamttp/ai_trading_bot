@@ -952,6 +952,10 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
             await self.application.initialize()
             logger.info("Telegram bot application initialized successfully")
 
+            # Delete all bot commands from Telegram
+            await self.application.bot.delete_my_commands()
+            logger.info("Deleted all bot commands from Telegram")
+
             # Reset Telegram Menu Button to default (removes custom menu)
             await self.application.bot.set_chat_menu_button(menu_button=MenuButtonDefault())
             logger.info("Reset Telegram Menu Button to default")
