@@ -436,41 +436,54 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
         user = update.effective_user
         text = update.message.text
 
-        logger.info(f"Received message from user {user.id}: '{text}'")
+        logger.info(f"[handle_message] Received message from user {user.id}: '{text}' (type: {type(text)})")
 
         # Kiểm tra xem user có bị ban không
         if db.is_banned(user.id):
+            logger.info(f"[handle_message] User {user.id} is banned")
             await update.message.reply_text("❌ Bạn đã bị ban khỏi bot.")
             return
 
         is_admin = db.is_admin(user.id)
+        logger.info(f"[handle_message] User {user.id} is_admin: {is_admin}")
 
         # Xử lý các nút menu - gọi trực tiếp các command handlers
-        if text == "📰 Tin tức":
-            logger.info(f"Processing: Tin tức - calling news_command")
-            await self.news_command(update, context)
-        elif text == "📈 Thị trường":
-            logger.info(f"Processing: Thị trường - calling market_command")
-            await self.market_command(update, context)
-        elif text == "📨 Tín hiệu":
-            logger.info(f"Processing: Tín hiệu - calling signals_command")
-            await self.signals_command(update, context)
-        elif text == "📊 Phân tích":
-            logger.info(f"Processing: Phân tích - calling analyze_command")
-            await self.analyze_command(update, context)
-        elif text == "⚙️ Cài đặt":
-            logger.info(f"Processing: Cài đặt")
-            if is_admin:
-                await self.show_settings(update, is_admin)
+        try:
+            if text == "📰 Tin tức":
+                logger.info(f"[handle_message] Processing: Tin tức - calling news_command")
+                await self.news_command(update, context)
+                logger.info(f"[handle_message] news_command completed")
+            elif text == "📈 Thị trường":
+                logger.info(f"[handle_message] Processing: Thị trường - calling market_command")
+                await self.market_command(update, context)
+                logger.info(f"[handle_message] market_command completed")
+            elif text == "📨 Tín hiệu":
+                logger.info(f"[handle_message] Processing: Tín hiệu - calling signals_command")
+                await self.signals_command(update, context)
+                logger.info(f"[handle_message] signals_command completed")
+            elif text == "📊 Phân tích":
+                logger.info(f"[handle_message] Processing: Phân tích - calling analyze_command")
+                await self.analyze_command(update, context)
+                logger.info(f"[handle_message] analyze_command completed")
+            elif text == "⚙️ Cài đặt":
+                logger.info(f"[handle_message] Processing: Cài đặt")
+                if is_admin:
+                    await self.show_settings(update, is_admin)
+                    logger.info(f"[handle_message] show_settings completed")
+                else:
+                    await update.message.reply_text("⛔ Bạn không có quyền sử dụng chức năng này.")
+                    logger.info(f"[handle_message] User not admin for Cài đặt")
+            elif text == "📋 Danh sách lệnh":
+                logger.info(f"[handle_message] Processing: Danh sách lệnh")
+                await self.show_commands(update, is_admin)
+                logger.info(f"[handle_message] show_commands completed")
             else:
-                await update.message.reply_text("⛔ Bạn không có quyền sử dụng chức năng này.")
-        elif text == "📋 Danh sách lệnh":
-            logger.info(f"Processing: Danh sách lệnh")
-            await self.show_commands(update, is_admin)
-        else:
-            # Tin nhắn không phải menu - có thể xử lý khác hoặc bỏ qua
-            logger.info(f"Unknown message: '{text}'")
-            pass
+                # Tin nhắn không phải menu - có thể xử lý khác hoặc bỏ qua
+                logger.info(f"[handle_message] Unknown message: '{text}'")
+                pass
+        except Exception as e:
+            logger.error(f"[handle_message] Error processing message: {e}", exc_info=True)
+            await update.message.reply_text("❌ Có lỗi xảy ra khi xử lý tin nhắn.")
 
     async def show_analysis(self, update: Update, is_admin: bool):
         """Hiển thị phân tích"""
@@ -579,7 +592,6 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
         """Hiển thị cài đặt (Admin only)"""
         keyboard = [
             [InlineKeyboardButton("📊 Xem cấu hình", callback_data="config_view")],
-            [InlineKeyboardButton("👥 Quản lý người nhận", callback_data="manage_recipients")],
             [InlineKeyboardButton("⬅️ Quay lại", callback_data="menu_main")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
