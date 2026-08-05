@@ -988,7 +988,8 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
                 await self.application.bot.set_webhook(url=webhook_url)
                 logger.info(f"Telegram webhook set to: {webhook_url}")
             else:
-                logger.warning("TELEGRAM_WEBHOOK_URL not configured, webhook not set")
+                logger.error("TELEGRAM_WEBHOOK_URL not configured - bot cannot receive updates!")
+                logger.error("Please set TELEGRAM_WEBHOOK_URL in Render environment variables")
 
             return self.application
         except Exception as e:
