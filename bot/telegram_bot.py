@@ -6,7 +6,7 @@ import logging
 import os
 from datetime import datetime
 from typing import Optional
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton, MenuButtonDefault
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -952,9 +952,9 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
             await self.application.initialize()
             logger.info("Telegram bot application initialized successfully")
 
-            # Delete all slash commands from Telegram UI
-            await self.application.bot.delete_my_commands()
-            logger.info("Deleted all slash commands from Telegram UI")
+            # Reset Telegram Menu Button to default (removes custom menu)
+            await self.application.bot.set_chat_menu_button(menu_button=MenuButtonDefault())
+            logger.info("Reset Telegram Menu Button to default")
 
             # Start the application (without polling)
             await self.application.start()
