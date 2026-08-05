@@ -956,9 +956,11 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
             await self.application.bot.delete_my_commands()
             logger.info("Deleted all bot commands from Telegram")
 
-            # Reset Telegram Menu Button to default (removes custom menu)
+            # Try to remove menu button by setting to default without commands
+            from telegram import BotCommandScopeAllPrivateChats
             await self.application.bot.set_chat_menu_button(menu_button=MenuButtonDefault())
-            logger.info("Reset Telegram Menu Button to default")
+            await self.application.bot.set_my_commands(commands=[], scope=BotCommandScopeAllPrivateChats())
+            logger.info("Reset Telegram Menu Button and cleared commands")
 
             # Start the application (without polling)
             await self.application.start()
