@@ -341,33 +341,26 @@ class TradingBotApp:
 
             @app.route('/webhook', methods=['POST'])
             def webhook():
-                """Telegram webhook endpoint"""
+                """Telegram webhook endpoint - Use proper python-telegram-bot v22 webhook handling"""
                 if telegram_bot.application:
                     from telegram import Update
-                    from telegram.ext import Application
-                    import json
-                    import threading
+                    import asyncio
+                    import logging
+
+                    logger = logging.getLogger(__name__)
 
                     # Get update from request
                     update_json = request.get_json(force=True)
-                    update = Update.de_json(update_json, telegram_bot.application.bot)
+                    logger.info(f"[webhook] Received update: {update_json}")
 
-                    # Return HTTP 200 immediately to Telegram
-                    # Process update in background thread
-                    def process_update_async():
-                        import asyncio
-                        loop = asyncio.new_event_loop()
-                        asyncio.set_event_loop(loop)
-                        try:
-                            loop.run_until_complete(
-                                telegram_bot.application.process_update(update)
-                            )
-                        finally:
-                            loop.close()
-
-                    # Start background thread for processing
-                    thread = threading.Thread(target=process_update_async, daemon=True)
-                    thread.start()
+                    # Put update into application's update_queue
+                    # This ensures proper handler routing through the dispatcher
+                    try:
+                        update = Update.de_json(update_json, telegram_bot.application.bot)
+                        telegram_bot.application.update_queue.put_nowait(update)
+                        logger.info(f"[webhook] Update put into queue successfully")
+                    except Exception as e:
+                        logger.error(f"[webhook] Error putting update into queue: {e}", exc_info=True)
 
                     return 'OK', 200
                 else:
