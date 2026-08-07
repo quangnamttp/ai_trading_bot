@@ -396,9 +396,6 @@ class TradingBotApp:
 
             # Start Telegram bot
             self.running = True
-
-            # Start Telegram bot with webhook (no polling)
-            await telegram_bot.start()
             logger.info("Telegram bot started with webhook")
 
             # Create tasks
