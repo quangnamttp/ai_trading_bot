@@ -342,38 +342,43 @@ class TradingBotApp:
             @app.route('/webhook', methods=['POST'])
             def webhook():
                 """Telegram webhook endpoint - Use proper python-telegram-bot v22 webhook handling"""
+                from datetime import datetime
                 if telegram_bot.application:
                     from telegram import Update
                     import asyncio
                     import logging
 
                     logger = logging.getLogger(__name__)
+                    timestamp = datetime.now().isoformat()
 
                     # Get update from request
                     update_json = request.get_json(force=True)
 
-                    # Extract user_id and text for logging
+                    # Extract update_id, user_id and text for logging
+                    update_id = None
                     user_id = None
                     text = None
                     if update_json:
+                        update_id = update_json.get('update_id')
                         message = update_json.get('message', {})
                         user_id = message.get('from', {}).get('id')
                         text = message.get('text')
 
-                    logger.info(f"[WEBHOOK] update received: user_id={user_id}, text={text}")
-                    logger.info(f"[webhook] Received update: {update_json}")
+                    logger.info(f"[WEBHOOK RECEIVED] update_id={update_id}, user_id={user_id}, text={text}, timestamp={timestamp}")
+                    logger.info(f"[WEBHOOK] Full update JSON: {update_json}")
 
                     # Put update into application's update_queue
                     # This ensures proper handler routing through the dispatcher
                     try:
                         update = Update.de_json(update_json, telegram_bot.application.bot)
                         telegram_bot.application.update_queue.put_nowait(update)
-                        logger.info(f"[webhook] Update put into queue successfully")
+                        logger.info(f"[WEBHOOK] Update put into queue successfully: update_id={update_id}")
                     except Exception as e:
-                        logger.error(f"[webhook] Error putting update into queue: {e}", exc_info=True)
+                        logger.error(f"[WEBHOOK ERROR] update_id={update_id}, error={e}", exc_info=True)
 
                     return 'OK', 200
                 else:
+                    logger.error("[WEBHOOK ERROR] Bot not initialized")
                     return 'Bot not initialized', 503
 
             # Run Flask in a separate thread

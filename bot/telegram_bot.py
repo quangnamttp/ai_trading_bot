@@ -38,12 +38,19 @@ class TelegramBot:
     
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Lệnh /start - Khởi động bot"""
+        from datetime import datetime
+        timestamp = datetime.now().isoformat()
         user = update.effective_user
+
+        logger.info(f"[START RECEIVED] user_id={user.id}, timestamp={timestamp}")
 
         # Kiểm tra xem user có bị ban không
         if db.is_banned(user.id):
+            logger.info(f"[START BANNED] user_id={user.id}")
             await update.message.reply_text("❌ Bạn đã bị ban khỏi bot.")
             return
+
+        logger.info(f"[START PROCESSING] user_id={user.id}, timestamp={datetime.now().isoformat()}")
 
         # Lưu user vào database
         is_admin = db.is_admin(user.id)
@@ -53,7 +60,7 @@ class TelegramBot:
             first_name=user.first_name,
             is_admin=is_admin
         )
-        logger.info(f"Registered chat: {user.id}, is_admin: {is_admin}")
+        logger.info(f"[START DATABASE SAVED] user_id={user.id}, is_admin={is_admin}")
 
         # Hiển thị menu chính với Reply Keyboard - tùy theo quyền
         reply_markup = self.get_reply_keyboard(is_admin)
@@ -68,8 +75,10 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
 ⚠️ <b>Lưu ý:</b> Bot chỉ cung cấp tín hiệu phân tích, không tự động giao dịch. Bạn tự quyết định vào lệnh thủ công.
         """
 
+        logger.info(f"[START SENDING RESPONSE] user_id={user.id}, timestamp={datetime.now().isoformat()}")
         await update.message.reply_text(welcome_message, reply_markup=reply_markup, parse_mode='HTML')
-        logger.info(f"User {user.id} started the bot, is_admin: {is_admin}")
+        logger.info(f"[START RESPONSE SENT] user_id={user.id}, timestamp={datetime.now().isoformat()}")
+        logger.info(f"[START COMPLETED] user_id={user.id}, is_admin={is_admin}, timestamp={datetime.now().isoformat()}")
     
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Lệnh /help - Hiển thị trợ giúp"""
@@ -134,34 +143,52 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
     
     async def market_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Lệnh /market - Thông tin thị trường"""
+        from datetime import datetime
+        timestamp = datetime.now().isoformat()
         user_id = update.effective_user.id
 
+        logger.info(f"[MARKET COMMAND ENTER] user_id={user_id}, timestamp={timestamp}")
+
         if not db.is_authorized(user_id):
+            logger.info(f"[MARKET COMMAND DENIED] user_id={user_id}, reason=NOT_AUTHORIZED")
             await update.message.reply_text("❌ Bạn không có quyền sử dụng bot này.")
             return
+
+        logger.info(f"[MARKET COMMAND PROCESSING] user_id={user_id}, timestamp={datetime.now().isoformat()}")
 
         try:
             if self.market_data:
                 market_info = await self.market_data.get_market_overview()
                 if market_info:
+                    logger.info(f"[MARKET COMMAND SENDING RESPONSE] user_id={user_id}, timestamp={datetime.now().isoformat()}")
                     await update.message.reply_text(market_info, parse_mode='Markdown')
+                    logger.info(f"[MARKET COMMAND RESPONSE SENT] user_id={user_id}, timestamp={datetime.now().isoformat()}")
                 else:
-                    logger.error("Market data not available")
+                    logger.error("[MARKET COMMAND ERROR] Market data not available")
                     await update.message.reply_text("📊 Dữ liệu thị trường không khả dụng lúc này.")
             else:
-                logger.error("Market data engine not initialized")
+                logger.error("[MARKET COMMAND ERROR] Market data engine not initialized")
                 await update.message.reply_text("📊 Dữ liệu thị trường không khả dụng lúc này.")
         except Exception as e:
-            logger.error(f"Error in market_command: {e}")
+            logger.error(f"[MARKET COMMAND ERROR] user_id={user_id}, error={e}", exc_info=True)
             await update.message.reply_text("📊 Dữ liệu thị trường không khả dụng lúc này.")
+
+        logger.info(f"[MARKET COMMAND EXIT] user_id={user_id}, timestamp={datetime.now().isoformat()}")
     
     async def news_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Lệnh /news - Tin tức"""
+        from datetime import datetime
+        timestamp = datetime.now().isoformat()
         user_id = update.effective_user.id
 
+        logger.info(f"[NEWS COMMAND ENTER] user_id={user_id}, timestamp={timestamp}")
+
         if not db.is_authorized(user_id):
+            logger.info(f"[NEWS COMMAND DENIED] user_id={user_id}, reason=NOT_AUTHORIZED")
             await update.message.reply_text("❌ Bạn không có quyền sử dụng bot này.")
             return
+
+        logger.info(f"[NEWS COMMAND PROCESSING] user_id={user_id}, timestamp={datetime.now().isoformat()}")
 
         try:
             from data.news_engine import news_engine
@@ -170,13 +197,17 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
             news_summary = await news_engine.get_news_summary()
 
             if news_summary:
+                logger.info(f"[NEWS COMMAND SENDING RESPONSE] user_id={user_id}, timestamp={datetime.now().isoformat()}")
                 await update.message.reply_text(news_summary, parse_mode='Markdown')
+                logger.info(f"[NEWS COMMAND RESPONSE SENT] user_id={user_id}, timestamp={datetime.now().isoformat()}")
             else:
-                logger.error("News summary not available")
+                logger.error("[NEWS COMMAND ERROR] News summary not available")
                 await update.message.reply_text("📰 Tin tức không khả dụng lúc này.")
         except Exception as e:
-            logger.error(f"Error in news_command: {e}")
+            logger.error(f"[NEWS COMMAND ERROR] user_id={user_id}, error={e}", exc_info=True)
             await update.message.reply_text("📰 Tin tức không khả dụng lúc này.")
+
+        logger.info(f"[NEWS COMMAND EXIT] user_id={user_id}, timestamp={datetime.now().isoformat()}")
     
     async def settings_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Lệnh /settings - Cấu hình (Admin only)"""
@@ -355,25 +386,39 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
     
     async def signals_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Lệnh /signals - Hiển thị tín hiệu"""
+        from datetime import datetime
+        timestamp = datetime.now().isoformat()
         user_id = update.effective_user.id
 
+        logger.info(f"[SIGNALS COMMAND ENTER] user_id={user_id}, timestamp={timestamp}")
+
         if not db.is_authorized(user_id):
+            logger.info(f"[SIGNALS COMMAND DENIED] user_id={user_id}, reason=NOT_AUTHORIZED")
             await update.message.reply_text("❌ Bạn không có quyền sử dụng bot này.")
             return
 
         is_admin = db.is_admin(user_id)
+        logger.info(f"[SIGNALS COMMAND PROCESSING] user_id={user_id}, is_admin={is_admin}, timestamp={datetime.now().isoformat()}")
         await self.show_signals(update, is_admin)
+        logger.info(f"[SIGNALS COMMAND EXIT] user_id={user_id}, timestamp={datetime.now().isoformat()}")
     
     async def analyze_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Lệnh /analyze - Hiển thị phân tích"""
+        from datetime import datetime
+        timestamp = datetime.now().isoformat()
         user_id = update.effective_user.id
 
+        logger.info(f"[ANALYZE COMMAND ENTER] user_id={user_id}, timestamp={timestamp}")
+
         if not db.is_authorized(user_id):
+            logger.info(f"[ANALYZE COMMAND DENIED] user_id={user_id}, reason=NOT_AUTHORIZED")
             await update.message.reply_text("❌ Bạn không có quyền sử dụng bot này.")
             return
 
         is_admin = db.is_admin(user_id)
+        logger.info(f"[ANALYZE COMMAND PROCESSING] user_id={user_id}, is_admin={is_admin}, timestamp={datetime.now().isoformat()}")
         await self.show_analysis(update, is_admin)
+        logger.info(f"[ANALYZE COMMAND EXIT] user_id={user_id}, timestamp={datetime.now().isoformat()}")
     
     # ==================== CALLBACK HANDLERS ====================
 
@@ -433,58 +478,63 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
 
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Xử lý tin nhắn văn bản từ Reply Keyboard - gọi trực tiếp các handler"""
-        logger.info("[HANDLER] message received")
+        from datetime import datetime
+        timestamp = datetime.now().isoformat()
+        logger.info(f"[HANDLER ENTER] timestamp={timestamp}")
         user = update.effective_user
         text = update.message.text
 
-        logger.info(f"[handle_message] Received message from user {user.id}: '{text}' (type: {type(text)})")
+        logger.info(f"[HANDLER RECEIVED] user_id={user.id}, text={text}, timestamp={timestamp}")
 
         # Kiểm tra xem user có bị ban không
         if db.is_banned(user.id):
-            logger.info(f"[handle_message] User {user.id} is banned")
+            logger.info(f"[HANDLER BANNED] user_id={user.id}")
             await update.message.reply_text("❌ Bạn đã bị ban khỏi bot.")
+            logger.info(f"[HANDLER EXIT] user_id={user.id}, reason=BANNED, timestamp={datetime.now().isoformat()}")
             return
 
         is_admin = db.is_admin(user.id)
-        logger.info(f"[handle_message] User {user.id} is_admin: {is_admin}")
+        logger.info(f"[HANDLER AUTH] user_id={user.id}, is_admin={is_admin}")
 
         # Xử lý các nút menu - gọi trực tiếp các command handlers
         try:
             if text == "📰 Tin tức":
-                logger.info(f"[HANDLER] processing button: Tin tức")
+                logger.info(f"[BUTTON RECEIVED] text=📰 Tin tức, user_id={user.id}, timestamp={datetime.now().isoformat()}")
                 await self.news_command(update, context)
-                logger.info(f"[HANDLER] completed: Tin tức")
+                logger.info(f"[BUTTON COMPLETED] text=📰 Tin tức, user_id={user.id}, timestamp={datetime.now().isoformat()}")
             elif text == "📈 Thị trường":
-                logger.info(f"[HANDLER] processing button: Thị trường")
+                logger.info(f"[BUTTON RECEIVED] text=📈 Thị trường, user_id={user.id}, timestamp={datetime.now().isoformat()}")
                 await self.market_command(update, context)
-                logger.info(f"[HANDLER] completed: Thị trường")
+                logger.info(f"[BUTTON COMPLETED] text=📈 Thị trường, user_id={user.id}, timestamp={datetime.now().isoformat()}")
             elif text == "📨 Tín hiệu":
-                logger.info(f"[HANDLER] processing button: Tín hiệu")
+                logger.info(f"[BUTTON RECEIVED] text=📨 Tín hiệu, user_id={user.id}, timestamp={datetime.now().isoformat()}")
                 await self.signals_command(update, context)
-                logger.info(f"[HANDLER] completed: Tín hiệu")
+                logger.info(f"[BUTTON COMPLETED] text=📨 Tín hiệu, user_id={user.id}, timestamp={datetime.now().isoformat()}")
             elif text == "📊 Phân tích":
-                logger.info(f"[HANDLER] processing button: Phân tích")
+                logger.info(f"[BUTTON RECEIVED] text=📊 Phân tích, user_id={user.id}, timestamp={datetime.now().isoformat()}")
                 await self.analyze_command(update, context)
-                logger.info(f"[HANDLER] completed: Phân tích")
+                logger.info(f"[BUTTON COMPLETED] text=📊 Phân tích, user_id={user.id}, timestamp={datetime.now().isoformat()}")
             elif text == "⚙️ Cài đặt":
-                logger.info(f"[HANDLER] processing button: Cài đặt")
+                logger.info(f"[BUTTON RECEIVED] text=⚙️ Cài đặt, user_id={user.id}, timestamp={datetime.now().isoformat()}")
                 if is_admin:
                     await self.show_settings(update, is_admin)
-                    logger.info(f"[HANDLER] completed: Cài đặt")
+                    logger.info(f"[BUTTON COMPLETED] text=⚙️ Cài đặt, user_id={user.id}, timestamp={datetime.now().isoformat()}")
                 else:
                     await update.message.reply_text("⛔ Bạn không có quyền sử dụng chức năng này.")
-                    logger.info(f"[handle_message] User not admin for Cài đặt")
+                    logger.info(f"[BUTTON DENIED] text=⚙️ Cài đặt, user_id={user.id}, reason=NOT_ADMIN, timestamp={datetime.now().isoformat()}")
             elif text == "📋 Danh sách lệnh":
-                logger.info(f"[HANDLER] processing button: Danh sách lệnh")
+                logger.info(f"[BUTTON RECEIVED] text=📋 Danh sách lệnh, user_id={user.id}, timestamp={datetime.now().isoformat()}")
                 await self.show_commands(update, is_admin)
-                logger.info(f"[HANDLER] completed: Danh sách lệnh")
+                logger.info(f"[BUTTON COMPLETED] text=📋 Danh sách lệnh, user_id={user.id}, timestamp={datetime.now().isoformat()}")
             else:
                 # Tin nhắn không phải menu - có thể xử lý khác hoặc bỏ qua
-                logger.info(f"[handle_message] Unknown message: '{text}'")
+                logger.info(f"[HANDLER UNKNOWN] user_id={user.id}, text={text}, timestamp={datetime.now().isoformat()}")
                 pass
         except Exception as e:
-            logger.error(f"[handle_message] Error processing message: {e}", exc_info=True)
+            logger.error(f"[HANDLER ERROR] user_id={user.id}, text={text}, error={e}", exc_info=True)
             await update.message.reply_text("❌ Có lỗi xảy ra khi xử lý tin nhắn.")
+
+        logger.info(f"[HANDLER EXIT] user_id={user.id}, text={text}, timestamp={datetime.now().isoformat()}")
 
     async def show_analysis(self, update: Update, is_admin: bool):
         """Hiển thị phân tích"""
@@ -945,14 +995,21 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
 
     async def start(self):
         """Khởi động bot - tạo Application và setup webhook"""
+        from datetime import datetime
+        timestamp = datetime.now().isoformat()
+        logger.info(f"[TELEGRAM APPLICATION START] timestamp={timestamp}")
+
         try:
             if self.application is not None:
-                logger.warning("Telegram bot application already initialized")
+                logger.warning("[TELEGRAM APPLICATION WARNING] Application already initialized")
                 return self.application
 
+            logger.info(f"[TELEGRAM APPLICATION CREATING] timestamp={datetime.now().isoformat()}")
             self.application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
+            logger.info(f"[TELEGRAM APPLICATION CREATED] timestamp={datetime.now().isoformat()}")
 
             # Đăng ký handlers - chỉ giữ admin commands cần thiết
+            logger.info(f"[TELEGRAM APPLICATION ADDING HANDLERS] timestamp={datetime.now().isoformat()}")
             self.application.add_handler(CommandHandler("start", self.start_command))
             self.application.add_handler(CommandHandler("ban", self.ban_command))
             self.application.add_handler(CommandHandler("unban", self.unban_command))
@@ -960,22 +1017,27 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
             self.application.add_handler(CommandHandler("broadcast", self.broadcast_command))
             self.application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
             self.application.add_handler(CallbackQueryHandler(self.button_callback))
+            logger.info(f"[TELEGRAM APPLICATION HANDLERS ADDED] timestamp={datetime.now().isoformat()}")
 
             # Initialize the application
+            logger.info(f"[TELEGRAM APPLICATION INITIALIZING] timestamp={datetime.now().isoformat()}")
             await self.application.initialize()
-            logger.info("Telegram bot application initialized successfully")
+            logger.info(f"[TELEGRAM APPLICATION INITIALIZED] timestamp={datetime.now().isoformat()}")
 
             # Delete all bot commands from Telegram
+            logger.info(f"[TELEGRAM APPLICATION DELETING COMMANDS] timestamp={datetime.now().isoformat()}")
             await self.application.bot.delete_my_commands()
-            logger.info("Deleted all bot commands from Telegram")
+            logger.info(f"[TELEGRAM APPLICATION COMMANDS DELETED] timestamp={datetime.now().isoformat()}")
 
             # Try to remove menu button by setting to default
+            logger.info(f"[TELEGRAM APPLICATION RESETTING MENU BUTTON] timestamp={datetime.now().isoformat()}")
             await self.application.bot.set_chat_menu_button(menu_button=MenuButtonDefault())
-            logger.info("Reset Telegram Menu Button")
+            logger.info(f"[TELEGRAM APPLICATION MENU BUTTON RESET] timestamp={datetime.now().isoformat()}")
 
             # Start the application (without polling)
+            logger.info(f"[TELEGRAM APPLICATION STARTING] timestamp={datetime.now().isoformat()}")
             await self.application.start()
-            logger.info("Telegram bot application started successfully")
+            logger.info(f"[TELEGRAM APPLICATION STARTED] timestamp={datetime.now().isoformat()}")
             self.running = True
 
             # Setup webhook if TELEGRAM_WEBHOOK_URL is configured
@@ -984,15 +1046,17 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
                 webhook_url = TELEGRAM_WEBHOOK_URL
                 if not webhook_url.endswith('/webhook'):
                     webhook_url = webhook_url.rstrip('/') + '/webhook'
+                logger.info(f"[TELEGRAM APPLICATION SETTING WEBHOOK] url={webhook_url}, timestamp={datetime.now().isoformat()}")
                 await self.application.bot.set_webhook(url=webhook_url)
-                logger.info(f"Telegram webhook set to: {webhook_url}")
+                logger.info(f"[TELEGRAM APPLICATION WEBHOOK SET] url={webhook_url}, timestamp={datetime.now().isoformat()}")
             else:
-                logger.error("TELEGRAM_WEBHOOK_URL not configured - bot cannot receive updates!")
+                logger.error("[TELEGRAM APPLICATION ERROR] TELEGRAM_WEBHOOK_URL not configured - bot cannot receive updates!")
                 logger.error("Please set TELEGRAM_WEBHOOK_URL in Render environment variables")
 
+            logger.info(f"[TELEGRAM APPLICATION START COMPLETED] timestamp={datetime.now().isoformat()}")
             return self.application
         except Exception as e:
-            logger.error(f"Error starting Telegram bot: {e}")
+            logger.error(f"[TELEGRAM APPLICATION ERROR] error={e}", exc_info=True)
             raise
 
     async def stop(self):
