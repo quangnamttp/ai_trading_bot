@@ -1040,11 +1040,6 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
             logger.info(f"[TELEGRAM APPLICATION STARTED] timestamp={datetime.now().isoformat()}")
             self.running = True
 
-            # Start the updater to process the update queue
-            logger.info(f"[TELEGRAM APPLICATION STARTING UPDATER] timestamp={datetime.now().isoformat()}")
-            await self.application.updater.start()
-            logger.info(f"[TELEGRAM APPLICATION UPDATER STARTED] timestamp={datetime.now().isoformat()}")
-
             # Setup webhook if TELEGRAM_WEBHOOK_URL is configured
             if TELEGRAM_WEBHOOK_URL:
                 # Auto-append /webhook if not present
@@ -1078,14 +1073,6 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
             self.running = False
 
             if self.application:
-                # Stop the updater first
-                logger.info(f"[TELEGRAM APPLICATION STOPPING UPDATER] timestamp={datetime.now().isoformat()}")
-                try:
-                    await self.application.updater.stop()
-                    logger.info(f"[TELEGRAM APPLICATION UPDATER STOPPED] timestamp={datetime.now().isoformat()}")
-                except Exception as e:
-                    logger.error(f"[TELEGRAM APPLICATION UPDATER STOP ERROR] error={e}", exc_info=True)
-
                 # DO NOT delete webhook - keep it active for next startup
                 logger.info(f"[TELEGRAM APPLICATION STOPPING] timestamp={datetime.now().isoformat()}")
                 try:
