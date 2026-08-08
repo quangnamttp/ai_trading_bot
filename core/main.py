@@ -351,6 +351,16 @@ class TradingBotApp:
 
                     # Get update from request
                     update_json = request.get_json(force=True)
+
+                    # Extract user_id and text for logging
+                    user_id = None
+                    text = None
+                    if update_json:
+                        message = update_json.get('message', {})
+                        user_id = message.get('from', {}).get('id')
+                        text = message.get('text')
+
+                    logger.info(f"[WEBHOOK] update received: user_id={user_id}, text={text}")
                     logger.info(f"[webhook] Received update: {update_json}")
 
                     # Put update into application's update_queue

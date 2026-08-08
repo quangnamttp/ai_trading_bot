@@ -433,6 +433,7 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
 
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Xử lý tin nhắn văn bản từ Reply Keyboard - gọi trực tiếp các handler"""
+        logger.info("[HANDLER] message received")
         user = update.effective_user
         text = update.message.text
 
@@ -450,33 +451,33 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
         # Xử lý các nút menu - gọi trực tiếp các command handlers
         try:
             if text == "📰 Tin tức":
-                logger.info(f"[handle_message] Processing: Tin tức - calling news_command")
+                logger.info(f"[HANDLER] processing button: Tin tức")
                 await self.news_command(update, context)
-                logger.info(f"[handle_message] news_command completed")
+                logger.info(f"[HANDLER] completed: Tin tức")
             elif text == "📈 Thị trường":
-                logger.info(f"[handle_message] Processing: Thị trường - calling market_command")
+                logger.info(f"[HANDLER] processing button: Thị trường")
                 await self.market_command(update, context)
-                logger.info(f"[handle_message] market_command completed")
+                logger.info(f"[HANDLER] completed: Thị trường")
             elif text == "📨 Tín hiệu":
-                logger.info(f"[handle_message] Processing: Tín hiệu - calling signals_command")
+                logger.info(f"[HANDLER] processing button: Tín hiệu")
                 await self.signals_command(update, context)
-                logger.info(f"[handle_message] signals_command completed")
+                logger.info(f"[HANDLER] completed: Tín hiệu")
             elif text == "📊 Phân tích":
-                logger.info(f"[handle_message] Processing: Phân tích - calling analyze_command")
+                logger.info(f"[HANDLER] processing button: Phân tích")
                 await self.analyze_command(update, context)
-                logger.info(f"[handle_message] analyze_command completed")
+                logger.info(f"[HANDLER] completed: Phân tích")
             elif text == "⚙️ Cài đặt":
-                logger.info(f"[handle_message] Processing: Cài đặt")
+                logger.info(f"[HANDLER] processing button: Cài đặt")
                 if is_admin:
                     await self.show_settings(update, is_admin)
-                    logger.info(f"[handle_message] show_settings completed")
+                    logger.info(f"[HANDLER] completed: Cài đặt")
                 else:
                     await update.message.reply_text("⛔ Bạn không có quyền sử dụng chức năng này.")
                     logger.info(f"[handle_message] User not admin for Cài đặt")
             elif text == "📋 Danh sách lệnh":
-                logger.info(f"[handle_message] Processing: Danh sách lệnh")
+                logger.info(f"[HANDLER] processing button: Danh sách lệnh")
                 await self.show_commands(update, is_admin)
-                logger.info(f"[handle_message] show_commands completed")
+                logger.info(f"[HANDLER] completed: Danh sách lệnh")
             else:
                 # Tin nhắn không phải menu - có thể xử lý khác hoặc bỏ qua
                 logger.info(f"[handle_message] Unknown message: '{text}'")
@@ -968,11 +969,9 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
             await self.application.bot.delete_my_commands()
             logger.info("Deleted all bot commands from Telegram")
 
-            # Try to remove menu button by setting to default without commands
-            from telegram import BotCommandScopeAllPrivateChats
+            # Try to remove menu button by setting to default
             await self.application.bot.set_chat_menu_button(menu_button=MenuButtonDefault())
-            await self.application.bot.set_my_commands(commands=[], scope=BotCommandScopeAllPrivateChats())
-            logger.info("Reset Telegram Menu Button and cleared commands")
+            logger.info("Reset Telegram Menu Button")
 
             # Start the application (without polling)
             await self.application.start()
