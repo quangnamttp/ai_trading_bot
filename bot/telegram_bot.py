@@ -37,12 +37,25 @@ class TelegramBot:
         self.market_data = market_data
     
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Lệnh /start - Khởi động bot"""
+        """Lệnh /start - Khởi động bot with comprehensive trace logging"""
+        import asyncio
+        import traceback
         from datetime import datetime
-        timestamp = datetime.now().isoformat()
-        user = update.effective_user
 
-        logger.info(f"[START RECEIVED] user_id={user.id}, timestamp={timestamp}")
+        # Get current event loop ID
+        try:
+            event_loop = asyncio.get_event_loop()
+            event_loop_id = id(event_loop)
+        except RuntimeError:
+            event_loop = None
+            event_loop_id = "NO_LOOP"
+
+        start_received_timestamp = datetime.now().isoformat()
+        user = update.effective_user
+        update_id = update.update_id
+
+        print(f"[START RECEIVED] timestamp={start_received_timestamp}, user_id={user.id}, update_id={update_id}, event_loop_id={event_loop_id}")
+        logger.info(f"[START RECEIVED] timestamp={start_received_timestamp}, user_id={user.id}, update_id={update_id}, event_loop_id={event_loop_id}")
 
         # Kiểm tra xem user có bị ban không
         if db.is_banned(user.id):
@@ -50,7 +63,9 @@ class TelegramBot:
             await update.message.reply_text("❌ Bạn đã bị ban khỏi bot.")
             return
 
-        logger.info(f"[START PROCESSING] user_id={user.id}, timestamp={datetime.now().isoformat()}")
+        start_processing_timestamp = datetime.now().isoformat()
+        print(f"[START PROCESSING] timestamp={start_processing_timestamp}, user_id={user.id}, event_loop_id={event_loop_id}")
+        logger.info(f"[START PROCESSING] timestamp={start_processing_timestamp}, user_id={user.id}, event_loop_id={event_loop_id}")
 
         # Lưu user vào database
         is_admin = db.is_admin(user.id)
@@ -60,7 +75,9 @@ class TelegramBot:
             first_name=user.first_name,
             is_admin=is_admin
         )
-        logger.info(f"[START DATABASE SAVED] user_id={user.id}, is_admin={is_admin}")
+        start_db_saved_timestamp = datetime.now().isoformat()
+        print(f"[START DATABASE SAVED] timestamp={start_db_saved_timestamp}, user_id={user.id}, is_admin={is_admin}, event_loop_id={event_loop_id}")
+        logger.info(f"[START DATABASE SAVED] timestamp={start_db_saved_timestamp}, user_id={user.id}, is_admin={is_admin}, event_loop_id={event_loop_id}")
 
         # Hiển thị menu chính với Reply Keyboard - tùy theo quyền
         reply_markup = self.get_reply_keyboard(is_admin)
@@ -75,10 +92,26 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
 ⚠️ <b>Lưu ý:</b> Bot chỉ cung cấp tín hiệu phân tích, không tự động giao dịch. Bạn tự quyết định vào lệnh thủ công.
         """
 
-        logger.info(f"[START SENDING RESPONSE] user_id={user.id}, timestamp={datetime.now().isoformat()}")
-        await update.message.reply_text(welcome_message, reply_markup=reply_markup, parse_mode='HTML')
-        logger.info(f"[START RESPONSE SENT] user_id={user.id}, timestamp={datetime.now().isoformat()}")
-        logger.info(f"[START COMPLETED] user_id={user.id}, is_admin={is_admin}, timestamp={datetime.now().isoformat()}")
+        start_sending_timestamp = datetime.now().isoformat()
+        print(f"[START SENDING RESPONSE] timestamp={start_sending_timestamp}, user_id={user.id}, event_loop_id={event_loop_id}")
+        logger.info(f"[START SENDING RESPONSE] timestamp={start_sending_timestamp}, user_id={user.id}, event_loop_id={event_loop_id}")
+
+        try:
+            await update.message.reply_text(welcome_message, reply_markup=reply_markup, parse_mode='HTML')
+            start_response_sent_timestamp = datetime.now().isoformat()
+            print(f"[START RESPONSE SENT] timestamp={start_response_sent_timestamp}, user_id={user.id}, event_loop_id={event_loop_id}")
+            logger.info(f"[START RESPONSE SENT] timestamp={start_response_sent_timestamp}, user_id={user.id}, event_loop_id={event_loop_id}")
+        except Exception as e:
+            start_error_timestamp = datetime.now().isoformat()
+            print(f"[START SEND ERROR] timestamp={start_error_timestamp}, user_id={user.id}, error={e}")
+            print(f"[FULL TRACEBACK]: {traceback.format_exc()}")
+            logger.error(f"[START SEND ERROR] timestamp={start_error_timestamp}, user_id={user.id}, error={e}", exc_info=True)
+            raise
+
+        start_completed_timestamp = datetime.now().isoformat()
+        start_duration_ms = (datetime.fromisoformat(start_completed_timestamp) - datetime.fromisoformat(start_received_timestamp)).total_seconds() * 1000
+        print(f"[START COMPLETED] timestamp={start_completed_timestamp}, user_id={user.id}, is_admin={is_admin}, duration_ms={start_duration_ms:.2f}, event_loop_id={event_loop_id}")
+        logger.info(f"[START COMPLETED] timestamp={start_completed_timestamp}, user_id={user.id}, is_admin={is_admin}, duration_ms={start_duration_ms:.2f}, event_loop_id={event_loop_id}")
     
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Lệnh /help - Hiển thị trợ giúp"""
@@ -477,64 +510,120 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
         logger.info(f"User {user.id} requested menu")
 
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Xử lý tin nhắn văn bản từ Reply Keyboard - gọi trực tiếp các handler"""
+        """Xử lý tin nhắn văn bản từ Reply Keyboard - comprehensive trace logging"""
+        import asyncio
+        import traceback
         from datetime import datetime
-        timestamp = datetime.now().isoformat()
-        logger.info(f"[HANDLER ENTER] timestamp={timestamp}")
+
+        # Get current event loop ID
+        try:
+            event_loop = asyncio.get_event_loop()
+            event_loop_id = id(event_loop)
+        except RuntimeError:
+            event_loop = None
+            event_loop_id = "NO_LOOP"
+
+        handler_enter_timestamp = datetime.now().isoformat()
         user = update.effective_user
         text = update.message.text
+        update_id = update.update_id
 
-        logger.info(f"[HANDLER RECEIVED] user_id={user.id}, text={text}, timestamp={timestamp}")
+        print(f"[HANDLER ENTER] timestamp={handler_enter_timestamp}, update_id={update_id}, user_id={user.id}, text={text}, event_loop_id={event_loop_id}")
+        logger.info(f"[HANDLER ENTER] timestamp={handler_enter_timestamp}, update_id={update_id}, user_id={user.id}, text={text}, event_loop_id={event_loop_id}")
 
         # Kiểm tra xem user có bị ban không
         if db.is_banned(user.id):
+            print(f"[HANDLER BANNED] timestamp={datetime.now().isoformat()}, user_id={user.id}, event_loop_id={event_loop_id}")
             logger.info(f"[HANDLER BANNED] user_id={user.id}")
             await update.message.reply_text("❌ Bạn đã bị ban khỏi bot.")
-            logger.info(f"[HANDLER EXIT] user_id={user.id}, reason=BANNED, timestamp={datetime.now().isoformat()}")
+            handler_exit_timestamp = datetime.now().isoformat()
+            handler_duration_ms = (datetime.fromisoformat(handler_exit_timestamp) - datetime.fromisoformat(handler_enter_timestamp)).total_seconds() * 1000
+            print(f"[HANDLER EXIT] timestamp={handler_exit_timestamp}, update_id={update_id}, user_id={user.id}, text={text}, reason=BANNED, duration_ms={handler_duration_ms:.2f}, event_loop_id={event_loop_id}")
+            logger.info(f"[HANDLER EXIT] timestamp={handler_exit_timestamp}, update_id={update_id}, user_id={user.id}, text={text}, reason=BANNED, duration_ms={handler_duration_ms:.2f}, event_loop_id={event_loop_id}")
             return
 
         is_admin = db.is_admin(user.id)
+        print(f"[HANDLER AUTH] timestamp={datetime.now().isoformat()}, user_id={user.id}, is_admin={is_admin}, event_loop_id={event_loop_id}")
         logger.info(f"[HANDLER AUTH] user_id={user.id}, is_admin={is_admin}")
 
         # Xử lý các nút menu - gọi trực tiếp các command handlers
         try:
             if text == "📰 Tin tức":
-                logger.info(f"[BUTTON RECEIVED] text=📰 Tin tức, user_id={user.id}, timestamp={datetime.now().isoformat()}")
+                button_received_timestamp = datetime.now().isoformat()
+                print(f"[BUTTON RECEIVED] timestamp={button_received_timestamp}, text=📰 Tin tức, user_id={user.id}, update_id={update_id}, event_loop_id={event_loop_id}")
+                logger.info(f"[BUTTON RECEIVED] timestamp={button_received_timestamp}, text=📰 Tin tức, user_id={user.id}, update_id={update_id}, event_loop_id={event_loop_id}")
                 await self.news_command(update, context)
-                logger.info(f"[BUTTON COMPLETED] text=📰 Tin tức, user_id={user.id}, timestamp={datetime.now().isoformat()}")
+                button_completed_timestamp = datetime.now().isoformat()
+                button_duration_ms = (datetime.fromisoformat(button_completed_timestamp) - datetime.fromisoformat(button_received_timestamp)).total_seconds() * 1000
+                print(f"[BUTTON COMPLETED] timestamp={button_completed_timestamp}, text=📰 Tin tức, user_id={user.id}, update_id={update_id}, duration_ms={button_duration_ms:.2f}, event_loop_id={event_loop_id}")
+                logger.info(f"[BUTTON COMPLETED] timestamp={button_completed_timestamp}, text=📰 Tin tức, user_id={user.id}, update_id={update_id}, duration_ms={button_duration_ms:.2f}, event_loop_id={event_loop_id}")
             elif text == "📈 Thị trường":
-                logger.info(f"[BUTTON RECEIVED] text=📈 Thị trường, user_id={user.id}, timestamp={datetime.now().isoformat()}")
+                button_received_timestamp = datetime.now().isoformat()
+                print(f"[BUTTON RECEIVED] timestamp={button_received_timestamp}, text=📈 Thị trường, user_id={user.id}, update_id={update_id}, event_loop_id={event_loop_id}")
+                logger.info(f"[BUTTON RECEIVED] timestamp={button_received_timestamp}, text=📈 Thị trường, user_id={user.id}, update_id={update_id}, event_loop_id={event_loop_id}")
                 await self.market_command(update, context)
-                logger.info(f"[BUTTON COMPLETED] text=📈 Thị trường, user_id={user.id}, timestamp={datetime.now().isoformat()}")
+                button_completed_timestamp = datetime.now().isoformat()
+                button_duration_ms = (datetime.fromisoformat(button_completed_timestamp) - datetime.fromisoformat(button_received_timestamp)).total_seconds() * 1000
+                print(f"[BUTTON COMPLETED] timestamp={button_completed_timestamp}, text=📈 Thị trường, user_id={user.id}, update_id={update_id}, duration_ms={button_duration_ms:.2f}, event_loop_id={event_loop_id}")
+                logger.info(f"[BUTTON COMPLETED] timestamp={button_completed_timestamp}, text=📈 Thị trường, user_id={user.id}, update_id={update_id}, duration_ms={button_duration_ms:.2f}, event_loop_id={event_loop_id}")
             elif text == "📨 Tín hiệu":
-                logger.info(f"[BUTTON RECEIVED] text=📨 Tín hiệu, user_id={user.id}, timestamp={datetime.now().isoformat()}")
+                button_received_timestamp = datetime.now().isoformat()
+                print(f"[BUTTON RECEIVED] timestamp={button_received_timestamp}, text=📨 Tín hiệu, user_id={user.id}, update_id={update_id}, event_loop_id={event_loop_id}")
+                logger.info(f"[BUTTON RECEIVED] timestamp={button_received_timestamp}, text=📨 Tín hiệu, user_id={user.id}, update_id={update_id}, event_loop_id={event_loop_id}")
                 await self.signals_command(update, context)
-                logger.info(f"[BUTTON COMPLETED] text=📨 Tín hiệu, user_id={user.id}, timestamp={datetime.now().isoformat()}")
+                button_completed_timestamp = datetime.now().isoformat()
+                button_duration_ms = (datetime.fromisoformat(button_completed_timestamp) - datetime.fromisoformat(button_received_timestamp)).total_seconds() * 1000
+                print(f"[BUTTON COMPLETED] timestamp={button_completed_timestamp}, text=📨 Tín hiệu, user_id={user.id}, update_id={update_id}, duration_ms={button_duration_ms:.2f}, event_loop_id={event_loop_id}")
+                logger.info(f"[BUTTON COMPLETED] timestamp={button_completed_timestamp}, text=📨 Tín hiệu, user_id={user.id}, update_id={update_id}, duration_ms={button_duration_ms:.2f}, event_loop_id={event_loop_id}")
             elif text == "📊 Phân tích":
-                logger.info(f"[BUTTON RECEIVED] text=📊 Phân tích, user_id={user.id}, timestamp={datetime.now().isoformat()}")
+                button_received_timestamp = datetime.now().isoformat()
+                print(f"[BUTTON RECEIVED] timestamp={button_received_timestamp}, text=📊 Phân tích, user_id={user.id}, update_id={update_id}, event_loop_id={event_loop_id}")
+                logger.info(f"[BUTTON RECEIVED] timestamp={button_received_timestamp}, text=📊 Phân tích, user_id={user.id}, update_id={update_id}, event_loop_id={event_loop_id}")
                 await self.analyze_command(update, context)
-                logger.info(f"[BUTTON COMPLETED] text=📊 Phân tích, user_id={user.id}, timestamp={datetime.now().isoformat()}")
+                button_completed_timestamp = datetime.now().isoformat()
+                button_duration_ms = (datetime.fromisoformat(button_completed_timestamp) - datetime.fromisoformat(button_received_timestamp)).total_seconds() * 1000
+                print(f"[BUTTON COMPLETED] timestamp={button_completed_timestamp}, text=📊 Phân tích, user_id={user.id}, update_id={update_id}, duration_ms={button_duration_ms:.2f}, event_loop_id={event_loop_id}")
+                logger.info(f"[BUTTON COMPLETED] timestamp={button_completed_timestamp}, text=📊 Phân tích, user_id={user.id}, update_id={update_id}, duration_ms={button_duration_ms:.2f}, event_loop_id={event_loop_id}")
             elif text == "⚙️ Cài đặt":
-                logger.info(f"[BUTTON RECEIVED] text=⚙️ Cài đặt, user_id={user.id}, timestamp={datetime.now().isoformat()}")
+                button_received_timestamp = datetime.now().isoformat()
+                print(f"[BUTTON RECEIVED] timestamp={button_received_timestamp}, text=⚙️ Cài đặt, user_id={user.id}, update_id={update_id}, event_loop_id={event_loop_id}")
+                logger.info(f"[BUTTON RECEIVED] timestamp={button_received_timestamp}, text=⚙️ Cài đặt, user_id={user.id}, update_id={update_id}, event_loop_id={event_loop_id}")
                 if is_admin:
                     await self.show_settings(update, is_admin)
-                    logger.info(f"[BUTTON COMPLETED] text=⚙️ Cài đặt, user_id={user.id}, timestamp={datetime.now().isoformat()}")
+                    button_completed_timestamp = datetime.now().isoformat()
+                    button_duration_ms = (datetime.fromisoformat(button_completed_timestamp) - datetime.fromisoformat(button_received_timestamp)).total_seconds() * 1000
+                    print(f"[BUTTON COMPLETED] timestamp={button_completed_timestamp}, text=⚙️ Cài đặt, user_id={user.id}, update_id={update_id}, duration_ms={button_duration_ms:.2f}, event_loop_id={event_loop_id}")
+                    logger.info(f"[BUTTON COMPLETED] timestamp={button_completed_timestamp}, text=⚙️ Cài đặt, user_id={user.id}, update_id={update_id}, duration_ms={button_duration_ms:.2f}, event_loop_id={event_loop_id}")
                 else:
                     await update.message.reply_text("⛔ Bạn không có quyền sử dụng chức năng này.")
-                    logger.info(f"[BUTTON DENIED] text=⚙️ Cài đặt, user_id={user.id}, reason=NOT_ADMIN, timestamp={datetime.now().isoformat()}")
+                    button_denied_timestamp = datetime.now().isoformat()
+                    print(f"[BUTTON DENIED] timestamp={button_denied_timestamp}, text=⚙️ Cài đặt, user_id={user.id}, reason=NOT_ADMIN, event_loop_id={event_loop_id}")
+                    logger.info(f"[BUTTON DENIED] timestamp={button_denied_timestamp}, text=⚙️ Cài đặt, user_id={user.id}, reason=NOT_ADMIN, event_loop_id={event_loop_id}")
             elif text == "📋 Danh sách lệnh":
-                logger.info(f"[BUTTON RECEIVED] text=📋 Danh sách lệnh, user_id={user.id}, timestamp={datetime.now().isoformat()}")
+                button_received_timestamp = datetime.now().isoformat()
+                print(f"[BUTTON RECEIVED] timestamp={button_received_timestamp}, text=📋 Danh sách lệnh, user_id={user.id}, update_id={update_id}, event_loop_id={event_loop_id}")
+                logger.info(f"[BUTTON RECEIVED] timestamp={button_received_timestamp}, text=📋 Danh sách lệnh, user_id={user.id}, update_id={update_id}, event_loop_id={event_loop_id}")
                 await self.show_commands(update, is_admin)
-                logger.info(f"[BUTTON COMPLETED] text=📋 Danh sách lệnh, user_id={user.id}, timestamp={datetime.now().isoformat()}")
+                button_completed_timestamp = datetime.now().isoformat()
+                button_duration_ms = (datetime.fromisoformat(button_completed_timestamp) - datetime.fromisoformat(button_received_timestamp)).total_seconds() * 1000
+                print(f"[BUTTON COMPLETED] timestamp={button_completed_timestamp}, text=📋 Danh sách lệnh, user_id={user.id}, update_id={update_id}, duration_ms={button_duration_ms:.2f}, event_loop_id={event_loop_id}")
+                logger.info(f"[BUTTON COMPLETED] timestamp={button_completed_timestamp}, text=📋 Danh sách lệnh, user_id={user.id}, update_id={update_id}, duration_ms={button_duration_ms:.2f}, event_loop_id={event_loop_id}")
             else:
                 # Tin nhắn không phải menu - có thể xử lý khác hoặc bỏ qua
+                print(f"[HANDLER UNKNOWN] timestamp={datetime.now().isoformat()}, user_id={user.id}, text={text}, event_loop_id={event_loop_id}")
                 logger.info(f"[HANDLER UNKNOWN] user_id={user.id}, text={text}, timestamp={datetime.now().isoformat()}")
                 pass
         except Exception as e:
+            error_timestamp = datetime.now().isoformat()
+            print(f"[HANDLER ERROR] timestamp={error_timestamp}, user_id={user.id}, text={text}, error={e}")
+            print(f"[FULL TRACEBACK]: {traceback.format_exc()}")
             logger.error(f"[HANDLER ERROR] user_id={user.id}, text={text}, error={e}", exc_info=True)
             await update.message.reply_text("❌ Có lỗi xảy ra khi xử lý tin nhắn.")
 
-        logger.info(f"[HANDLER EXIT] user_id={user.id}, text={text}, timestamp={datetime.now().isoformat()}")
+        handler_exit_timestamp = datetime.now().isoformat()
+        handler_duration_ms = (datetime.fromisoformat(handler_exit_timestamp) - datetime.fromisoformat(handler_enter_timestamp)).total_seconds() * 1000
+        print(f"[HANDLER EXIT] timestamp={handler_exit_timestamp}, update_id={update_id}, user_id={user.id}, text={text}, duration_ms={handler_duration_ms:.2f}, event_loop_id={event_loop_id}")
+        logger.info(f"[HANDLER EXIT] timestamp={handler_exit_timestamp}, update_id={update_id}, user_id={user.id}, text={text}, duration_ms={handler_duration_ms:.2f}, event_loop_id={event_loop_id}")
 
     async def show_analysis(self, update: Update, is_admin: bool):
         """Hiển thị phân tích"""
@@ -994,22 +1083,42 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
     # ==================== BOT STARTUP ====================
 
     async def start(self):
-        """Khởi động bot - tạo Application và setup webhook"""
+        """Khởi động bot with comprehensive trace logging"""
+        import asyncio
+        import traceback
         from datetime import datetime
-        timestamp = datetime.now().isoformat()
-        logger.info(f"[TELEGRAM APPLICATION START] timestamp={timestamp}")
+
+        # Get current event loop ID
+        try:
+            event_loop = asyncio.get_event_loop()
+            event_loop_id = id(event_loop)
+        except RuntimeError:
+            event_loop = None
+            event_loop_id = "NO_LOOP"
+
+        start_timestamp = datetime.now().isoformat()
+        print(f"[TELEGRAM APPLICATION START] timestamp={start_timestamp}, event_loop_id={event_loop_id}")
+        logger.info(f"[TELEGRAM APPLICATION START] timestamp={start_timestamp}, event_loop_id={event_loop_id}")
 
         try:
             if self.application is not None:
-                logger.warning("[TELEGRAM APPLICATION WARNING] Application already initialized")
+                print(f"[DUPLICATE APPLICATION WARNING] timestamp={datetime.now().isoformat()}, event_loop_id={event_loop_id}")
+                logger.warning("[DUPLICATE APPLICATION WARNING] Application already initialized")
                 return self.application
 
-            logger.info(f"[TELEGRAM APPLICATION CREATING] timestamp={datetime.now().isoformat()}")
+            creating_timestamp = datetime.now().isoformat()
+            print(f"[TELEGRAM APPLICATION CREATING] timestamp={creating_timestamp}, event_loop_id={event_loop_id}")
+            logger.info(f"[TELEGRAM APPLICATION CREATING] timestamp={creating_timestamp}, event_loop_id={event_loop_id}")
             self.application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
-            logger.info(f"[TELEGRAM APPLICATION CREATED] timestamp={datetime.now().isoformat()}")
+            created_timestamp = datetime.now().isoformat()
+            app_object_id = id(self.application)
+            print(f"[TELEGRAM APPLICATION CREATED] timestamp={created_timestamp}, object_id={app_object_id}, event_loop_id={event_loop_id}")
+            logger.info(f"[TELEGRAM APPLICATION CREATED] timestamp={created_timestamp}, object_id={app_object_id}, event_loop_id={event_loop_id}")
 
             # Đăng ký handlers - chỉ giữ admin commands cần thiết
-            logger.info(f"[TELEGRAM APPLICATION ADDING HANDLERS] timestamp={datetime.now().isoformat()}")
+            adding_handlers_timestamp = datetime.now().isoformat()
+            print(f"[TELEGRAM APPLICATION ADDING HANDLERS] timestamp={adding_handlers_timestamp}, event_loop_id={event_loop_id}")
+            logger.info(f"[TELEGRAM APPLICATION ADDING HANDLERS] timestamp={adding_handlers_timestamp}, event_loop_id={event_loop_id}")
             self.application.add_handler(CommandHandler("start", self.start_command))
             self.application.add_handler(CommandHandler("ban", self.ban_command))
             self.application.add_handler(CommandHandler("unban", self.unban_command))
@@ -1017,27 +1126,45 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
             self.application.add_handler(CommandHandler("broadcast", self.broadcast_command))
             self.application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
             self.application.add_handler(CallbackQueryHandler(self.button_callback))
-            logger.info(f"[TELEGRAM APPLICATION HANDLERS ADDED] timestamp={datetime.now().isoformat()}")
+            handlers_added_timestamp = datetime.now().isoformat()
+            print(f"[TELEGRAM APPLICATION HANDLERS ADDED] timestamp={handlers_added_timestamp}, event_loop_id={event_loop_id}")
+            logger.info(f"[TELEGRAM APPLICATION HANDLERS ADDED] timestamp={handlers_added_timestamp}, event_loop_id={event_loop_id}")
 
             # Initialize the application
-            logger.info(f"[TELEGRAM APPLICATION INITIALIZING] timestamp={datetime.now().isoformat()}")
+            initializing_timestamp = datetime.now().isoformat()
+            print(f"[TELEGRAM APPLICATION INITIALIZING] timestamp={initializing_timestamp}, event_loop_id={event_loop_id}")
+            logger.info(f"[TELEGRAM APPLICATION INITIALIZING] timestamp={initializing_timestamp}, event_loop_id={event_loop_id}")
             await self.application.initialize()
-            logger.info(f"[TELEGRAM APPLICATION INITIALIZED] timestamp={datetime.now().isoformat()}")
+            initialized_timestamp = datetime.now().isoformat()
+            print(f"[TELEGRAM APPLICATION INITIALIZED] timestamp={initialized_timestamp}, event_loop_id={event_loop_id}")
+            logger.info(f"[TELEGRAM APPLICATION INITIALIZED] timestamp={initialized_timestamp}, event_loop_id={event_loop_id}")
 
             # Delete all bot commands from Telegram
-            logger.info(f"[TELEGRAM APPLICATION DELETING COMMANDS] timestamp={datetime.now().isoformat()}")
+            deleting_commands_timestamp = datetime.now().isoformat()
+            print(f"[TELEGRAM APPLICATION DELETING COMMANDS] timestamp={deleting_commands_timestamp}, event_loop_id={event_loop_id}")
+            logger.info(f"[TELEGRAM APPLICATION DELETING COMMANDS] timestamp={deleting_commands_timestamp}, event_loop_id={event_loop_id}")
             await self.application.bot.delete_my_commands()
-            logger.info(f"[TELEGRAM APPLICATION COMMANDS DELETED] timestamp={datetime.now().isoformat()}")
+            commands_deleted_timestamp = datetime.now().isoformat()
+            print(f"[TELEGRAM APPLICATION COMMANDS DELETED] timestamp={commands_deleted_timestamp}, event_loop_id={event_loop_id}")
+            logger.info(f"[TELEGRAM APPLICATION COMMANDS DELETED] timestamp={commands_deleted_timestamp}, event_loop_id={event_loop_id}")
 
             # Try to remove menu button by setting to default
-            logger.info(f"[TELEGRAM APPLICATION RESETTING MENU BUTTON] timestamp={datetime.now().isoformat()}")
+            resetting_menu_timestamp = datetime.now().isoformat()
+            print(f"[TELEGRAM APPLICATION RESETTING MENU BUTTON] timestamp={resetting_menu_timestamp}, event_loop_id={event_loop_id}")
+            logger.info(f"[TELEGRAM APPLICATION RESETTING MENU BUTTON] timestamp={resetting_menu_timestamp}, event_loop_id={event_loop_id}")
             await self.application.bot.set_chat_menu_button(menu_button=MenuButtonDefault())
-            logger.info(f"[TELEGRAM APPLICATION MENU BUTTON RESET] timestamp={datetime.now().isoformat()}")
+            menu_reset_timestamp = datetime.now().isoformat()
+            print(f"[TELEGRAM APPLICATION MENU BUTTON RESET] timestamp={menu_reset_timestamp}, event_loop_id={event_loop_id}")
+            logger.info(f"[TELEGRAM APPLICATION MENU BUTTON RESET] timestamp={menu_reset_timestamp}, event_loop_id={event_loop_id}")
 
             # Start the application (without polling)
-            logger.info(f"[TELEGRAM APPLICATION STARTING] timestamp={datetime.now().isoformat()}")
+            starting_timestamp = datetime.now().isoformat()
+            print(f"[TELEGRAM APPLICATION STARTING] timestamp={starting_timestamp}, event_loop_id={event_loop_id}")
+            logger.info(f"[TELEGRAM APPLICATION STARTING] timestamp={starting_timestamp}, event_loop_id={event_loop_id}")
             await self.application.start()
-            logger.info(f"[TELEGRAM APPLICATION STARTED] timestamp={datetime.now().isoformat()}")
+            started_timestamp = datetime.now().isoformat()
+            print(f"[TELEGRAM APPLICATION STARTED] timestamp={started_timestamp}, event_loop_id={event_loop_id}")
+            logger.info(f"[TELEGRAM APPLICATION STARTED] timestamp={started_timestamp}, event_loop_id={event_loop_id}")
             self.running = True
 
             # Setup webhook if TELEGRAM_WEBHOOK_URL is configured
@@ -1046,16 +1173,26 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
                 webhook_url = TELEGRAM_WEBHOOK_URL
                 if not webhook_url.endswith('/webhook'):
                     webhook_url = webhook_url.rstrip('/') + '/webhook'
-                logger.info(f"[TELEGRAM APPLICATION SETTING WEBHOOK] url={webhook_url}, timestamp={datetime.now().isoformat()}")
+                setting_webhook_timestamp = datetime.now().isoformat()
+                print(f"[TELEGRAM APPLICATION SETTING WEBHOOK] url={webhook_url}, timestamp={setting_webhook_timestamp}, event_loop_id={event_loop_id}")
+                logger.info(f"[TELEGRAM APPLICATION SETTING WEBHOOK] url={webhook_url}, timestamp={setting_webhook_timestamp}, event_loop_id={event_loop_id}")
                 await self.application.bot.set_webhook(url=webhook_url)
-                logger.info(f"[TELEGRAM APPLICATION WEBHOOK SET] url={webhook_url}, timestamp={datetime.now().isoformat()}")
+                webhook_set_timestamp = datetime.now().isoformat()
+                print(f"[TELEGRAM APPLICATION WEBHOOK SET] url={webhook_url}, timestamp={webhook_set_timestamp}, event_loop_id={event_loop_id}")
+                logger.info(f"[TELEGRAM APPLICATION WEBHOOK SET] url={webhook_url}, timestamp={webhook_set_timestamp}, event_loop_id={event_loop_id}")
             else:
+                print(f"[TELEGRAM APPLICATION ERROR] timestamp={datetime.now().isoformat()}, error=TELEGRAM_WEBHOOK_URL not configured, event_loop_id={event_loop_id}")
                 logger.error("[TELEGRAM APPLICATION ERROR] TELEGRAM_WEBHOOK_URL not configured - bot cannot receive updates!")
                 logger.error("Please set TELEGRAM_WEBHOOK_URL in Render environment variables")
 
-            logger.info(f"[TELEGRAM APPLICATION START COMPLETED] timestamp={datetime.now().isoformat()}")
-            return self.application
+            start_completed_timestamp = datetime.now().isoformat()
+            start_duration_ms = (datetime.fromisoformat(start_completed_timestamp) - datetime.fromisoformat(start_timestamp)).total_seconds() * 1000
+            print(f"[TELEGRAM APPLICATION START COMPLETED] timestamp={start_completed_timestamp}, duration_ms={start_duration_ms:.2f}, event_loop_id={event_loop_id}")
+            logger.info(f"[TELEGRAM APPLICATION START COMPLETED] timestamp={start_completed_timestamp}, duration_ms={start_duration_ms:.2f}, event_loop_id={event_loop_id}")
         except Exception as e:
+            error_timestamp = datetime.now().isoformat()
+            print(f"[TELEGRAM APPLICATION ERROR] timestamp={error_timestamp}, error={e}")
+            print(f"[FULL TRACEBACK]: {traceback.format_exc()}")
             logger.error(f"[TELEGRAM APPLICATION ERROR] error={e}", exc_info=True)
             raise
 

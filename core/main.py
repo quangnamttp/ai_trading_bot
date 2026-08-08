@@ -341,47 +341,77 @@ class TradingBotApp:
 
             @app.route('/webhook', methods=['POST'])
             def webhook():
-                """Telegram webhook endpoint - Use proper python-telegram-bot v22 webhook handling"""
-                print(f"[WEBHOOK] Request received at {datetime.now().isoformat()}")
+                """Telegram webhook endpoint - Comprehensive trace logging"""
+                import asyncio
+                import logging
+                import traceback
+                from telegram import Update
+
+                # Get current event loop ID
+                try:
+                    event_loop = asyncio.get_event_loop()
+                    event_loop_id = id(event_loop)
+                except RuntimeError:
+                    event_loop = None
+                    event_loop_id = "NO_LOOP"
+
+                # Log webhook receiving update IMMEDIATELY
+                webhook_timestamp = datetime.now().isoformat()
+                print(f"[WEBHOOK RECEIVED] timestamp={webhook_timestamp}, method=POST, path=/webhook, event_loop_id={event_loop_id}")
+                logger.info(f"[WEBHOOK RECEIVED] timestamp={webhook_timestamp}, method=POST, path=/webhook, event_loop_id={event_loop_id}")
 
                 if telegram_bot.application:
-                    from telegram import Update
-                    import asyncio
-                    import logging
+                    try:
+                        # Get update from request
+                        update_json = request.get_json(force=True)
+                        update_id = update_json.get('update_id') if update_json else None
 
-                    logger = logging.getLogger(__name__)
-                    timestamp = datetime.now().isoformat()
+                        print(f"[WEBHOOK] Update JSON: {update_json}")
+                        logger.info(f"[WEBHOOK] Full update JSON: {update_json}")
 
-                    # Get update from request
-                    update_json = request.get_json(force=True)
-                    print(f"[WEBHOOK] Update JSON: {update_json}")
-
-                    # Extract update_id, user_id and text for logging
-                    update_id = None
-                    user_id = None
-                    text = None
-                    if update_json:
-                        update_id = update_json.get('update_id')
-                        message = update_json.get('message', {})
+                        # Log update parsing
+                        parse_timestamp = datetime.now().isoformat()
+                        message = update_json.get('message', {}) if update_json else {}
                         user_id = message.get('from', {}).get('id')
+                        chat_id = message.get('chat', {}).get('id')
+                        message_type = 'message' if 'message' in update_json else 'unknown'
                         text = message.get('text')
 
-                    print(f"[WEBHOOK RECEIVED] update_id={update_id}, user_id={user_id}, text={text}, timestamp={timestamp}")
-                    logger.info(f"[WEBHOOK RECEIVED] update_id={update_id}, user_id={user_id}, text={text}, timestamp={timestamp}")
-                    logger.info(f"[WEBHOOK] Full update JSON: {update_json}")
+                        print(f"[UPDATE PARSED] timestamp={parse_timestamp}, update_id={update_id}, user_id={user_id}, chat_id={chat_id}, message_type={message_type}, text={text}, event_loop_id={event_loop_id}")
+                        logger.info(f"[UPDATE PARSED] timestamp={parse_timestamp}, update_id={update_id}, user_id={user_id}, chat_id={chat_id}, message_type={message_type}, text={text}, event_loop_id={event_loop_id}")
 
-                    # Put update into application's update_queue
-                    # This ensures proper handler routing through the dispatcher
-                    try:
-                        update = Update.de_json(update_json, telegram_bot.application.bot)
-                        telegram_bot.application.update_queue.put_nowait(update)
-                        print(f"[WEBHOOK] Update put into queue successfully: update_id={update_id}")
-                        logger.info(f"[WEBHOOK] Update put into queue successfully: update_id={update_id}")
+                        # Log dispatcher start
+                        dispatch_start_timestamp = datetime.now().isoformat()
+                        print(f"[DISPATCH START] timestamp={dispatch_start_timestamp}, update_id={update_id}, event_loop_id={event_loop_id}")
+                        logger.info(f"[DISPATCH START] timestamp={dispatch_start_timestamp}, update_id={update_id}, event_loop_id={event_loop_id}")
+
+                        # Put update into application's update_queue
+                        try:
+                            update = Update.de_json(update_json, telegram_bot.application.bot)
+                            telegram_bot.application.update_queue.put_nowait(update)
+                            print(f"[WEBHOOK] Update put into queue successfully: update_id={update_id}")
+                            logger.info(f"[WEBHOOK] Update put into queue successfully: update_id={update_id}")
+                        except Exception as e:
+                            print(f"[WEBHOOK ERROR] update_id={update_id}, error={e}")
+                            logger.error(f"[WEBHOOK ERROR] update_id={update_id}, error={e}", exc_info=True)
+                            print(f"[TELEGRAM UPDATE ERROR] timestamp={datetime.now().isoformat()}, update_id={update_id}, error={e}")
+                            logger.error(f"[TELEGRAM UPDATE ERROR] timestamp={datetime.now().isoformat()}, update_id={update_id}, error={e}", exc_info=True)
+                            return 'Error', 500
+
+                        # Log dispatcher end
+                        dispatch_end_timestamp = datetime.now().isoformat()
+                        dispatch_duration_ms = (datetime.fromisoformat(dispatch_end_timestamp) - datetime.fromisoformat(dispatch_start_timestamp)).total_seconds() * 1000
+                        print(f"[DISPATCH END] timestamp={dispatch_end_timestamp}, update_id={update_id}, duration_ms={dispatch_duration_ms:.2f}, event_loop_id={event_loop_id}")
+                        logger.info(f"[DISPATCH END] timestamp={dispatch_end_timestamp}, update_id={update_id}, duration_ms={dispatch_duration_ms:.2f}, event_loop_id={event_loop_id}")
+
+                        return 'OK', 200
+
                     except Exception as e:
-                        print(f"[WEBHOOK ERROR] update_id={update_id}, error={e}")
-                        logger.error(f"[WEBHOOK ERROR] update_id={update_id}, error={e}", exc_info=True)
-
-                    return 'OK', 200
+                        error_timestamp = datetime.now().isoformat()
+                        print(f"[TELEGRAM UPDATE ERROR] timestamp={error_timestamp}, error={e}")
+                        print(f"[FULL TRACEBACK]: {traceback.format_exc()}")
+                        logger.error(f"[TELEGRAM UPDATE ERROR] timestamp={error_timestamp}, error={e}", exc_info=True)
+                        return 'Error', 500
                 else:
                     print("[WEBHOOK ERROR] Bot not initialized")
                     logger.error("[WEBHOOK ERROR] Bot not initialized")
