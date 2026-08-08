@@ -24,13 +24,13 @@ class NewsEngine:
         """Lấy tin tức Crypto"""
         try:
             news = []
-            
+
             # Sử dụng NewsAPI (nếu có key)
             if NEWS_API_KEY:
                 url = f"https://newsapi.org/v2/everything?q=cryptocurrency+OR+bitcoin+OR+ethereum&apiKey={NEWS_API_KEY}&language=en&sortBy=publishedAt&pageSize=10"
-                
+
                 async with aiohttp.ClientSession() as session:
-                    async with session.get(url) as response:
+                    async with session.get(url, timeout=aiohttp.ClientTimeout(total=10.0)) as response:
                         if response.status == 200:
                             data = await response.json()
                             for article in data.get('articles', []):
@@ -42,11 +42,11 @@ class NewsEngine:
                                     'source': article.get('source', {}).get('name'),
                                     'category': 'crypto'
                                 })
-            
+
             # Nếu không có API key, sử dụng dữ liệu mẫu
             if not news:
                 news = self._get_sample_crypto_news()
-            
+
             logger.info(f"Fetched {len(news)} crypto news articles")
             return news
         except Exception as e:
@@ -57,13 +57,13 @@ class NewsEngine:
         """Lấy tin tức Forex"""
         try:
             news = []
-            
-            # Sử dụng NewsAPI
+
+            # Sử dụng NewsAPI (nếu có key)
             if NEWS_API_KEY:
                 url = f"https://newsapi.org/v2/everything?q=forex+OR+trading+OR+economy&apiKey={NEWS_API_KEY}&language=en&sortBy=publishedAt&pageSize=10"
-                
+
                 async with aiohttp.ClientSession() as session:
-                    async with session.get(url) as response:
+                    async with session.get(url, timeout=aiohttp.ClientTimeout(total=10.0)) as response:
                         if response.status == 200:
                             data = await response.json()
                             for article in data.get('articles', []):
@@ -75,10 +75,11 @@ class NewsEngine:
                                     'source': article.get('source', {}).get('name'),
                                     'category': 'forex'
                                 })
-            
+
+            # Nếu không có API key, sử dụng dữ liệu mẫu
             if not news:
                 news = self._get_sample_forex_news()
-            
+
             logger.info(f"Fetched {len(news)} forex news articles")
             return news
         except Exception as e:
@@ -125,9 +126,9 @@ class NewsEngine:
         try:
             # API từ Alternative.me
             url = "https://api.alternative.me/fng/"
-            
+
             async with aiohttp.ClientSession() as session:
-                async with session.get(url) as response:
+                async with session.get(url, timeout=aiohttp.ClientTimeout(total=10.0)) as response:
                     if response.status == 200:
                         data = await response.json()
                         if data.get('data'):
@@ -139,7 +140,7 @@ class NewsEngine:
                             }
         except Exception as e:
             logger.error(f"Error fetching Fear & Greed index: {e}")
-        
+
         # Dữ liệu mẫu nếu API lỗi
         return {
             'value': 65,

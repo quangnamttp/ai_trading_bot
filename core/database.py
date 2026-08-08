@@ -20,8 +20,8 @@ class DatabaseManager:
         self.init_database()
     
     def get_connection(self):
-        """Tạo kết nối database"""
-        conn = sqlite3.connect(self.db_path)
+        """Tạo kết nối database with timeout to prevent blocking"""
+        conn = sqlite3.connect(self.db_path, timeout=5.0)  # 5 second timeout
         conn.row_factory = sqlite3.Row
         return conn
     
