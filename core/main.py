@@ -342,7 +342,8 @@ class TradingBotApp:
             @app.route('/webhook', methods=['POST'])
             def webhook():
                 """Telegram webhook endpoint - Use proper python-telegram-bot v22 webhook handling"""
-                from datetime import datetime
+                print(f"[WEBHOOK] Request received at {datetime.now().isoformat()}")
+
                 if telegram_bot.application:
                     from telegram import Update
                     import asyncio
@@ -353,6 +354,7 @@ class TradingBotApp:
 
                     # Get update from request
                     update_json = request.get_json(force=True)
+                    print(f"[WEBHOOK] Update JSON: {update_json}")
 
                     # Extract update_id, user_id and text for logging
                     update_id = None
@@ -364,6 +366,7 @@ class TradingBotApp:
                         user_id = message.get('from', {}).get('id')
                         text = message.get('text')
 
+                    print(f"[WEBHOOK RECEIVED] update_id={update_id}, user_id={user_id}, text={text}, timestamp={timestamp}")
                     logger.info(f"[WEBHOOK RECEIVED] update_id={update_id}, user_id={user_id}, text={text}, timestamp={timestamp}")
                     logger.info(f"[WEBHOOK] Full update JSON: {update_json}")
 
@@ -372,12 +375,15 @@ class TradingBotApp:
                     try:
                         update = Update.de_json(update_json, telegram_bot.application.bot)
                         telegram_bot.application.update_queue.put_nowait(update)
+                        print(f"[WEBHOOK] Update put into queue successfully: update_id={update_id}")
                         logger.info(f"[WEBHOOK] Update put into queue successfully: update_id={update_id}")
                     except Exception as e:
+                        print(f"[WEBHOOK ERROR] update_id={update_id}, error={e}")
                         logger.error(f"[WEBHOOK ERROR] update_id={update_id}, error={e}", exc_info=True)
 
                     return 'OK', 200
                 else:
+                    print("[WEBHOOK ERROR] Bot not initialized")
                     logger.error("[WEBHOOK ERROR] Bot not initialized")
                     return 'Bot not initialized', 503
 
