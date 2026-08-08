@@ -1061,35 +1061,35 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
 
     async def stop(self):
         """Stop the bot"""
+        from datetime import datetime
+        timestamp = datetime.now().isoformat()
+        logger.info(f"[TELEGRAM APPLICATION STOP] timestamp={timestamp}")
+
         try:
             if not self.running:
-                logger.info("Telegram bot not running, skipping stop")
+                logger.info("[TELEGRAM APPLICATION STOP] Bot not running, skipping stop")
                 return
 
             self.running = False
 
             if self.application:
-                # Delete webhook on shutdown
-                try:
-                    await self.application.bot.delete_webhook()
-                    logger.info("Telegram webhook deleted successfully")
-                except Exception as e:
-                    logger.warning(f"Could not delete webhook: {e}")
-
+                # DO NOT delete webhook - keep it active for next startup
+                logger.info(f"[TELEGRAM APPLICATION STOPPING] timestamp={datetime.now().isoformat()}")
                 try:
                     await self.application.stop()
-                    logger.info("Telegram bot application stopped")
+                    logger.info(f"[TELEGRAM APPLICATION STOPPED] timestamp={datetime.now().isoformat()}")
                 except Exception as e:
-                    logger.error(f"Error stopping application: {e}")
+                    logger.error(f"[TELEGRAM APPLICATION STOP ERROR] error={e}", exc_info=True)
 
+                logger.info(f"[TELEGRAM APPLICATION SHUTTING DOWN] timestamp={datetime.now().isoformat()}")
                 try:
                     await self.application.shutdown()
-                    logger.info("Telegram bot application shut down")
+                    logger.info(f"[TELEGRAM APPLICATION SHUTDOWN COMPLETE] timestamp={datetime.now().isoformat()}")
                 except Exception as e:
-                    logger.error(f"Error shutting down application: {e}")
+                    logger.error(f"[TELEGRAM APPLICATION SHUTDOWN ERROR] error={e}", exc_info=True)
 
                 self.application = None
-                logger.info("Telegram bot stopped successfully")
+                logger.info(f"[TELEGRAM APPLICATION STOP COMPLETED] timestamp={datetime.now().isoformat()}")
         except Exception as e:
             logger.error(f"Error stopping Telegram bot: {e}")
     
