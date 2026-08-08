@@ -50,10 +50,19 @@ class TelegramBot:
             event_loop = None
             event_loop_id = "NO_LOOP"
 
-        start_received_timestamp = datetime.now().isoformat()
+        queue_consumer_start_timestamp = datetime.now().isoformat()
         user = update.effective_user
         update_id = update.update_id
 
+        print(f"[QUEUE CONSUMER START] timestamp={queue_consumer_start_timestamp}, update_id={update_id}, event_loop_id={event_loop_id}")
+        logger.info(f"[QUEUE CONSUMER START] timestamp={queue_consumer_start_timestamp}, update_id={update_id}, event_loop_id={event_loop_id}")
+
+        # Calculate queue wait duration (this is approximate - we need the queue_put timestamp from context)
+        # For now, we'll log it and the user can calculate from logs
+        print(f"[QUEUE WAIT START] timestamp={queue_consumer_start_timestamp}, update_id={update_id}, event_loop_id={event_loop_id}")
+        logger.info(f"[QUEUE WAIT START] timestamp={queue_consumer_start_timestamp}, update_id={update_id}, event_loop_id={event_loop_id}")
+
+        start_received_timestamp = datetime.now().isoformat()
         print(f"[START RECEIVED] timestamp={start_received_timestamp}, user_id={user.id}, update_id={update_id}, event_loop_id={event_loop_id}")
         logger.info(f"[START RECEIVED] timestamp={start_received_timestamp}, user_id={user.id}, update_id={update_id}, event_loop_id={event_loop_id}")
 
@@ -523,11 +532,18 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
             event_loop = None
             event_loop_id = "NO_LOOP"
 
-        handler_enter_timestamp = datetime.now().isoformat()
+        queue_consumer_start_timestamp = datetime.now().isoformat()
         user = update.effective_user
         text = update.message.text
         update_id = update.update_id
 
+        print(f"[QUEUE CONSUMER START] timestamp={queue_consumer_start_timestamp}, update_id={update_id}, event_loop_id={event_loop_id}")
+        logger.info(f"[QUEUE CONSUMER START] timestamp={queue_consumer_start_timestamp}, update_id={update_id}, event_loop_id={event_loop_id}")
+
+        print(f"[QUEUE WAIT START] timestamp={queue_consumer_start_timestamp}, update_id={update_id}, event_loop_id={event_loop_id}")
+        logger.info(f"[QUEUE WAIT START] timestamp={queue_consumer_start_timestamp}, update_id={update_id}, event_loop_id={event_loop_id}")
+
+        handler_enter_timestamp = datetime.now().isoformat()
         print(f"[HANDLER ENTER] timestamp={handler_enter_timestamp}, update_id={update_id}, user_id={user.id}, text={text}, event_loop_id={event_loop_id}")
         logger.info(f"[HANDLER ENTER] timestamp={handler_enter_timestamp}, update_id={update_id}, user_id={user.id}, text={text}, event_loop_id={event_loop_id}")
 
