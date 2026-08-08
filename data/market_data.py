@@ -35,6 +35,7 @@ class MarketDataEngine:
             # MEXC (only exchange - no API key needed for public data)
             self.exchanges['mexc'] = ccxt.mexc({
                 'enableRateLimit': True,
+                'timeout': 10000,  # 10 second timeout
                 'options': {'defaultType': 'swap'}
             })
 
@@ -98,9 +99,10 @@ class MarketDataEngine:
                     logger.warning(f"Rate limit hit (510), retrying in {delay}s (attempt {attempt + 1}/{self.retry_count})")
                     await asyncio.sleep(delay)
                 else:
-                    # For other errors, use shorter delay
+                    # For other errors, fail fast - no retry delay
+                    logger.warning(f"Error fetching data (attempt {attempt + 1}/{self.retry_count}): {e}")
                     if attempt < self.retry_count - 1:
-                        await asyncio.sleep(self.base_retry_delay)
+                        await asyncio.sleep(0.1)  # Very short delay for non-rate-limit errors
                     else:
                         raise
         return None
