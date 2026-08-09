@@ -35,11 +35,60 @@ class DatabaseManager:
         """Async wrapper for save_ai_log to prevent event loop blocking"""
         return await asyncio.to_thread(self.save_ai_log, symbol, analysis_data, decision, ai_score, confidence)
 
-    async def save_signal_async(self, symbol: str, signal_type: str, entry_price: float,
-                               tp1: float, tp2: float, tp3: float, stop_loss: float,
-                               ai_score: float, confidence: float, reasons: list) -> int:
+    async def save_signal_async(self, symbol: str, signal_type: str, entry_price: str,
+                               take_profit: str, stop_loss: str, confidence: float,
+                               ai_score: int, reasons: List[str]) -> Optional[int]:
         """Async wrapper for save_signal to prevent event loop blocking"""
-        return await asyncio.to_thread(self.save_signal, symbol, signal_type, entry_price, tp1, tp2, tp3, stop_loss, ai_score, confidence, reasons)
+        return await asyncio.to_thread(self.save_signal, symbol, signal_type, entry_price, take_profit, stop_loss, confidence, ai_score, reasons)
+
+    async def get_active_signal_async(self, symbol: str) -> Optional[Dict]:
+        """Async wrapper for get_active_signal to prevent event loop blocking"""
+        return await asyncio.to_thread(self.get_active_signal, symbol)
+
+    async def get_recent_signals_async(self, symbol: str = None, limit: int = 10) -> List[Dict]:
+        """Async wrapper for get_recent_signals to prevent event loop blocking"""
+        return await asyncio.to_thread(self.get_recent_signals, symbol, limit)
+
+    async def get_last_signal_time_async(self, symbol: str, signal_type: str = None) -> Optional[datetime]:
+        """Async wrapper for get_last_signal_time to prevent event loop blocking"""
+        return await asyncio.to_thread(self.get_last_signal_time, symbol, signal_type)
+
+    async def count_signals_last_hour_async(self) -> int:
+        """Async wrapper for count_signals_last_hour to prevent event loop blocking"""
+        return await asyncio.to_thread(self.count_signals_last_hour)
+
+    async def get_all_users_async(self) -> List[Dict]:
+        """Async wrapper for get_all_users to prevent event loop blocking"""
+        return await asyncio.to_thread(self.get_all_users)
+
+    async def save_signal_tracking_async(self, signal_id: int, symbol: str, signal_type: str,
+                                        entry_price: float, tp1: float, tp2: float, tp3: float,
+                                        stop_loss: float, ai_score: int, confidence: float,
+                                        reasons: List[str], timeframe: str = '1h') -> Optional[int]:
+        """Async wrapper for save_signal_tracking to prevent event loop blocking"""
+        return await asyncio.to_thread(self.save_signal_tracking, signal_id, symbol, signal_type,
+                                       entry_price, tp1, tp2, tp3, stop_loss, ai_score, confidence,
+                                       reasons, timeframe)
+
+    async def update_signal_tracking_async(self, tracking_id: int, **kwargs) -> bool:
+        """Async wrapper for update_signal_tracking to prevent event loop blocking"""
+        return await asyncio.to_thread(self.update_signal_tracking, tracking_id, **kwargs)
+
+    async def close_signal_tracking_async(self, tracking_id: int, final_pnl: float = None) -> bool:
+        """Async wrapper for close_signal_tracking to prevent event loop blocking"""
+        return await asyncio.to_thread(self.close_signal_tracking, tracking_id, final_pnl)
+
+    async def get_active_signals_async(self) -> List[Dict]:
+        """Async wrapper for get_active_signals to prevent event loop blocking"""
+        return await asyncio.to_thread(self.get_active_signals)
+
+    async def save_statistics_async(self, report_type: str, period: str, stats: Dict) -> Optional[int]:
+        """Async wrapper for save_statistics to prevent event loop blocking"""
+        return await asyncio.to_thread(self.save_statistics, report_type, period, stats)
+
+    async def is_banned_async(self, telegram_id: int) -> bool:
+        """Async wrapper for is_banned to prevent event loop blocking"""
+        return await asyncio.to_thread(self.is_banned, telegram_id)
     
     def get_connection(self):
         """Tạo kết nối database with timeout to prevent blocking"""
@@ -802,6 +851,10 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"Error calculating statistics: {e}")
             return {}
+
+    async def calculate_statistics_async(self, period: str = 'all') -> Dict:
+        """Async wrapper for calculate_statistics to prevent event loop blocking"""
+        return await asyncio.to_thread(self.calculate_statistics, period)
 
 
 # Singleton instance

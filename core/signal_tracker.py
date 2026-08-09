@@ -24,8 +24,8 @@ class SignalTracker:
                             stop_loss: float, telegram_bot):
         """Bắt đầu theo dõi tín hiệu"""
         try:
-            # Lưu vào database
-            tracking_id = db.save_signal_tracking(
+            # Lưu vào database (use async version)
+            tracking_id = await db.save_signal_tracking_async(
                 signal_id=signal_id,
                 symbol=symbol,
                 signal_type=signal_type,
@@ -86,37 +86,37 @@ class SignalTracker:
                 if not signal['tp1_hit'] and current_price >= signal['tp1']:
                     status = 'TP1'
                     signal['tp1_hit'] = True
-                    db.update_signal_tracking(tracking_id, tp1_hit=True)
+                    await db.update_signal_tracking_async(tracking_id, tp1_hit=True)
                 elif not signal['tp2_hit'] and current_price >= signal['tp2']:
                     status = 'TP2'
                     signal['tp2_hit'] = True
-                    db.update_signal_tracking(tracking_id, tp2_hit=True)
+                    await db.update_signal_tracking_async(tracking_id, tp2_hit=True)
                 elif not signal['tp3_hit'] and current_price >= signal['tp3']:
                     status = 'TP3'
                     signal['tp3_hit'] = True
-                    db.update_signal_tracking(tracking_id, tp3_hit=True)
+                    await db.update_signal_tracking_async(tracking_id, tp3_hit=True)
                 elif not signal['sl_hit'] and current_price <= signal['stop_loss']:
                     status = 'SL'
                     signal['sl_hit'] = True
-                    db.update_signal_tracking(tracking_id, sl_hit=True)
-            
+                    await db.update_signal_tracking_async(tracking_id, sl_hit=True)
+
             elif signal_type == 'SHORT':
                 if not signal['tp1_hit'] and current_price <= signal['tp1']:
                     status = 'TP1'
                     signal['tp1_hit'] = True
-                    db.update_signal_tracking(tracking_id, tp1_hit=True)
+                    await db.update_signal_tracking_async(tracking_id, tp1_hit=True)
                 elif not signal['tp2_hit'] and current_price <= signal['tp2']:
                     status = 'TP2'
                     signal['tp2_hit'] = True
-                    db.update_signal_tracking(tracking_id, tp2_hit=True)
+                    await db.update_signal_tracking_async(tracking_id, tp2_hit=True)
                 elif not signal['tp3_hit'] and current_price <= signal['tp3']:
                     status = 'TP3'
                     signal['tp3_hit'] = True
-                    db.update_signal_tracking(tracking_id, tp3_hit=True)
+                    await db.update_signal_tracking_async(tracking_id, tp3_hit=True)
                 elif not signal['sl_hit'] and current_price >= signal['stop_loss']:
                     status = 'SL'
                     signal['sl_hit'] = True
-                    db.update_signal_tracking(tracking_id, sl_hit=True)
+                    await db.update_signal_tracking_async(tracking_id, sl_hit=True)
             
             # Nếu hit SL hoặc TP3, đóng tín hiệu
             if status in ['SL', 'TP3']:
@@ -195,8 +195,8 @@ class SignalTracker:
             else:
                 pnl = (entry_price - current_price) / entry_price * 100
             
-            # Cập nhật database
-            db.close_signal_tracking(tracking_id, final_pnl=pnl)
+            # Cập nhật database (use async version)
+            await db.close_signal_tracking_async(tracking_id, final_pnl=pnl)
             
             # Xóa khỏi active signals
             del self.active_signals[tracking_id]
@@ -209,29 +209,29 @@ class SignalTracker:
     async def monitoring_loop(self):
         """Loop theo dõi tất cả tín hiệu active"""
         logger.info("Starting signal monitoring loop")
-        
+
         while True:
             try:
-                # Load active signals từ database
-                active_signals = db.get_active_signals()
-                
+                # Load active signals từ database (use async version)
+                active_signals = await db.get_active_signals_async() if hasattr(db, 'get_active_signals_async') else db.get_active_signals()
+
                 for signal_data in active_signals:
                     tracking_id = signal_data['id']
-                    
+
                     # Nếu chưa trong memory, thêm vào
                     if tracking_id not in self.active_signals:
                         # Cần telegram_bot reference - sẽ được set từ main
                         continue
-                    
+
                     # Kiểm tra trạng thái
                     status = await self.check_signal_status(tracking_id)
-                    
+
                     if status:
                         current_price = await self.get_current_price(signal_data['symbol'])
                         await self.send_notification(tracking_id, status, current_price)
-                
+
                 await asyncio.sleep(self.check_interval)
-                
+
             except Exception as e:
                 logger.error(f"Error in monitoring loop: {e}")
                 await asyncio.sleep(30)

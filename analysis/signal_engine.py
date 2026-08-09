@@ -119,10 +119,10 @@ class SignalEngine:
             logger.error(f"Error calculating stop loss: {e}")
             return price
     
-    def check_signal_lock(self, symbol: str, action: str, current_price: float) -> bool:
+    async def check_signal_lock(self, symbol: str, action: str, current_price: float) -> bool:
         """Kiểm tra xem có tín hiệu active cùng direction không và kiểm tra stable entry"""
         try:
-            active_signal = db.get_active_signal(symbol)
+            active_signal = await db.get_active_signal_async(symbol) if hasattr(db, 'get_active_signal_async') else db.get_active_signal(symbol)
             if not active_signal:
                 logger.debug(f"No active signal for {symbol}. Signal lock check passed.")
                 return True  # No active signal, can create new one
@@ -139,10 +139,10 @@ class SignalEngine:
             logger.error(f"Error checking signal lock for {symbol}: {e}")
             return True  # On error, allow signal creation
 
-    def check_entry_validity(self, symbol: str, current_price: float) -> bool:
+    async def check_entry_validity(self, symbol: str, current_price: float) -> bool:
         """Kiểm tra xem Entry vẫn còn hợp lệ (chasing price prevention)"""
         try:
-            active_signal = db.get_active_signal(symbol)
+            active_signal = await db.get_active_signal_async(symbol) if hasattr(db, 'get_active_signal_async') else db.get_active_signal(symbol)
             if not active_signal:
                 return True  # No active signal, entry is valid
 
@@ -194,10 +194,10 @@ class SignalEngine:
             logger.error(f"Error checking entry practicality: {e}")
             return True  # On error, allow
 
-    def check_cooldown(self, symbol: str) -> bool:
-        """Kiểm tra xem có thể gửi tín hiệu không (cooldown)"""
+    async def check_cooldown(self, symbol: str) -> bool:
+        """Kiểm tra cooldown period"""
         try:
-            last_signal = db.get_last_signal_time(symbol)
+            last_signal = await db.get_last_signal_time_async(symbol) if hasattr(db, 'get_last_signal_time_async') else db.get_last_signal_time(symbol)
 
             if not last_signal:
                 return True
@@ -214,21 +214,21 @@ class SignalEngine:
             logger.error(f"Error checking cooldown: {e}")
             return False
     
-    def check_rate_limit(self) -> bool:
+    async def check_rate_limit(self) -> bool:
         """Kiểm tra rate limit (số tín hiệu mỗi giờ)"""
         try:
             # Reset counter mỗi giờ
             if datetime.now() - self.hour_start_time > timedelta(hours=1):
                 self.signals_sent_this_hour = 0
                 self.hour_start_time = datetime.now()
-            
-            # Kiểm tra số tín hiệu trong giờ từ database
-            signals_last_hour = db.count_signals_last_hour()
-            
+
+            # Kiểm tra số tín hiệu trong giờ từ database (use async version)
+            signals_last_hour = await db.count_signals_last_hour_async() if hasattr(db, 'count_signals_last_hour_async') else db.count_signals_last_hour()
+
             if signals_last_hour >= MAX_SIGNALS_PER_HOUR:
                 logger.info(f"Rate limit reached. {signals_last_hour} signals sent in last hour.")
                 return False
-            
+
             return True
         except Exception as e:
             logger.error(f"Error checking rate limit: {e}")
@@ -332,23 +332,23 @@ class SignalEngine:
                 logger.info(f"AI Score {ai_score} below threshold {AI_SCORE_THRESHOLD}. No signal created.")
                 return None
 
-            # Kiểm tra signal lock (không tạo cùng direction)
-            if not self.check_signal_lock(symbol, action, price):
+            # Kiểm tra signal lock (không tạo cùng direction) (use async version)
+            if not await self.check_signal_lock(symbol, action, price):
                 logger.info(f"Signal lock active for {symbol} {action}")
                 return None
 
-            # Kiểm tra entry validity (chasing price prevention)
-            if not self.check_entry_validity(symbol, price):
+            # Kiểm tra entry validity (chasing price prevention) (use async version)
+            if not await self.check_entry_validity(symbol, price):
                 logger.info(f"Entry invalid for {symbol} due to price movement")
                 return None
 
-            # Kiểm tra cooldown
-            if not self.check_cooldown(symbol):
+            # Kiểm tra cooldown (use async version)
+            if not await self.check_cooldown(symbol):
                 logger.info(f"Cooldown active for {symbol}")
                 return None
 
-            # Kiểm tra rate limit
-            if not self.check_rate_limit():
+            # Kiểm tra rate limit (use async version)
+            if not await self.check_rate_limit():
                 logger.info("Rate limit reached")
                 return None
             

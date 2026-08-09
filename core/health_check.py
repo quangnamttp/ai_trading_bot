@@ -92,13 +92,16 @@ class HealthChecker:
     def _check_disk(self) -> Dict:
         """Kiểm tra ổ cứng"""
         try:
-            disk = psutil.disk_usage('/')
+            # Use platform-agnostic path (current directory on Windows)
+            import os
+            path = os.getcwd()
+            disk = psutil.disk_usage(path)
             status = 'healthy'
             if disk.percent > 90:
                 status = 'critical'
             elif disk.percent > 80:
                 status = 'warning'
-            
+
             return {
                 'percent': disk.percent,
                 'free_gb': disk.free / (1024**3),
@@ -112,8 +115,8 @@ class HealthChecker:
     async def _check_database(self) -> Dict:
         """Kiểm tra Database"""
         try:
-            # Thử một query đơn giản
-            db.get_all_users()
+            # Thử một query đơn giản (use async version)
+            await db.get_all_users_async()
             return {'status': 'healthy', 'message': 'Database accessible'}
         except Exception as e:
             logger.error(f"Database check failed: {e}")

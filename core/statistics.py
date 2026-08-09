@@ -17,10 +17,10 @@ class StatisticsManager:
         self.stats_cache = {}
         self.last_update = None
     
-    def get_statistics_summary(self, period: str = 'all') -> Dict:
-        """Lấy tóm tắt thống kê"""
+    async def get_statistics_summary(self, period: str = 'all') -> Dict:
+        """Lấy tóm tắt thống kê - uses async version to prevent event loop blocking"""
         try:
-            stats = db.calculate_statistics(period)
+            stats = await db.calculate_statistics_async(period)
             
             if not stats:
                 return self._get_empty_stats()
@@ -170,11 +170,11 @@ class StatisticsManager:
             logger.error(f"Error generating monthly report: {e}")
             return "❌ Không thể tạo báo cáo tháng"
     
-    def save_statistics_report(self, report_type: str, period: str):
+    async def save_statistics_report(self, report_type: str, period: str):
         """Lưu báo cáo thống kê vào database"""
         try:
             stats = self.get_statistics_summary(period)
-            db.save_statistics(report_type, period, stats)
+            await db.save_statistics_async(report_type, period, stats)
             logger.info(f"Statistics report saved: {report_type} - {period}")
         except Exception as e:
             logger.error(f"Error saving statistics report: {e}")

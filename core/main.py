@@ -91,7 +91,7 @@ class TradingBotApp:
             
             # Add admin to database
             try:
-                db.add_user(
+                await db.add_user_async(
                     telegram_id=int(TELEGRAM_ADMIN_ID),
                     is_admin=True
                 )
@@ -204,7 +204,7 @@ class TradingBotApp:
                     # Check for active signals
                     active_signals = []
                     for symbol in SYMBOLS:
-                        active = db.get_active_signal(symbol)
+                        active = await db.get_active_signal_async(symbol) if hasattr(db, 'get_active_signal_async') else db.get_active_signal(symbol)
                         if active:
                             active_signals.append(symbol)
 
@@ -228,7 +228,7 @@ class TradingBotApp:
                             logger.error(f"AI analysis test failed: {e}")
 
                 # Update last signal time if a signal was sent
-                recent_signals = db.get_recent_signals(limit=1)
+                recent_signals = await db.get_recent_signals_async(limit=1) if hasattr(db, 'get_recent_signals_async') else db.get_recent_signals(limit=1)
                 if recent_signals:
                     last_signal_time = datetime.now()
 

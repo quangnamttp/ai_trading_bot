@@ -25,13 +25,13 @@ class ReportingManager:
         """Tạo báo cáo ngày"""
         try:
             report = statistics_manager.generate_daily_report()
-            
-            # Lưu vào database
-            statistics_manager.save_statistics_report('daily', 'day')
-            
+
+            # Lưu vào database (use async version)
+            await statistics_manager.save_statistics_report('daily', 'day')
+
             self.last_daily_report = datetime.now()
             logger.info("Daily report generated")
-            
+
             return report
         except Exception as e:
             logger.error(f"Error generating daily report: {e}")
@@ -41,29 +41,29 @@ class ReportingManager:
         """Tạo báo cáo tuần"""
         try:
             report = statistics_manager.generate_weekly_report()
-            
-            # Lưu vào database
-            statistics_manager.save_statistics_report('weekly', 'week')
-            
+
+            # Lưu vào database (use async version)
+            await statistics_manager.save_statistics_report('weekly', 'week')
+
             self.last_weekly_report = datetime.now()
             logger.info("Weekly report generated")
-            
+
             return report
         except Exception as e:
             logger.error(f"Error generating weekly report: {e}")
             return "❌ Không thể tạo báo cáo tuần"
-    
+
     async def generate_monthly_report(self) -> str:
         """Tạo báo cáo tháng"""
         try:
             report = statistics_manager.generate_monthly_report()
-            
-            # Lưu vào database
-            statistics_manager.save_statistics_report('monthly', 'month')
-            
+
+            # Lưu vào database (use async version)
+            await statistics_manager.save_statistics_report('monthly', 'month')
+
             self.last_monthly_report = datetime.now()
             logger.info("Monthly report generated")
-            
+
             return report
         except Exception as e:
             logger.error(f"Error generating monthly report: {e}")

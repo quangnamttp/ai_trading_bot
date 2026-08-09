@@ -332,13 +332,9 @@ class MarketDataEngine:
             logger.error(f"Error fetching liquidations for {symbol}: {e}")
             return None
     
-    async def get_volume_profile(self, symbol: str, timeframe: str = '1h') -> Optional[Dict]:
-        """Tính toán Volume Profile"""
+    def _get_volume_profile_sync(self, df: pd.DataFrame) -> Dict:
+        """Synchronous volume profile calculation to run in thread pool"""
         try:
-            df = await self.get_ohlcv(symbol, timeframe, limit=100)
-            if df is None:
-                return None
-            
             # Chia giá thành các range
             price_range = df['high'].max() - df['low'].min()
             num_bins = 20
@@ -356,6 +352,21 @@ class MarketDataEngine:
                 
                 volume_profile[f"{lower:.2f}-{upper:.2f}"] = volume
             
+            return volume_profile
+        except Exception as e:
+            logger.error(f"Error in synchronous volume profile calculation: {e}")
+            return {}
+
+    async def get_volume_profile(self, symbol: str, timeframe: str = '1h') -> Optional[Dict]:
+        """Tính toán Volume Profile - runs in thread pool to prevent event loop blocking"""
+        try:
+            df = await self.get_ohlcv(symbol, timeframe, limit=100)
+            if df is None:
+                return None
+            
+            # Run pandas calculations in thread pool to prevent blocking
+            volume_profile = await asyncio.to_thread(self._get_volume_profile_sync, df)
+            
             self.data_cache[f"{symbol}_volume_profile"] = volume_profile
             self.last_update[f"{symbol}_volume_profile"] = datetime.now()
             
@@ -364,13 +375,9 @@ class MarketDataEngine:
             logger.error(f"Error calculating volume profile for {symbol}: {e}")
             return None
     
-    async def get_cvd(self, symbol: str, timeframe: str = '1h') -> Optional[pd.Series]:
-        """Tính toán CVD (Cumulative Volume Delta)"""
+    def _get_cvd_sync(self, df: pd.DataFrame) -> pd.Series:
+        """Synchronous CVD calculation to run in thread pool"""
         try:
-            df = await self.get_ohlcv(symbol, timeframe, limit=100)
-            if df is None:
-                return None
-            
             # CVD = Cumulative (Buy Volume - Sell Volume)
             # Giả lập: sử dụng volume và price change
             df['price_change'] = df['close'] - df['open']
@@ -379,7 +386,20 @@ class MarketDataEngine:
             df['delta'] = df['buy_volume'] - df['sell_volume']
             df['cvd'] = df['delta'].cumsum()
             
-            cvd = df['cvd']
+            return df['cvd']
+        except Exception as e:
+            logger.error(f"Error in synchronous CVD calculation: {e}")
+            return pd.Series([])
+
+    async def get_cvd(self, symbol: str, timeframe: str = '1h') -> Optional[pd.Series]:
+        """Tính toán CVD (Cumulative Volume Delta) - runs in thread pool to prevent event loop blocking"""
+        try:
+            df = await self.get_ohlcv(symbol, timeframe, limit=100)
+            if df is None:
+                return None
+            
+            # Run pandas calculations in thread pool to prevent blocking
+            cvd = await asyncio.to_thread(self._get_cvd_sync, df)
             
             self.data_cache[f"{symbol}_cvd"] = cvd
             self.last_update[f"{symbol}_cvd"] = datetime.now()
@@ -389,13 +409,9 @@ class MarketDataEngine:
             logger.error(f"Error calculating CVD for {symbol}: {e}")
             return None
     
-    async def calculate_indicators(self, symbol: str, timeframe: str = '1h') -> Optional[Dict]:
-        """Tính toán các chỉ số kỹ thuật"""
+    def _calculate_indicators_sync(self, df: pd.DataFrame) -> Dict:
+        """Synchronous indicator calculation to run in thread pool"""
         try:
-            df = await self.get_ohlcv(symbol, timeframe, limit=100)
-            if df is None:
-                return None
-            
             indicators = {}
             
             # EMA (Exponential Moving Average)
@@ -441,21 +457,40 @@ class MarketDataEngine:
                 'volume': latest['volume']
             }
             
-            self.data_cache[f"{symbol}_indicators"] = indicators
-            self.last_update[f"{symbol}_indicators"] = datetime.now()
+            return indicators
+        except Exception as e:
+            logger.error(f"Error in synchronous indicator calculation: {e}")
+            return None
+
+    async def calculate_indicators(self, symbol: str, timeframe: str = '1h') -> Optional[Dict]:
+        """Tính toán các chỉ số kỹ thuật - runs in thread pool to prevent event loop blocking"""
+        import time
+        start_time = time.time()
+        try:
+            df = await self.get_ohlcv(symbol, timeframe, limit=100)
+            if df is None:
+                return None
+            
+            # Run pandas calculations in thread pool to prevent blocking
+            thread_start = time.time()
+            indicators = await asyncio.to_thread(self._calculate_indicators_sync, df)
+            thread_duration_ms = (time.time() - thread_start) * 1000
+            
+            if indicators:
+                self.data_cache[f"{symbol}_indicators"] = indicators
+                self.last_update[f"{symbol}_indicators"] = datetime.now()
+            
+            total_duration_ms = (time.time() - start_time) * 1000
+            logger.debug(f"[PERF] calculate_indicators {symbol}: total={total_duration_ms:.2f}ms, thread={thread_duration_ms:.2f}ms")
             
             return indicators
         except Exception as e:
             logger.error(f"Error calculating indicators for {symbol}: {e}")
             return None
     
-    async def detect_order_blocks(self, symbol: str, timeframe: str = '1h') -> List[Dict]:
-        """Phát hiện Order Blocks"""
+    def _detect_order_blocks_sync(self, df: pd.DataFrame) -> List[Dict]:
+        """Synchronous order block detection to run in thread pool"""
         try:
-            df = await self.get_ohlcv(symbol, timeframe, limit=100)
-            if df is None:
-                return []
-            
             order_blocks = []
             
             # Tìm bearish order block (candle giảm mạnh với volume lớn)
@@ -484,6 +519,21 @@ class MarketDataEngine:
                         'time': df.index[i]
                     })
             
+            return order_blocks
+        except Exception as e:
+            logger.error(f"Error in synchronous order block detection: {e}")
+            return []
+
+    async def detect_order_blocks(self, symbol: str, timeframe: str = '1h') -> List[Dict]:
+        """Phát hiện Order Blocks - runs in thread pool to prevent event loop blocking"""
+        try:
+            df = await self.get_ohlcv(symbol, timeframe, limit=100)
+            if df is None:
+                return []
+            
+            # Run pandas calculations in thread pool to prevent blocking
+            order_blocks = await asyncio.to_thread(self._detect_order_blocks_sync, df)
+            
             self.data_cache[f"{symbol}_order_blocks"] = order_blocks
             self.last_update[f"{symbol}_order_blocks"] = datetime.now()
             
@@ -492,13 +542,9 @@ class MarketDataEngine:
             logger.error(f"Error detecting order blocks for {symbol}: {e}")
             return []
     
-    async def detect_fvg(self, symbol: str, timeframe: str = '1h') -> List[Dict]:
-        """Phát hiện Fair Value Gaps (FVG)"""
+    def _detect_fvg_sync(self, df: pd.DataFrame) -> List[Dict]:
+        """Synchronous FVG detection to run in thread pool"""
         try:
-            df = await self.get_ohlcv(symbol, timeframe, limit=100)
-            if df is None:
-                return []
-            
             fvgs = []
             
             # Bullish FVG: Gap giữa candle i-1 high và candle i+1 low
@@ -520,6 +566,21 @@ class MarketDataEngine:
                         'bottom': df.iloc[i+1]['high'],
                         'time': df.index[i]
                     })
+            
+            return fvgs
+        except Exception as e:
+            logger.error(f"Error in synchronous FVG detection: {e}")
+            return []
+
+    async def detect_fvg(self, symbol: str, timeframe: str = '1h') -> List[Dict]:
+        """Phát hiện Fair Value Gaps (FVG) - runs in thread pool to prevent event loop blocking"""
+        try:
+            df = await self.get_ohlcv(symbol, timeframe, limit=100)
+            if df is None:
+                return []
+            
+            # Run pandas calculations in thread pool to prevent blocking
+            fvgs = await asyncio.to_thread(self._detect_fvg_sync, df)
             
             self.data_cache[f"{symbol}_fvg"] = fvgs
             self.last_update[f"{symbol}_fvg"] = datetime.now()
@@ -551,45 +612,49 @@ class MarketDataEngine:
             return "❌ Không thể lấy dữ liệu thị trường"
     
     async def get_symbol_data(self, symbol: str) -> Dict:
-        """Lấy toàn bộ dữ liệu cho một symbol"""
+        """Lấy toàn bộ dữ liệu cho một symbol - uses concurrent operations for efficiency"""
+        import time
+        start_time = time.time()
         try:
             data = {
                 'symbol': symbol,
                 'timestamp': datetime.now().isoformat()
             }
 
-            # Ticker
-            ticker = await self.get_ticker(symbol)
-            if ticker:
+            # Run independent operations concurrently to reduce total time
+            ticker_task = self.get_ticker(symbol)
+            indicators_task = self.calculate_indicators(symbol)
+            order_book_task = self.get_order_book(symbol)
+            funding_rate_task = self.get_funding_rate(symbol)
+            open_interest_task = self.get_open_interest(symbol)
+            order_blocks_task = self.detect_order_blocks(symbol)
+            fvgs_task = self.detect_fvg(symbol)
+
+            # Wait for all operations to complete concurrently
+            ticker, indicators, order_book, funding_rate, open_interest, order_blocks, fvgs = await asyncio.gather(
+                ticker_task, indicators_task, order_book_task, funding_rate_task,
+                open_interest_task, order_blocks_task, fvgs_task,
+                return_exceptions=True
+            )
+
+            # Add successful results to data
+            if isinstance(ticker, dict) and ticker:
                 data['ticker'] = ticker
-
-            # Indicators
-            indicators = await self.calculate_indicators(symbol)
-            if indicators:
+            if isinstance(indicators, dict) and indicators:
                 data['indicators'] = indicators
-
-            # Order Book
-            order_book = await self.get_order_book(symbol)
-            if order_book:
+            if isinstance(order_book, dict) and order_book:
                 data['order_book'] = order_book
-
-            # Funding Rate
-            funding_rate = await self.get_funding_rate(symbol)
-            if funding_rate:
+            if isinstance(funding_rate, dict) and funding_rate:
                 data['funding_rate'] = funding_rate
-
-            # Open Interest
-            open_interest = await self.get_open_interest(symbol)
-            if open_interest:
+            if isinstance(open_interest, dict) and open_interest:
                 data['open_interest'] = open_interest
+            if isinstance(order_blocks, list):
+                data['order_blocks'] = order_blocks
+            if isinstance(fvgs, list):
+                data['fvg'] = fvgs
 
-            # Order Blocks
-            order_blocks = await self.detect_order_blocks(symbol)
-            data['order_blocks'] = order_blocks
-
-            # FVG
-            fvgs = await self.detect_fvg(symbol)
-            data['fvg'] = fvgs
+            total_duration_ms = (time.time() - start_time) * 1000
+            logger.debug(f"[PERF] get_symbol_data {symbol}: total={total_duration_ms:.2f}ms")
 
             return data
         except Exception as e:

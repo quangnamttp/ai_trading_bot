@@ -287,35 +287,43 @@ class AIEngine:
             logger.error(f"Error generating AI decision: {e}")
             return {'action': 'WAIT', 'ai_score': 0, 'confidence': 0, 'reasons': ['Error in analysis']}
     
-    async def analyze(self, symbol: str, market_data, smart_money_tracker, 
+    async def analyze(self, symbol: str, market_data, smart_money_tracker,
                      news_engine) -> Dict:
         """Phân tích toàn diện cho một symbol"""
+        import time
+        start_time = time.time()
         try:
             logger.info(f"Starting AI analysis for {symbol}")
-            
+
             # 1. Lấy dữ liệu thị trường
+            data_start = time.time()
             symbol_data = await market_data.get_symbol_data(symbol)
             indicators = symbol_data.get('indicators', {})
-            
+            data_duration_ms = (time.time() - data_start) * 1000
+
             # 2. Phân tích xu hướng
             trend_analysis = self.analyze_trend(indicators)
-            
+
             # 3. Lấy Smart Money analysis
+            smart_start = time.time()
             smart_money = await smart_money_tracker.analyze_smart_money_confluence(symbol, market_data)
-            
+            smart_duration_ms = (time.time() - smart_start) * 1000
+
             # 4. Lấy news sentiment
+            news_start = time.time()
             news_summary = await news_engine.get_news_summary()
             news_sentiment = 'neutral'  # Simplified - trong thực tế cần phân tích sentiment
-            
+            news_duration_ms = (time.time() - news_start) * 1000
+
             # 5. Tính toán xác suất
             probabilities = self.calculate_probabilities(trend_analysis, smart_money, news_sentiment)
-            
+
             # 6. Tính toán rủi ro
             risk_level = self.calculate_risk_level(trend_analysis, smart_money)
-            
+
             # 7. Tạo quyết định AI
             decision = self.generate_ai_decision(probabilities, risk_level, trend_analysis)
-            
+
             # 8. Tổng hợp kết quả
             analysis_result = {
                 'symbol': symbol,
@@ -336,10 +344,11 @@ class AIEngine:
                 'rsi': indicators.get('rsi'),
                 'macd': indicators.get('macd')
             }
-            
+
             self.analysis_cache[symbol] = analysis_result
-            logger.info(f"AI analysis completed for {symbol}: {decision.get('action')} (Score: {decision.get('ai_score')})")
-            
+            total_duration_ms = (time.time() - start_time) * 1000
+            logger.info(f"[PERF] AI analysis {symbol}: total={total_duration_ms:.2f}ms, data={data_duration_ms:.2f}ms, smart={smart_duration_ms:.2f}ms, news={news_duration_ms:.2f}ms, action={decision.get('action')}, score={decision.get('ai_score')}")
+
             return analysis_result
         except Exception as e:
             logger.error(f"Error in AI analysis for {symbol}: {e}")

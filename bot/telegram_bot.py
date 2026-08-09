@@ -83,8 +83,9 @@ class TelegramBot:
         print(f"[START RECEIVED] timestamp={start_received_timestamp}, user_id={user.id}, update_id={update_id}, event_loop_id={event_loop_id}")
         logger.info(f"[START RECEIVED] timestamp={start_received_timestamp}, user_id={user.id}, update_id={update_id}, event_loop_id={event_loop_id}")
 
-        # Kiểm tra xem user có bị ban không
-        if db.is_banned(user.id):
+        # Kiểm tra xem user có bị ban không (use async version if available)
+        is_banned = await db.is_banned_async(user.id) if hasattr(db, 'is_banned_async') else db.is_banned(user.id)
+        if is_banned:
             logger.info(f"[START BANNED] user_id={user.id}")
             await update.message.reply_text("❌ Bạn đã bị ban khỏi bot.")
             return
@@ -519,8 +520,9 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
         """Lệnh /menu - Hiển thị menu"""
         user = update.effective_user
 
-        # Kiểm tra xem user có bị ban không
-        if db.is_banned(user.id):
+        # Kiểm tra xem user có bị ban không (use async version if available)
+        is_banned = await db.is_banned_async(user.id) if hasattr(db, 'is_banned_async') else db.is_banned(user.id)
+        if is_banned:
             await update.message.reply_text("❌ Bạn đã bị ban khỏi bot.")
             return
 
@@ -577,8 +579,9 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
         print(f"[HANDLER ENTER] timestamp={handler_enter_timestamp}, update_id={update_id}, user_id={user.id}, text={text}, event_loop_id={event_loop_id}")
         logger.info(f"[HANDLER ENTER] timestamp={handler_enter_timestamp}, update_id={update_id}, user_id={user.id}, text={text}, event_loop_id={event_loop_id}")
 
-        # Kiểm tra xem user có bị ban không
-        if db.is_banned(user.id):
+        # Kiểm tra xem user có bị ban không (use async version if available)
+        is_banned = await db.is_banned_async(user.id) if hasattr(db, 'is_banned_async') else db.is_banned(user.id)
+        if is_banned:
             print(f"[HANDLER BANNED] timestamp={datetime.now().isoformat()}, user_id={user.id}, event_loop_id={event_loop_id}")
             logger.info(f"[HANDLER BANNED] user_id={user.id}")
             await update.message.reply_text("❌ Bạn đã bị ban khỏi bot.")
