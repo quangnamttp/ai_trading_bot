@@ -78,7 +78,7 @@ class TelegramBot:
 
         # Lưu user vào database
         is_admin = db.is_admin(user.id)
-        db.add_user(
+        await db.add_user_async(
             telegram_id=user.id,
             username=user.username,
             first_name=user.first_name,
@@ -1155,23 +1155,8 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
             print(f"[TELEGRAM APPLICATION INITIALIZED] timestamp={initialized_timestamp}, event_loop_id={event_loop_id}")
             logger.info(f"[TELEGRAM APPLICATION INITIALIZED] timestamp={initialized_timestamp}, event_loop_id={event_loop_id}")
 
-            # Delete all bot commands from Telegram
-            deleting_commands_timestamp = datetime.now().isoformat()
-            print(f"[TELEGRAM APPLICATION DELETING COMMANDS] timestamp={deleting_commands_timestamp}, event_loop_id={event_loop_id}")
-            logger.info(f"[TELEGRAM APPLICATION DELETING COMMANDS] timestamp={deleting_commands_timestamp}, event_loop_id={event_loop_id}")
-            await self.application.bot.delete_my_commands()
-            commands_deleted_timestamp = datetime.now().isoformat()
-            print(f"[TELEGRAM APPLICATION COMMANDS DELETED] timestamp={commands_deleted_timestamp}, event_loop_id={event_loop_id}")
-            logger.info(f"[TELEGRAM APPLICATION COMMANDS DELETED] timestamp={commands_deleted_timestamp}, event_loop_id={event_loop_id}")
-
-            # Try to remove menu button by setting to default
-            resetting_menu_timestamp = datetime.now().isoformat()
-            print(f"[TELEGRAM APPLICATION RESETTING MENU BUTTON] timestamp={resetting_menu_timestamp}, event_loop_id={event_loop_id}")
-            logger.info(f"[TELEGRAM APPLICATION RESETTING MENU BUTTON] timestamp={resetting_menu_timestamp}, event_loop_id={event_loop_id}")
-            await self.application.bot.set_chat_menu_button(menu_button=MenuButtonDefault())
-            menu_reset_timestamp = datetime.now().isoformat()
-            print(f"[TELEGRAM APPLICATION MENU BUTTON RESET] timestamp={menu_reset_timestamp}, event_loop_id={event_loop_id}")
-            logger.info(f"[TELEGRAM APPLICATION MENU BUTTON RESET] timestamp={menu_reset_timestamp}, event_loop_id={event_loop_id}")
+            # REMOVED: Telegram menu registration (setChatMenuButton, setMyCommands)
+            # Only Reply Keyboard is used, no Telegram Command Menu
 
             # Start the application (without polling)
             starting_timestamp = datetime.now().isoformat()

@@ -30,8 +30,21 @@ ADMIN_IDS = [int(id.strip()) for id in ADMIN_IDS if id.strip() and id.strip().is
 TELEGRAM_WEBHOOK_URL = os.getenv("TELEGRAM_WEBHOOK_URL", "")
 
 # Signal Receiver Configuration - Simple list of Telegram IDs to receive signals
-SIGNAL_RECEIVER_IDS = os.getenv("SIGNAL_RECEIVER_IDS", TELEGRAM_ADMIN_ID or "").split(",")
-SIGNAL_RECEIVER_IDS = [int(id.strip()) for id in SIGNAL_RECEIVER_IDS if id.strip() and id.strip().isdigit() and not id.strip().startswith("your_")] if SIGNAL_RECEIVER_IDS else []
+SIGNAL_RECEIVER_IDS_raw = os.getenv("SIGNAL_RECEIVER_IDS", TELEGRAM_ADMIN_ID or "")
+SIGNAL_RECEIVER_IDS = []
+if SIGNAL_RECEIVER_IDS_raw:
+    for id_str in SIGNAL_RECEIVER_IDS_raw.split(","):
+        id_str = id_str.strip()
+        if id_str and id_str.isdigit() and not id_str.startswith("your_"):
+            try:
+                SIGNAL_RECEIVER_IDS.append(int(id_str))
+            except ValueError:
+                logger.warning(f"Invalid SIGNAL_RECEIVER_IDS value: {id_str}")
+
+# Log the final parsed value
+import logging
+logger = logging.getLogger(__name__)
+logger.info(f"[CONFIG] SIGNAL_RECEIVER_IDS={SIGNAL_RECEIVER_IDS}")
 
 # Database Configuration
 DATABASE_PATH = os.getenv("DATABASE_PATH", "database/trading_bot.db")

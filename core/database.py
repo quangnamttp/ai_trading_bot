@@ -7,6 +7,7 @@ import json
 from datetime import datetime
 from typing import List, Dict, Optional
 import logging
+import asyncio
 from .config import DATABASE_PATH
 
 logger = logging.getLogger(__name__)
@@ -14,10 +15,31 @@ logger = logging.getLogger(__name__)
 
 class DatabaseManager:
     """Quản lý tất cả các thao tác database"""
-    
+
     def __init__(self, db_path: str = DATABASE_PATH):
         self.db_path = db_path
         self.init_database()
+
+    # Async wrappers for blocking database operations
+    async def add_user_async(self, telegram_id: int, username: str = None,
+                            first_name: str = None, display_name: str = None, is_admin: bool = False) -> bool:
+        """Async wrapper for add_user to prevent event loop blocking"""
+        return await asyncio.to_thread(self.add_user, telegram_id, username, first_name, display_name, is_admin)
+
+    async def save_market_data_async(self, symbol: str, data_type: str, data_value: any) -> bool:
+        """Async wrapper for save_market_data to prevent event loop blocking"""
+        return await asyncio.to_thread(self.save_market_data, symbol, data_type, data_value)
+
+    async def save_ai_log_async(self, symbol: str, analysis_data: dict, decision: str,
+                               ai_score: float, confidence: float) -> bool:
+        """Async wrapper for save_ai_log to prevent event loop blocking"""
+        return await asyncio.to_thread(self.save_ai_log, symbol, analysis_data, decision, ai_score, confidence)
+
+    async def save_signal_async(self, symbol: str, signal_type: str, entry_price: float,
+                               tp1: float, tp2: float, tp3: float, stop_loss: float,
+                               ai_score: float, confidence: float, reasons: list) -> int:
+        """Async wrapper for save_signal to prevent event loop blocking"""
+        return await asyncio.to_thread(self.save_signal, symbol, signal_type, entry_price, tp1, tp2, tp3, stop_loss, ai_score, confidence, reasons)
     
     def get_connection(self):
         """Tạo kết nối database with timeout to prevent blocking"""

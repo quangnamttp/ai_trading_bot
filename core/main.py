@@ -281,7 +281,7 @@ class TradingBotApp:
                         # Lưu vào database (ticker đã được cache trong get_symbol_data)
                         ticker = await market_data_engine.get_ticker(symbol)
                         if ticker:
-                            db.save_market_data(
+                            await db.save_market_data_async(
                                 symbol=symbol,
                                 data_type='ticker',
                                 data_value=ticker
@@ -382,7 +382,7 @@ class TradingBotApp:
 
                         # Lưu AI log
                         db_save_start = datetime.now().isoformat()
-                        db.save_ai_log(
+                        await db.save_ai_log_async(
                             symbol=symbol,
                             analysis_data=analysis,
                             decision=analysis.get('action'),

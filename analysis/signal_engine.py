@@ -386,7 +386,7 @@ class SignalEngine:
                 logger.error(f"Error generating chart: {e}")
 
             # Lưu vào database
-            signal_id = db.save_signal(
+            signal_id = await db.save_signal_async(
                 symbol=symbol,
                 signal_type=action,
                 entry_price=entry_range,
@@ -429,7 +429,7 @@ class SignalEngine:
             analysis = await ai_engine.analyze(symbol, market_data_engine, smart_money_tracker, news_engine)
             
             # Lưu AI log
-            db.save_ai_log(
+            await db.save_ai_log_async(
                 symbol=symbol,
                 analysis_data=analysis,
                 decision=analysis.get('action'),

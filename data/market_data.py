@@ -93,8 +93,12 @@ class MarketDataEngine:
                     return await fetch_func(*args, **kwargs)
             except Exception as e:
                 error_str = str(e)
+                # Check for NotSupported error - skip retries
+                if 'not supported' in error_str.lower():
+                    logger.warning(f"Operation not supported, skipping: {e}")
+                    return None  # Return None instead of raising
                 # Check for rate limit error (code 510)
-                if '510' in error_str or 'too frequent' in error_str.lower():
+                elif '510' in error_str or 'too frequent' in error_str.lower():
                     delay = self.base_retry_delay * (2 ** attempt)  # Exponential backoff
                     logger.warning(f"Rate limit hit (510), retrying in {delay}s (attempt {attempt + 1}/{self.retry_count})")
                     await asyncio.sleep(delay)
