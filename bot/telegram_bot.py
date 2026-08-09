@@ -24,17 +24,22 @@ logger = logging.getLogger(__name__)
 
 class TelegramBot:
     """Quản lý Telegram Bot"""
-    
+
     def __init__(self):
         self.application = None
         self.signal_engine = None
         self.market_data = None
         self.running = False
-    
+        self.queue_timestamps = None  # Safe timing tracking dictionary
+
     def set_dependencies(self, signal_engine, market_data):
         """Set dependencies cho bot"""
         self.signal_engine = signal_engine
         self.market_data = market_data
+
+    def set_queue_timestamps(self, queue_timestamps):
+        """Set the safe timing tracking dictionary"""
+        self.queue_timestamps = queue_timestamps
     
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Lệnh /start - Khởi động bot with comprehensive trace logging"""
@@ -60,14 +65,16 @@ class TelegramBot:
 
         # Calculate queue wait duration (from webhook queue put to consumer start)
         queue_wait_duration_ms = 0
-        if hasattr(update, 'message') and update.message and hasattr(update.message, '_queue_put_timestamp'):
-            queue_put_timestamp = update.message._queue_put_timestamp
+        if self.queue_timestamps and update_id in self.queue_timestamps:
+            queue_put_timestamp = self.queue_timestamps[update_id]
             queue_wait_duration_ms = (datetime.fromisoformat(queue_consumer_start_timestamp) - datetime.fromisoformat(queue_put_timestamp)).total_seconds() * 1000
             print(f"[QUEUE WAIT DURATION] duration_ms={queue_wait_duration_ms:.2f}, update_id={update_id}, event_loop_id={event_loop_id}")
             logger.info(f"[QUEUE WAIT DURATION] duration_ms={queue_wait_duration_ms:.2f}, update_id={update_id}, event_loop_id={event_loop_id}")
             if queue_wait_duration_ms > 1000:
                 print(f"[SLOW QUEUE WAIT] duration_ms={queue_wait_duration_ms:.2f}, update_id={update_id}, event_loop_id={event_loop_id}")
                 logger.warning(f"[SLOW QUEUE WAIT] duration_ms={queue_wait_duration_ms:.2f}, update_id={update_id}, event_loop_id={event_loop_id}")
+            # Clean up the timestamp after use
+            del self.queue_timestamps[update_id]
 
         print(f"[QUEUE WAIT START] timestamp={queue_consumer_start_timestamp}, update_id={update_id}, event_loop_id={event_loop_id}")
         logger.info(f"[QUEUE WAIT START] timestamp={queue_consumer_start_timestamp}, update_id={update_id}, event_loop_id={event_loop_id}")
@@ -552,14 +559,16 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
 
         # Calculate queue wait duration (from webhook queue put to consumer start)
         queue_wait_duration_ms = 0
-        if hasattr(update, 'message') and update.message and hasattr(update.message, '_queue_put_timestamp'):
-            queue_put_timestamp = update.message._queue_put_timestamp
+        if self.queue_timestamps and update_id in self.queue_timestamps:
+            queue_put_timestamp = self.queue_timestamps[update_id]
             queue_wait_duration_ms = (datetime.fromisoformat(queue_consumer_start_timestamp) - datetime.fromisoformat(queue_put_timestamp)).total_seconds() * 1000
             print(f"[QUEUE WAIT DURATION] duration_ms={queue_wait_duration_ms:.2f}, update_id={update_id}, event_loop_id={event_loop_id}")
             logger.info(f"[QUEUE WAIT DURATION] duration_ms={queue_wait_duration_ms:.2f}, update_id={update_id}, event_loop_id={event_loop_id}")
             if queue_wait_duration_ms > 1000:
                 print(f"[SLOW QUEUE WAIT] duration_ms={queue_wait_duration_ms:.2f}, update_id={update_id}, event_loop_id={event_loop_id}")
                 logger.warning(f"[SLOW QUEUE WAIT] duration_ms={queue_wait_duration_ms:.2f}, update_id={update_id}, event_loop_id={event_loop_id}")
+            # Clean up the timestamp after use
+            del self.queue_timestamps[update_id]
 
         print(f"[QUEUE WAIT START] timestamp={queue_consumer_start_timestamp}, update_id={update_id}, event_loop_id={event_loop_id}")
         logger.info(f"[QUEUE WAIT START] timestamp={queue_consumer_start_timestamp}, update_id={update_id}, event_loop_id={event_loop_id}")

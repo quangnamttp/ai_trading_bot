@@ -36,12 +36,14 @@ from utils.auto_cleanup import auto_cleanup
 
 class TradingBotApp:
     """Main Application class"""
-    
+
     def __init__(self):
         self.running = False
         self.tasks = []
         self.shutdown_event = asyncio.Event()
         self.bot_application = None
+        # Safe timing tracking - dictionary keyed by update_id
+        self.queue_put_timestamps = {}
     
     async def initialize(self):
         """Khởi tạo tất cả các components"""
@@ -74,6 +76,8 @@ class TradingBotApp:
             # Initialize telegram bot
             try:
                 telegram_bot.set_dependencies(signal_engine, market_data_engine)
+                # Pass timing tracking dictionary to telegram bot
+                telegram_bot.set_queue_timestamps(self.queue_put_timestamps)
                 bot_app = await telegram_bot.start()
                 self.bot_application = bot_app
                 logger.info("Telegram bot application initialized")
@@ -567,13 +571,24 @@ class TradingBotApp:
                         print(f"[DISPATCH START] timestamp={dispatch_start_timestamp}, update_id={update_id}, event_loop_id={event_loop_id}")
                         logger.info(f"[DISPATCH START] timestamp={dispatch_start_timestamp}, update_id={update_id}, event_loop_id={event_loop_id}")
 
+                        # Log if this is a callback query
+                        if 'callback_query' in update_json:
+                            callback_data = update_json.get('callback_query', {}).get('data', 'N/A')
+                            print(f"[CALLBACK RECEIVED] callback_data={callback_data}, update_id={update_id}, event_loop_id={event_loop_id}")
+                            logger.info(f"[CALLBACK RECEIVED] callback_data={callback_data}, update_id={update_id}, event_loop_id={event_loop_id}")
+
                         # Put update into application's update_queue
                         try:
                             queue_put_timestamp = datetime.now().isoformat()
                             update = Update.de_json(update_json, telegram_bot.application.bot)
-                            # Store queue put timestamp in update for queue wait calculation
-                            if hasattr(update, 'message') and update.message:
-                                update.message._queue_put_timestamp = queue_put_timestamp
+                            # Store queue put timestamp in safe dictionary keyed by update_id
+                            self.queue_put_timestamps[update_id] = queue_put_timestamp
+                            # Clean up old entries (keep last 1000 to prevent memory leaks)
+                            if len(self.queue_put_timestamps) > 1000:
+                                # Remove oldest entries
+                                oldest_keys = list(self.queue_put_timestamps.keys())[:100]
+                                for key in oldest_keys:
+                                    del self.queue_put_timestamps[key]
                             telegram_bot.application.update_queue.put_nowait(update)
                             print(f"[QUEUE PUT] timestamp={queue_put_timestamp}, update_id={update_id}, event_loop_id={event_loop_id}")
                             logger.info(f"[QUEUE PUT] timestamp={queue_put_timestamp}, update_id={update_id}, event_loop_id={event_loop_id}")
@@ -584,13 +599,20 @@ class TradingBotApp:
                             logger.error(f"[WEBHOOK ERROR] update_id={update_id}, error={e}", exc_info=True)
                             print(f"[TELEGRAM UPDATE ERROR] timestamp={datetime.now().isoformat()}, update_id={update_id}, error={e}")
                             logger.error(f"[TELEGRAM UPDATE ERROR] timestamp={datetime.now().isoformat()}, update_id={update_id}, error={e}", exc_info=True)
-                            return 'Error', 500
+                            # Return 200 to prevent Telegram from retrying, even if queue put failed
+                            # Handler errors will be logged separately by the Telegram Application
+                            print(f"[WEBHOOK RETURNING 200 DESPITE ERROR] update_id={update_id}")
+                            logger.warning(f"[WEBHOOK RETURNING 200 DESPITE ERROR] update_id={update_id}")
+                            return 'OK', 200
 
                         # Log dispatcher end
                         dispatch_end_timestamp = datetime.now().isoformat()
                         dispatch_duration_ms = (datetime.fromisoformat(dispatch_end_timestamp) - datetime.fromisoformat(dispatch_start_timestamp)).total_seconds() * 1000
                         print(f"[DISPATCH END] timestamp={dispatch_end_timestamp}, update_id={update_id}, duration_ms={dispatch_duration_ms:.2f}, event_loop_id={event_loop_id}")
                         logger.info(f"[DISPATCH END] timestamp={dispatch_end_timestamp}, update_id={update_id}, duration_ms={dispatch_duration_ms:.2f}, event_loop_id={event_loop_id}")
+                        if dispatch_duration_ms > 1000:
+                            print(f"[SLOW DISPATCH] duration_ms={dispatch_duration_ms:.2f}, update_id={update_id}, event_loop_id={event_loop_id}")
+                            logger.warning(f"[SLOW DISPATCH] duration_ms={dispatch_duration_ms:.2f}, update_id={update_id}, event_loop_id={event_loop_id}")
 
                         return 'OK', 200
 
