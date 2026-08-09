@@ -113,19 +113,18 @@ class TradingBotApp:
             event_loop = None
             event_loop_id = "NO_LOOP"
 
-        print(f"[TASK START] task_name=signal_tracking_loop, event_loop_id={event_loop_id}, timestamp={datetime.now().isoformat()}")
         logger.info(f"[TASK START] task_name=signal_tracking_loop, event_loop_id={event_loop_id}, timestamp={datetime.now().isoformat()}")
 
         while self.running:
             try:
                 loop_start = datetime.now().isoformat()
-                print(f"[TASK ITERATION] task_name=signal_tracking_loop, timestamp={loop_start}, event_loop_id={event_loop_id}")
+                logger.info(f"[TASK ITERATION] task_name=signal_tracking_loop, timestamp={loop_start}, event_loop_id={event_loop_id}")
                 await signal_tracker.monitoring_loop()
                 loop_end = datetime.now().isoformat()
                 duration_ms = (datetime.fromisoformat(loop_end) - datetime.fromisoformat(loop_start)).total_seconds() * 1000
-                print(f"[TASK ITERATION COMPLETE] task_name=signal_tracking_loop, duration_ms={duration_ms:.2f}, event_loop_id={event_loop_id}")
+                logger.info(f"[TASK ITERATION COMPLETE] task_name=signal_tracking_loop, duration_ms={duration_ms:.2f}, event_loop_id={event_loop_id}")
                 if duration_ms > 1000:
-                    print(f"[SLOW TASK] task_name=signal_tracking_loop, duration_ms={duration_ms:.2f}, event_loop_id={event_loop_id}")
+                    logger.warning(f"[SLOW TASK] task_name=signal_tracking_loop, duration_ms={duration_ms:.2f}, event_loop_id={event_loop_id}")
                 await async_sleep(60)
             except Exception as e:
                 logger.error(f"Error in signal tracking loop: {e}")
@@ -143,19 +142,18 @@ class TradingBotApp:
             event_loop = None
             event_loop_id = "NO_LOOP"
 
-        print(f"[TASK START] task_name=cache_cleanup_loop, event_loop_id={event_loop_id}, timestamp={datetime.now().isoformat()}")
         logger.info(f"[TASK START] task_name=cache_cleanup_loop, event_loop_id={event_loop_id}, timestamp={datetime.now().isoformat()}")
 
         while self.running:
             try:
                 loop_start = datetime.now().isoformat()
-                print(f"[TASK ITERATION] task_name=cache_cleanup_loop, timestamp={loop_start}, event_loop_id={event_loop_id}")
+                logger.info(f"[TASK ITERATION] task_name=cache_cleanup_loop, timestamp={loop_start}, event_loop_id={event_loop_id}")
                 cache_manager.cleanup_expired()
                 loop_end = datetime.now().isoformat()
                 duration_ms = (datetime.fromisoformat(loop_end) - datetime.fromisoformat(loop_start)).total_seconds() * 1000
-                print(f"[TASK ITERATION COMPLETE] task_name=cache_cleanup_loop, duration_ms={duration_ms:.2f}, event_loop_id={event_loop_id}")
+                logger.info(f"[TASK ITERATION COMPLETE] task_name=cache_cleanup_loop, duration_ms={duration_ms:.2f}, event_loop_id={event_loop_id}")
                 if duration_ms > 1000:
-                    print(f"[SLOW TASK] task_name=cache_cleanup_loop, duration_ms={duration_ms:.2f}, event_loop_id={event_loop_id}")
+                    logger.warning(f"[SLOW TASK] task_name=cache_cleanup_loop, duration_ms={duration_ms:.2f}, event_loop_id={event_loop_id}")
                 await async_sleep(300)  # Every 5 minutes
             except Exception as e:
                 logger.error(f"Error in cache cleanup loop: {e}")
@@ -173,7 +171,6 @@ class TradingBotApp:
             event_loop = None
             event_loop_id = "NO_LOOP"
 
-        print(f"[TASK START] task_name=health_monitor_loop, event_loop_id={event_loop_id}, timestamp={datetime.now().isoformat()}")
         logger.info(f"[TASK START] task_name=health_monitor_loop, event_loop_id={event_loop_id}, timestamp={datetime.now().isoformat()}")
 
         last_signal_time = datetime.now()
@@ -182,7 +179,7 @@ class TradingBotApp:
         while not self.shutdown_event.is_set():
             try:
                 loop_start = datetime.now().isoformat()
-                print(f"[TASK ITERATION] task_name=health_monitor_loop, timestamp={loop_start}, event_loop_id={event_loop_id}")
+                logger.info(f"[TASK ITERATION] task_name=health_monitor_loop, timestamp={loop_start}, event_loop_id={event_loop_id}")
                 current_time = datetime.now()
 
                 # Check if market data is updating
@@ -233,9 +230,9 @@ class TradingBotApp:
 
                 loop_end = datetime.now().isoformat()
                 duration_ms = (datetime.fromisoformat(loop_end) - datetime.fromisoformat(loop_start)).total_seconds() * 1000
-                print(f"[TASK ITERATION COMPLETE] task_name=health_monitor_loop, duration_ms={duration_ms:.2f}, event_loop_id={event_loop_id}")
+                logger.info(f"[TASK ITERATION COMPLETE] task_name=health_monitor_loop, duration_ms={duration_ms:.2f}, event_loop_id={event_loop_id}")
                 if duration_ms > 1000:
-                    print(f"[SLOW TASK] task_name=health_monitor_loop, duration_ms={duration_ms:.2f}, event_loop_id={event_loop_id}")
+                    logger.warning(f"[SLOW TASK] task_name=health_monitor_loop, duration_ms={duration_ms:.2f}, event_loop_id={event_loop_id}")
 
                 await async_sleep(3600)  # Check every hour
             except Exception as e:
@@ -254,7 +251,6 @@ class TradingBotApp:
             event_loop = None
             event_loop_id = "NO_LOOP"
 
-        print(f"[TASK START] task_name=reporting_loop, event_loop_id={event_loop_id}, timestamp={datetime.now().isoformat()}")
         logger.info(f"[TASK START] task_name=reporting_loop, event_loop_id={event_loop_id}, timestamp={datetime.now().isoformat()}")
 
         await reporting_manager.reporting_loop(telegram_bot)
@@ -271,13 +267,12 @@ class TradingBotApp:
             event_loop = None
             event_loop_id = "NO_LOOP"
 
-        print(f"[TASK START] task_name=market_data_loop, event_loop_id={event_loop_id}, timestamp={datetime.now().isoformat()}")
         logger.info(f"[TASK START] task_name=market_data_loop, event_loop_id={event_loop_id}, timestamp={datetime.now().isoformat()}")
 
         while not self.shutdown_event.is_set():
             try:
                 loop_start = datetime.now().isoformat()
-                print(f"[TASK ITERATION] task_name=market_data_loop, timestamp={loop_start}, event_loop_id={event_loop_id}")
+                logger.info(f"[TASK ITERATION] task_name=market_data_loop, timestamp={loop_start}, event_loop_id={event_loop_id}")
                 for symbol in SYMBOLS:
                     try:
                         # Lấy dữ liệu thị trường (sử dụng cache để tránh spam API)
@@ -298,11 +293,11 @@ class TradingBotApp:
 
                 loop_end = datetime.now().isoformat()
                 duration_ms = (datetime.fromisoformat(loop_end) - datetime.fromisoformat(loop_start)).total_seconds() * 1000
-                print(f"[TASK ITERATION COMPLETE] task_name=market_data_loop, duration_ms={duration_ms:.2f}, event_loop_id={event_loop_id}")
+                logger.info(f"[TASK ITERATION COMPLETE] task_name=market_data_loop, duration_ms={duration_ms:.2f}, event_loop_id={event_loop_id}")
                 if duration_ms > 1000:
-                    print(f"[SLOW TASK] task_name=market_data_loop, duration_ms={duration_ms:.2f}, event_loop_id={event_loop_id}")
+                    logger.warning(f"[SLOW TASK] task_name=market_data_loop, duration_ms={duration_ms:.2f}, event_loop_id={event_loop_id}")
                 if duration_ms > 5000:
-                    print(f"[BLOCKING WARNING] task_name=market_data_loop, duration_ms={duration_ms:.2f}, event_loop_id={event_loop_id}")
+                    logger.error(f"[BLOCKING WARNING] task_name=market_data_loop, duration_ms={duration_ms:.2f}, event_loop_id={event_loop_id}")
 
                 await async_sleep(MARKET_DATA_INTERVAL)
             except Exception as e:
@@ -321,24 +316,23 @@ class TradingBotApp:
             event_loop = None
             event_loop_id = "NO_LOOP"
 
-        print(f"[TASK START] task_name=news_loop, event_loop_id={event_loop_id}, timestamp={datetime.now().isoformat()}")
         logger.info(f"[TASK START] task_name=news_loop, event_loop_id={event_loop_id}, timestamp={datetime.now().isoformat()}")
 
         while not self.shutdown_event.is_set():
             try:
                 loop_start = datetime.now().isoformat()
-                print(f"[TASK ITERATION] task_name=news_loop, timestamp={loop_start}, event_loop_id={event_loop_id}")
+                logger.info(f"[TASK ITERATION] task_name=news_loop, timestamp={loop_start}, event_loop_id={event_loop_id}")
                 await news_engine.update_news()
                 await news_engine.fetch_economic_calendar()
                 logger.info("News updated")
 
                 loop_end = datetime.now().isoformat()
                 duration_ms = (datetime.fromisoformat(loop_end) - datetime.fromisoformat(loop_start)).total_seconds() * 1000
-                print(f"[TASK ITERATION COMPLETE] task_name=news_loop, duration_ms={duration_ms:.2f}, event_loop_id={event_loop_id}")
+                logger.info(f"[TASK ITERATION COMPLETE] task_name=news_loop, duration_ms={duration_ms:.2f}, event_loop_id={event_loop_id}")
                 if duration_ms > 1000:
-                    print(f"[SLOW TASK] task_name=news_loop, duration_ms={duration_ms:.2f}, event_loop_id={event_loop_id}")
+                    logger.warning(f"[SLOW TASK] task_name=news_loop, duration_ms={duration_ms:.2f}, event_loop_id={event_loop_id}")
                 if duration_ms > 5000:
-                    print(f"[BLOCKING WARNING] task_name=news_loop, duration_ms={duration_ms:.2f}, event_loop_id={event_loop_id}")
+                    logger.error(f"[BLOCKING WARNING] task_name=news_loop, duration_ms={duration_ms:.2f}, event_loop_id={event_loop_id}")
 
                 await async_sleep(NEWS_CHECK_INTERVAL)
             except Exception as e:
@@ -357,7 +351,6 @@ class TradingBotApp:
             event_loop = None
             event_loop_id = "NO_LOOP"
 
-        print(f"[TASK START] task_name=analysis_loop, event_loop_id={event_loop_id}, timestamp={datetime.now().isoformat()}")
         logger.info(f"[TASK START] task_name=analysis_loop, event_loop_id={event_loop_id}, timestamp={datetime.now().isoformat()}")
 
         signals_generated_this_cycle = 0
@@ -365,7 +358,7 @@ class TradingBotApp:
         while not self.shutdown_event.is_set():
             try:
                 loop_start = datetime.now().isoformat()
-                print(f"[TASK ITERATION] task_name=analysis_loop, timestamp={loop_start}, event_loop_id={event_loop_id}")
+                logger.info(f"[TASK ITERATION] task_name=analysis_loop, timestamp={loop_start}, event_loop_id={event_loop_id}")
                 signals_generated_this_cycle = 0
                 for symbol in SYMBOLS:
                     try:
@@ -418,11 +411,11 @@ class TradingBotApp:
 
                 loop_end = datetime.now().isoformat()
                 duration_ms = (datetime.fromisoformat(loop_end) - datetime.fromisoformat(loop_start)).total_seconds() * 1000
-                print(f"[TASK ITERATION COMPLETE] task_name=analysis_loop, duration_ms={duration_ms:.2f}, event_loop_id={event_loop_id}")
+                logger.info(f"[TASK ITERATION COMPLETE] task_name=analysis_loop, duration_ms={duration_ms:.2f}, event_loop_id={event_loop_id}")
                 if duration_ms > 1000:
-                    print(f"[SLOW TASK] task_name=analysis_loop, duration_ms={duration_ms:.2f}, event_loop_id={event_loop_id}")
+                    logger.warning(f"[SLOW TASK] task_name=analysis_loop, duration_ms={duration_ms:.2f}, event_loop_id={event_loop_id}")
                 if duration_ms > 5000:
-                    print(f"[BLOCKING WARNING] task_name=analysis_loop, duration_ms={duration_ms:.2f}, event_loop_id={event_loop_id}")
+                    logger.error(f"[BLOCKING WARNING] task_name=analysis_loop, duration_ms={duration_ms:.2f}, event_loop_id={event_loop_id}")
 
                 await async_sleep(AI_UPDATE_INTERVAL)
             except Exception as e:
@@ -441,13 +434,12 @@ class TradingBotApp:
             event_loop = None
             event_loop_id = "NO_LOOP"
 
-        print(f"[TASK START] task_name=smart_money_loop, event_loop_id={event_loop_id}, timestamp={datetime.now().isoformat()}")
         logger.info(f"[TASK START] task_name=smart_money_loop, event_loop_id={event_loop_id}, timestamp={datetime.now().isoformat()}")
 
         while not self.shutdown_event.is_set():
             try:
                 loop_start = datetime.now().isoformat()
-                print(f"[TASK ITERATION] task_name=smart_money_loop, timestamp={loop_start}, event_loop_id={event_loop_id}")
+                logger.info(f"[TASK ITERATION] task_name=smart_money_loop, timestamp={loop_start}, event_loop_id={event_loop_id}")
                 for symbol in SYMBOLS:
                     try:
                         await smart_money_tracker.analyze_smart_money_confluence(
@@ -460,11 +452,11 @@ class TradingBotApp:
 
                 loop_end = datetime.now().isoformat()
                 duration_ms = (datetime.fromisoformat(loop_end) - datetime.fromisoformat(loop_start)).total_seconds() * 1000
-                print(f"[TASK ITERATION COMPLETE] task_name=smart_money_loop, duration_ms={duration_ms:.2f}, event_loop_id={event_loop_id}")
+                logger.info(f"[TASK ITERATION COMPLETE] task_name=smart_money_loop, duration_ms={duration_ms:.2f}, event_loop_id={event_loop_id}")
                 if duration_ms > 1000:
-                    print(f"[SLOW TASK] task_name=smart_money_loop, duration_ms={duration_ms:.2f}, event_loop_id={event_loop_id}")
+                    logger.warning(f"[SLOW TASK] task_name=smart_money_loop, duration_ms={duration_ms:.2f}, event_loop_id={event_loop_id}")
                 if duration_ms > 5000:
-                    print(f"[BLOCKING WARNING] task_name=smart_money_loop, duration_ms={duration_ms:.2f}, event_loop_id={event_loop_id}")
+                    logger.error(f"[BLOCKING WARNING] task_name=smart_money_loop, duration_ms={duration_ms:.2f}, event_loop_id={event_loop_id}")
 
                 await async_sleep(120)  # Every 2 minutes
             except Exception as e:
