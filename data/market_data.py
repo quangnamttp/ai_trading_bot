@@ -27,6 +27,7 @@ class MarketDataEngine:
         self.base_retry_delay = 1  # Base delay for exponential backoff
         self.mexc_markets = {}  # Store MEXC market list
         self.unsupported_symbols = set()  # Track unsupported symbols to skip
+        self.unsupported_operations = set()  # Track unsupported operations to skip
         self.semaphore = asyncio.Semaphore(3)  # Limit concurrent requests to 3
 
     async def initialize_exchanges(self):
@@ -151,6 +152,8 @@ class MarketDataEngine:
     async def get_ohlcv(self, symbol: str, timeframe: str = '1h',
                        limit: int = 100) -> Optional[pd.DataFrame]:
         """Lấy dữ liệu OHLCV với caching và retry logic (MEXC only)"""
+        import time
+        start_time = time.time()
         # Skip if symbol is unsupported
         if not self._is_symbol_supported(symbol):
             return None
@@ -171,25 +174,39 @@ class MarketDataEngine:
 
             exchange_instance = self.exchanges['mexc']
 
+            fetch_start = time.time()
             async def fetch():
                 return await exchange_instance.fetch_ohlcv(symbol, timeframe, limit=limit)
 
             ohlcv = await self._fetch_with_retry(fetch)
+            fetch_duration_ms = (time.time() - fetch_start) * 1000
+            logger.debug(f"[PERF] get_ohlcv {symbol}: fetch={fetch_duration_ms:.2f}ms")
 
             if ohlcv:
-                # Chuyển thành DataFrame
-                df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-                df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
-                df.set_index('timestamp', inplace=True)
+                # Chuyển thành DataFrame - run in thread pool to avoid blocking
+                df_start = time.time()
+                df = await asyncio.to_thread(self._ohlcv_to_dataframe, ohlcv)
+                df_duration_ms = (time.time() - df_start) * 1000
+                logger.debug(f"[PERF] get_ohlcv {symbol}: dataframe={df_duration_ms:.2f}ms")
 
                 self.data_cache[cache_key] = df
                 self.last_update[cache_key] = datetime.now()
                 self.cache_ttl[cache_key] = ttl_seconds
 
+            total_duration_ms = (time.time() - start_time) * 1000
+            logger.debug(f"[PERF] get_ohlcv {symbol}: total={total_duration_ms:.2f}ms")
+
             return df
         except Exception as e:
             logger.error(f"Error fetching OHLCV for {symbol}: {e}")
             return None
+
+    def _ohlcv_to_dataframe(self, ohlcv: list) -> pd.DataFrame:
+        """Synchronous OHLCV to DataFrame conversion to run in thread pool"""
+        df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+        df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+        df.set_index('timestamp', inplace=True)
+        return df
     
     async def get_order_book(self, symbol: str, limit: int = 20) -> Optional[Dict]:
         """Lấy Order Book với caching và retry logic (MEXC only)"""
@@ -234,6 +251,12 @@ class MarketDataEngine:
         if not self._is_symbol_supported(symbol):
             return None
 
+        # Skip if operation is known to be unsupported
+        operation_key = f"{symbol}_open_interest"
+        if operation_key in self.unsupported_operations:
+            logger.debug(f"Skipping unsupported operation: open_interest for {symbol}")
+            return None
+
         cache_key = f"{symbol}_open_interest"
         ttl_seconds = 30  # Cache open interest for 30 seconds
 
@@ -260,10 +283,19 @@ class MarketDataEngine:
                 self.last_update[cache_key] = datetime.now()
                 self.cache_ttl[cache_key] = ttl_seconds
                 logger.info(f"Successfully fetched open interest for {symbol} from MEXC")
+            else:
+                # Mark as unsupported if fetch_with_retry returned None due to not supported
+                self.unsupported_operations.add(operation_key)
+                logger.warning(f"Marking open_interest as unsupported for {symbol}")
 
             return oi_data
         except Exception as e:
-            logger.debug(f"MEXC does not support open interest or failed for {symbol}: {e}")
+            error_str = str(e)
+            if 'not supported' in error_str.lower():
+                self.unsupported_operations.add(operation_key)
+                logger.warning(f"Marking open_interest as unsupported for {symbol}: {e}")
+            else:
+                logger.debug(f"MEXC open interest failed for {symbol}: {e}")
             return None
     
     async def get_funding_rate(self, symbol: str) -> Optional[Dict]:

@@ -197,7 +197,9 @@ class SmartMoneyTracker:
             return {'cascade_risk': 'low', 'total_liquidated': 0}
     
     async def analyze_smart_money_confluence(self, symbol: str, market_data) -> Dict:
-        """Phân tích sự hội tụ của các tín hiệu Smart Money"""
+        """Phân tích sự hội tụ của các tín hiệu Smart Money - uses concurrent operations"""
+        import time
+        start_time = time.time()
         try:
             confluence = {
                 'bullish_signals': 0,
@@ -206,62 +208,75 @@ class SmartMoneyTracker:
                 'total_score': 0,
                 'signals': []
             }
-            
+
+            # Run all analyses concurrently to reduce total time
+            whale_task = self.track_whale_activity(symbol)
+            large_trades_task = self.detect_large_trades(symbol, market_data)
+            funding_task = self.analyze_funding_rate(symbol, market_data)
+            oi_task = self.analyze_open_interest(symbol, market_data)
+            liquidation_task = self.detect_liquidation_cascades(symbol, market_data)
+
+            # Wait for all operations to complete concurrently
+            whale_activity, large_trades, funding_analysis, oi_analysis, liquidation_risk = await asyncio.gather(
+                whale_task, large_trades_task, funding_task, oi_task, liquidation_task,
+                return_exceptions=True
+            )
+
             # 1. Whale Activity
-            whale_activity = await self.track_whale_activity(symbol)
-            for activity in whale_activity:
-                if activity.get('to') == 'wallet' and activity.get('from') == 'exchange':
-                    confluence['bullish_signals'] += 1
-                    confluence['signals'].append('Whale accumulation detected')
-                elif activity.get('to') == 'exchange' and activity.get('from') == 'wallet':
-                    confluence['bearish_signals'] += 1
-                    confluence['signals'].append('Whale distribution detected')
-            
+            if isinstance(whale_activity, list):
+                for activity in whale_activity:
+                    if activity.get('to') == 'wallet' and activity.get('from') == 'exchange':
+                        confluence['bullish_signals'] += 1
+                        confluence['signals'].append('Whale accumulation detected')
+                    elif activity.get('to') == 'exchange' and activity.get('from') == 'wallet':
+                        confluence['bearish_signals'] += 1
+                        confluence['signals'].append('Whale distribution detected')
+
             # 2. Large Trades
-            large_trades = await self.detect_large_trades(symbol, market_data)
-            for trade in large_trades:
-                if trade.get('side') == 'buy':
-                    confluence['bullish_signals'] += 1
-                    confluence['signals'].append('Large buy orders detected')
-                else:
-                    confluence['bearish_signals'] += 1
-                    confluence['signals'].append('Large sell orders detected')
-            
+            if isinstance(large_trades, list):
+                for trade in large_trades:
+                    if trade.get('side') == 'buy':
+                        confluence['bullish_signals'] += 1
+                        confluence['signals'].append('Large buy orders detected')
+                    else:
+                        confluence['bearish_signals'] += 1
+                        confluence['signals'].append('Large sell orders detected')
+
             # 3. Funding Rate
-            funding_analysis = await self.analyze_funding_rate(symbol, market_data)
-            funding_sentiment = funding_analysis.get('sentiment')
-            if 'bullish' in funding_sentiment:
-                confluence['bullish_signals'] += 1
-                confluence['signals'].append(f'Funding rate {funding_sentiment}')
-            elif 'bearish' in funding_sentiment:
-                confluence['bearish_signals'] += 1
-                confluence['signals'].append(f'Funding rate {funding_sentiment}')
-            else:
-                confluence['neutral_signals'] += 1
-            
+            if isinstance(funding_analysis, dict):
+                funding_sentiment = funding_analysis.get('sentiment')
+                if 'bullish' in funding_sentiment:
+                    confluence['bullish_signals'] += 1
+                    confluence['signals'].append(f'Funding rate {funding_sentiment}')
+                elif 'bearish' in funding_sentiment:
+                    confluence['bearish_signals'] += 1
+                    confluence['signals'].append(f'Funding rate {funding_sentiment}')
+                else:
+                    confluence['neutral_signals'] += 1
+
             # 4. Open Interest
-            oi_analysis = await self.analyze_open_interest(symbol, market_data)
-            oi_trend = oi_analysis.get('trend')
-            if 'increasing' in oi_trend:
-                confluence['bullish_signals'] += 1
-                confluence['signals'].append(f'Open interest {oi_trend}')
-            elif 'decreasing' in oi_trend:
-                confluence['bearish_signals'] += 1
-                confluence['signals'].append(f'Open interest {oi_trend}')
-            else:
-                confluence['neutral_signals'] += 1
-            
+            if isinstance(oi_analysis, dict):
+                oi_trend = oi_analysis.get('trend')
+                if 'increasing' in oi_trend:
+                    confluence['bullish_signals'] += 1
+                    confluence['signals'].append(f'Open interest {oi_trend}')
+                elif 'decreasing' in oi_trend:
+                    confluence['bearish_signals'] += 1
+                    confluence['signals'].append(f'Open interest {oi_trend}')
+                else:
+                    confluence['neutral_signals'] += 1
+
             # 5. Liquidation Cascade Risk
-            liquidation_risk = await self.detect_liquidation_cascades(symbol, market_data)
-            if liquidation_risk.get('cascade_risk') == 'high':
-                confluence['bearish_signals'] += 2  # High risk
-                confluence['signals'].append('High liquidation cascade risk')
-            
+            if isinstance(liquidation_risk, dict):
+                if liquidation_risk.get('cascade_risk') == 'high':
+                    confluence['bearish_signals'] += 2  # High risk
+                    confluence['signals'].append('High liquidation cascade risk')
+
             # Tính tổng điểm
             total_signals = confluence['bullish_signals'] + confluence['bearish_signals'] + confluence['neutral_signals']
             if total_signals > 0:
                 confluence['total_score'] = (confluence['bullish_signals'] - confluence['bearish_signals']) / total_signals
-            
+
             # Xác định xu hướng
             if confluence['total_score'] > 0.3:
                 confluence['trend'] = 'strongly_bullish'
@@ -273,10 +288,11 @@ class SmartMoneyTracker:
                 confluence['trend'] = 'bearish'
             else:
                 confluence['trend'] = 'neutral'
-            
+
             self.smart_money_indicators[symbol] = confluence
-            logger.info(f"Smart money confluence for {symbol}: {confluence['trend']}")
-            
+            total_duration_ms = (time.time() - start_time) * 1000
+            logger.info(f"[PERF] analyze_smart_money_confluence {symbol}: total={total_duration_ms:.2f}ms, trend={confluence['trend']}")
+
             return confluence
         except Exception as e:
             logger.error(f"Error analyzing smart money confluence for {symbol}: {e}")

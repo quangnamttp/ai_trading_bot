@@ -26,9 +26,9 @@ class HealthChecker:
         try:
             health_report = {
                 'timestamp': datetime.now().isoformat(),
-                'cpu_usage': self._check_cpu(),
-                'memory_usage': self._check_memory(),
-                'disk_usage': self._check_disk(),
+                'cpu_usage': await self._check_cpu(),
+                'memory_usage': await self._check_memory(),
+                'disk_usage': await self._check_disk(),
                 'database': await self._check_database(),
                 'telegram': await self._check_telegram(),
                 'api': await self._check_api(),
@@ -50,16 +50,21 @@ class HealthChecker:
             logger.error(f"Error checking system health: {e}")
             return {'overall_status': 'error', 'error': str(e)}
     
-    def _check_cpu(self) -> Dict:
-        """Kiểm tra CPU"""
+    async def _check_cpu(self) -> Dict:
+        """Kiểm tra CPU - runs in thread pool to avoid blocking"""
+        import time
+        start_time = time.time()
         try:
-            # Use interval=0 to avoid blocking, get instantaneous CPU usage
-            cpu_percent = psutil.cpu_percent(interval=0)
+            # Run psutil in thread pool to avoid blocking event loop
+            cpu_percent = await asyncio.to_thread(psutil.cpu_percent, interval=0)
             status = 'healthy'
             if cpu_percent > 90:
                 status = 'critical'
             elif cpu_percent > 70:
                 status = 'warning'
+
+            duration_ms = (time.time() - start_time) * 1000
+            logger.debug(f"[PERF] _check_cpu: {duration_ms:.2f}ms")
 
             return {
                 'percent': cpu_percent,
@@ -69,16 +74,22 @@ class HealthChecker:
             logger.error(f"Error checking CPU: {e}")
             return {'percent': 0, 'status': 'error', 'error': str(e)}
     
-    def _check_memory(self) -> Dict:
-        """Kiểm tra RAM"""
+    async def _check_memory(self) -> Dict:
+        """Kiểm tra RAM - runs in thread pool to avoid blocking"""
+        import time
+        start_time = time.time()
         try:
-            memory = psutil.virtual_memory()
+            # Run psutil in thread pool to avoid blocking event loop
+            memory = await asyncio.to_thread(psutil.virtual_memory)
             status = 'healthy'
             if memory.percent > 90:
                 status = 'critical'
             elif memory.percent > 70:
                 status = 'warning'
-            
+
+            duration_ms = (time.time() - start_time) * 1000
+            logger.debug(f"[PERF] _check_memory: {duration_ms:.2f}ms")
+
             return {
                 'percent': memory.percent,
                 'available_gb': memory.available / (1024**3),
@@ -89,18 +100,23 @@ class HealthChecker:
             logger.error(f"Error checking memory: {e}")
             return {'percent': 0, 'status': 'error', 'error': str(e)}
     
-    def _check_disk(self) -> Dict:
-        """Kiểm tra ổ cứng"""
+    async def _check_disk(self) -> Dict:
+        """Kiểm tra ổ cứng - runs in thread pool to avoid blocking"""
+        import time
+        import os
+        start_time = time.time()
         try:
-            # Use platform-agnostic path (current directory on Windows)
-            import os
+            # Run psutil in thread pool to avoid blocking event loop
             path = os.getcwd()
-            disk = psutil.disk_usage(path)
+            disk = await asyncio.to_thread(psutil.disk_usage, path)
             status = 'healthy'
             if disk.percent > 90:
                 status = 'critical'
             elif disk.percent > 80:
                 status = 'warning'
+
+            duration_ms = (time.time() - start_time) * 1000
+            logger.debug(f"[PERF] _check_disk: {duration_ms:.2f}ms")
 
             return {
                 'percent': disk.percent,
