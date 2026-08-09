@@ -52,13 +52,23 @@ class TelegramBot:
 
         queue_consumer_start_timestamp = datetime.now().isoformat()
         user = update.effective_user
+        text = update.message.text
         update_id = update.update_id
 
         print(f"[QUEUE CONSUMER START] timestamp={queue_consumer_start_timestamp}, update_id={update_id}, event_loop_id={event_loop_id}")
         logger.info(f"[QUEUE CONSUMER START] timestamp={queue_consumer_start_timestamp}, update_id={update_id}, event_loop_id={event_loop_id}")
 
-        # Calculate queue wait duration (this is approximate - we need the queue_put timestamp from context)
-        # For now, we'll log it and the user can calculate from logs
+        # Calculate queue wait duration (from webhook queue put to consumer start)
+        queue_wait_duration_ms = 0
+        if hasattr(update, 'message') and update.message and hasattr(update.message, '_queue_put_timestamp'):
+            queue_put_timestamp = update.message._queue_put_timestamp
+            queue_wait_duration_ms = (datetime.fromisoformat(queue_consumer_start_timestamp) - datetime.fromisoformat(queue_put_timestamp)).total_seconds() * 1000
+            print(f"[QUEUE WAIT DURATION] duration_ms={queue_wait_duration_ms:.2f}, update_id={update_id}, event_loop_id={event_loop_id}")
+            logger.info(f"[QUEUE WAIT DURATION] duration_ms={queue_wait_duration_ms:.2f}, update_id={update_id}, event_loop_id={event_loop_id}")
+            if queue_wait_duration_ms > 1000:
+                print(f"[SLOW QUEUE WAIT] duration_ms={queue_wait_duration_ms:.2f}, update_id={update_id}, event_loop_id={event_loop_id}")
+                logger.warning(f"[SLOW QUEUE WAIT] duration_ms={queue_wait_duration_ms:.2f}, update_id={update_id}, event_loop_id={event_loop_id}")
+
         print(f"[QUEUE WAIT START] timestamp={queue_consumer_start_timestamp}, update_id={update_id}, event_loop_id={event_loop_id}")
         logger.info(f"[QUEUE WAIT START] timestamp={queue_consumer_start_timestamp}, update_id={update_id}, event_loop_id={event_loop_id}")
 
@@ -539,6 +549,17 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
 
         print(f"[QUEUE CONSUMER START] timestamp={queue_consumer_start_timestamp}, update_id={update_id}, event_loop_id={event_loop_id}")
         logger.info(f"[QUEUE CONSUMER START] timestamp={queue_consumer_start_timestamp}, update_id={update_id}, event_loop_id={event_loop_id}")
+
+        # Calculate queue wait duration (from webhook queue put to consumer start)
+        queue_wait_duration_ms = 0
+        if hasattr(update, 'message') and update.message and hasattr(update.message, '_queue_put_timestamp'):
+            queue_put_timestamp = update.message._queue_put_timestamp
+            queue_wait_duration_ms = (datetime.fromisoformat(queue_consumer_start_timestamp) - datetime.fromisoformat(queue_put_timestamp)).total_seconds() * 1000
+            print(f"[QUEUE WAIT DURATION] duration_ms={queue_wait_duration_ms:.2f}, update_id={update_id}, event_loop_id={event_loop_id}")
+            logger.info(f"[QUEUE WAIT DURATION] duration_ms={queue_wait_duration_ms:.2f}, update_id={update_id}, event_loop_id={event_loop_id}")
+            if queue_wait_duration_ms > 1000:
+                print(f"[SLOW QUEUE WAIT] duration_ms={queue_wait_duration_ms:.2f}, update_id={update_id}, event_loop_id={event_loop_id}")
+                logger.warning(f"[SLOW QUEUE WAIT] duration_ms={queue_wait_duration_ms:.2f}, update_id={update_id}, event_loop_id={event_loop_id}")
 
         print(f"[QUEUE WAIT START] timestamp={queue_consumer_start_timestamp}, update_id={update_id}, event_loop_id={event_loop_id}")
         logger.info(f"[QUEUE WAIT START] timestamp={queue_consumer_start_timestamp}, update_id={update_id}, event_loop_id={event_loop_id}")

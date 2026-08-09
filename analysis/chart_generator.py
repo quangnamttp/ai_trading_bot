@@ -12,6 +12,7 @@ import pandas as pd
 import numpy as np
 import os
 import re
+import concurrent.futures
 
 logger = logging.getLogger(__name__)
 
@@ -42,29 +43,21 @@ class ChartGenerator:
         plt.rcParams['grid.color'] = '#2a2e39'
         plt.rcParams['grid.alpha'] = 0.3
     
-    async def generate_signal_chart(self, symbol: str, signal_type: str, 
-                                   entry_price: float, tp1: float, tp2: float, tp3: float,
-                                   stop_loss: float, ai_score: int, timeframe: str = '1h',
-                                   analysis_data: Dict = None) -> Optional[str]:
-        """Tạo biểu đồ cho tín hiệu"""
+    def _generate_chart_sync(self, symbol: str, signal_type: str,
+                           entry_price: float, tp1: float, tp2: float, tp3: float,
+                           stop_loss: float, ai_score: int, timeframe: str,
+                           analysis_data: Dict, df) -> Optional[str]:
+        """Synchronous chart generation to run in thread pool"""
         try:
-            # Lấy dữ liệu nến
-            from data.market_data import market_data_engine
-            df = await market_data_engine.get_ohlcv(symbol, timeframe, limit=100)
-            
-            if df is None or df.empty:
-                logger.warning(f"No data available for {symbol}")
-                return None
-            
             # Tạo biểu đồ
-            fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 10), 
+            fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 10),
                                             gridspec_kw={'height_ratios': [3, 1]})
-            fig.suptitle(f'{symbol} - {timeframe.upper()} - AI Score: {ai_score}/100', 
+            fig.suptitle(f'{symbol} - {timeframe.upper()} - AI Score: {ai_score}/100',
                         fontsize=14, fontweight='bold')
-            
+
             # Vẽ nến
             self._plot_candlestick(ax1, df, symbol)
-            
+
             # Vẽ các mức Entry, TP, SL
             self._plot_levels(ax1, entry_price, tp1, tp2, tp3, stop_loss, signal_type)
 
@@ -83,7 +76,7 @@ class ChartGenerator:
 
             # Vẽ mũi tên dự báo
             self._plot_prediction_arrow(ax1, df, signal_type, entry_price)
-            
+
             # Thêm thông tin
             self._add_info_text(fig, symbol, signal_type, ai_score, timeframe)
 
@@ -107,7 +100,37 @@ class ChartGenerator:
             else:
                 logger.error(f"Chart file not created for {symbol}: {chart_path}")
                 return None
-            
+
+        except Exception as e:
+            logger.error(f"Error generating chart for {symbol}: {e}")
+            return None
+
+    async def generate_signal_chart(self, symbol: str, signal_type: str,
+                                   entry_price: float, tp1: float, tp2: float, tp3: float,
+                                   stop_loss: float, ai_score: int, timeframe: str = '1h',
+                                   analysis_data: Dict = None) -> Optional[str]:
+        """Tạo biểu đồ cho tín hiệu - runs in thread pool to prevent event loop blocking"""
+        try:
+            # Lấy dữ liệu nến
+            from data.market_data import market_data_engine
+            df = await market_data_engine.get_ohlcv(symbol, timeframe, limit=100)
+
+            if df is None or df.empty:
+                logger.warning(f"No data available for {symbol}")
+                return None
+
+            # Run chart generation in thread pool to prevent blocking
+            loop = asyncio.get_event_loop()
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                chart_path = await loop.run_in_executor(
+                    executor,
+                    self._generate_chart_sync,
+                    symbol, signal_type, entry_price, tp1, tp2, tp3,
+                    stop_loss, ai_score, timeframe, analysis_data, df
+                )
+
+            return chart_path
+
         except Exception as e:
             logger.error(f"Error generating chart for {symbol}: {e}")
             return None

@@ -571,6 +571,9 @@ class TradingBotApp:
                         try:
                             queue_put_timestamp = datetime.now().isoformat()
                             update = Update.de_json(update_json, telegram_bot.application.bot)
+                            # Store queue put timestamp in update for queue wait calculation
+                            if hasattr(update, 'message') and update.message:
+                                update.message._queue_put_timestamp = queue_put_timestamp
                             telegram_bot.application.update_queue.put_nowait(update)
                             print(f"[QUEUE PUT] timestamp={queue_put_timestamp}, update_id={update_id}, event_loop_id={event_loop_id}")
                             logger.info(f"[QUEUE PUT] timestamp={queue_put_timestamp}, update_id={update_id}, event_loop_id={event_loop_id}")
