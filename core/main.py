@@ -362,15 +362,26 @@ class TradingBotApp:
                 signals_generated_this_cycle = 0
                 for symbol in SYMBOLS:
                     try:
+                        symbol_start = datetime.now().isoformat()
+                        logger.info(f"[ANALYSIS SYMBOL START] symbol={symbol}, timestamp={symbol_start}, event_loop_id={event_loop_id}")
+
                         # Phân tích AI
+                        analyze_start = datetime.now().isoformat()
+                        logger.info(f"[AI ANALYZE START] symbol={symbol}, timestamp={analyze_start}, event_loop_id={event_loop_id}")
                         analysis = await ai_engine.analyze(
                             symbol,
                             market_data_engine,
                             smart_money_tracker,
                             news_engine
                         )
+                        analyze_end = datetime.now().isoformat()
+                        analyze_duration_ms = (datetime.fromisoformat(analyze_end) - datetime.fromisoformat(analyze_start)).total_seconds() * 1000
+                        logger.info(f"[AI ANALYZE COMPLETE] symbol={symbol}, duration_ms={analyze_duration_ms:.2f}, event_loop_id={event_loop_id}")
+                        if analyze_duration_ms > 1000:
+                            logger.warning(f"[SLOW AI ANALYZE] symbol={symbol}, duration_ms={analyze_duration_ms:.2f}, event_loop_id={event_loop_id}")
 
                         # Lưu AI log
+                        db_save_start = datetime.now().isoformat()
                         db.save_ai_log(
                             symbol=symbol,
                             analysis_data=analysis,
@@ -378,6 +389,11 @@ class TradingBotApp:
                             ai_score=analysis.get('ai_score'),
                             confidence=analysis.get('confidence')
                         )
+                        db_save_end = datetime.now().isoformat()
+                        db_save_duration_ms = (datetime.fromisoformat(db_save_end) - datetime.fromisoformat(db_save_start)).total_seconds() * 1000
+                        logger.info(f"[DB SAVE AI LOG] symbol={symbol}, duration_ms={db_save_duration_ms:.2f}, event_loop_id={event_loop_id}")
+                        if db_save_duration_ms > 1000:
+                            logger.warning(f"[SLOW DB SAVE] symbol={symbol}, duration_ms={db_save_duration_ms:.2f}, event_loop_id={event_loop_id}")
 
                         # Log diagnostics for why signal was not generated
                         action = analysis.get('action')
@@ -391,15 +407,36 @@ class TradingBotApp:
 
                         # Nếu có tín hiệu, tạo và gửi
                         if analysis.get('action') in ['LONG', 'SHORT']:
+                            signal_create_start = datetime.now().isoformat()
+                            logger.info(f"[SIGNAL CREATE START] symbol={symbol}, timestamp={signal_create_start}, event_loop_id={event_loop_id}")
                             signal = await signal_engine.create_signal(analysis)
+                            signal_create_end = datetime.now().isoformat()
+                            signal_create_duration_ms = (datetime.fromisoformat(signal_create_end) - datetime.fromisoformat(signal_create_start)).total_seconds() * 1000
+                            logger.info(f"[SIGNAL CREATE COMPLETE] symbol={symbol}, duration_ms={signal_create_duration_ms:.2f}, event_loop_id={event_loop_id}")
+                            if signal_create_duration_ms > 1000:
+                                logger.warning(f"[SLOW SIGNAL CREATE] symbol={symbol}, duration_ms={signal_create_duration_ms:.2f}, event_loop_id={event_loop_id}")
+
                             if signal and signal.get('message'):
                                 # Gửi tín hiệu qua Telegram với chart
                                 chart_path = signal.get('chart_path')
+                                signal_send_start = datetime.now().isoformat()
+                                logger.info(f"[SIGNAL SEND START] symbol={symbol}, timestamp={signal_send_start}, event_loop_id={event_loop_id}")
                                 await telegram_bot.send_signal(signal['message'], chart_path)
+                                signal_send_end = datetime.now().isoformat()
+                                signal_send_duration_ms = (datetime.fromisoformat(signal_send_end) - datetime.fromisoformat(signal_send_start)).total_seconds() * 1000
+                                logger.info(f"[SIGNAL SEND COMPLETE] symbol={symbol}, duration_ms={signal_send_duration_ms:.2f}, event_loop_id={event_loop_id}")
+                                if signal_send_duration_ms > 1000:
+                                    logger.warning(f"[SLOW SIGNAL SEND] symbol={symbol}, duration_ms={signal_send_duration_ms:.2f}, event_loop_id={event_loop_id}")
                                 logger.info(f"Signal sent for {symbol}")
                                 signals_generated_this_cycle += 1
                             else:
                                 logger.warning(f"Signal creation failed for {symbol} despite valid analysis")
+
+                        symbol_end = datetime.now().isoformat()
+                        symbol_duration_ms = (datetime.fromisoformat(symbol_end) - datetime.fromisoformat(symbol_start)).total_seconds() * 1000
+                        logger.info(f"[ANALYSIS SYMBOL COMPLETE] symbol={symbol}, duration_ms={symbol_duration_ms:.2f}, event_loop_id={event_loop_id}")
+                        if symbol_duration_ms > 1000:
+                            logger.warning(f"[SLOW SYMBOL ANALYSIS] symbol={symbol}, duration_ms={symbol_duration_ms:.2f}, event_loop_id={event_loop_id}")
 
                         logger.debug(f"AI analysis completed for {symbol}")
                     except Exception as e:
