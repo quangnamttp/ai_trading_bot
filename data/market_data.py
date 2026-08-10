@@ -27,7 +27,7 @@ class MarketDataEngine:
         self.base_retry_delay = 1  # Base delay for exponential backoff
         self.mexc_markets = {}  # Store MEXC market list
         self.unsupported_symbols = set()  # Track unsupported symbols to skip
-        self.unsupported_operations = set()  # Track unsupported operations to skip
+        self.mexc_has_open_interest = False  # Track MEXC capability for fetchOpenInterest
         self.semaphore = asyncio.Semaphore(3)  # Limit concurrent requests to 3
 
     async def initialize_exchanges(self):
@@ -42,6 +42,12 @@ class MarketDataEngine:
 
             await self.exchanges['mexc'].load_markets()
             self.mexc_markets = self.exchanges['mexc'].markets
+
+            # Check MEXC capabilities once to avoid repeated unsupported calls
+            mexc = self.exchanges['mexc']
+            self.mexc_has_open_interest = mexc.has.get('fetchOpenInterest', False)
+            if not self.mexc_has_open_interest:
+                logger.info("MEXC does not support fetchOpenInterest - will skip Open Interest data")
 
             logger.info(f"MEXC exchange initialized successfully with {len(self.mexc_markets)} markets")
             await self._validate_symbols()
@@ -86,18 +92,17 @@ class MarketDataEngine:
         cache_age = (datetime.now() - self.last_update[cache_key]).total_seconds()
         return cache_age < ttl_seconds
 
-    async def _fetch_with_retry(self, fetch_func, *args, **kwargs):
-        """Fetch data with exponential backoff for rate limit errors"""
+    async def _fetch_with_retry(self, fetch_func) -> Optional[any]:
+        """Fetch data with retry logic for rate limiting and unsupported operations"""
         for attempt in range(self.retry_count):
             try:
-                async with self.semaphore:  # Limit concurrent requests
-                    return await fetch_func(*args, **kwargs)
+                return await fetch_func()
             except Exception as e:
                 error_str = str(e)
-                # Check for NotSupported error - skip retries
+                # Check for "not supported" error - return None immediately without retry
                 if 'not supported' in error_str.lower():
-                    logger.warning(f"Operation not supported, skipping: {e}")
-                    return None  # Return None instead of raising
+                    logger.debug(f"Operation not supported by exchange: {e}")
+                    return None  # Return None immediately, no retries
                 # Check for rate limit error (code 510)
                 elif '510' in error_str or 'too frequent' in error_str.lower():
                     delay = self.base_retry_delay * (2 ** attempt)  # Exponential backoff
@@ -152,8 +157,6 @@ class MarketDataEngine:
     async def get_ohlcv(self, symbol: str, timeframe: str = '1h',
                        limit: int = 100) -> Optional[pd.DataFrame]:
         """Lấy dữ liệu OHLCV với caching và retry logic (MEXC only)"""
-        import time
-        start_time = time.time()
         # Skip if symbol is unsupported
         if not self._is_symbol_supported(symbol):
             return None
@@ -174,27 +177,18 @@ class MarketDataEngine:
 
             exchange_instance = self.exchanges['mexc']
 
-            fetch_start = time.time()
             async def fetch():
                 return await exchange_instance.fetch_ohlcv(symbol, timeframe, limit=limit)
 
             ohlcv = await self._fetch_with_retry(fetch)
-            fetch_duration_ms = (time.time() - fetch_start) * 1000
-            logger.debug(f"[PERF] get_ohlcv {symbol}: fetch={fetch_duration_ms:.2f}ms")
 
             if ohlcv:
                 # Chuyển thành DataFrame - run in thread pool to avoid blocking
-                df_start = time.time()
                 df = await asyncio.to_thread(self._ohlcv_to_dataframe, ohlcv)
-                df_duration_ms = (time.time() - df_start) * 1000
-                logger.debug(f"[PERF] get_ohlcv {symbol}: dataframe={df_duration_ms:.2f}ms")
 
                 self.data_cache[cache_key] = df
                 self.last_update[cache_key] = datetime.now()
                 self.cache_ttl[cache_key] = ttl_seconds
-
-            total_duration_ms = (time.time() - start_time) * 1000
-            logger.debug(f"[PERF] get_ohlcv {symbol}: total={total_duration_ms:.2f}ms")
 
             return df
         except Exception as e:
@@ -246,15 +240,13 @@ class MarketDataEngine:
             return None
     
     async def get_open_interest(self, symbol: str) -> Optional[Dict]:
-        """Lấy Open Interest từ MEXC với caching (returns None if not supported)"""
+        """Lấy Open Interest từ MEXC với caching - checks capability before calling API"""
         # Skip if symbol is unsupported
         if not self._is_symbol_supported(symbol):
             return None
 
-        # Skip if operation is known to be unsupported
-        operation_key = f"{symbol}_open_interest"
-        if operation_key in self.unsupported_operations:
-            logger.debug(f"Skipping unsupported operation: open_interest for {symbol}")
+        # Check MEXC capability once - if not supported, return None immediately
+        if not self.mexc_has_open_interest:
             return None
 
         cache_key = f"{symbol}_open_interest"
@@ -282,20 +274,11 @@ class MarketDataEngine:
                 self.data_cache[cache_key] = oi_data
                 self.last_update[cache_key] = datetime.now()
                 self.cache_ttl[cache_key] = ttl_seconds
-                logger.info(f"Successfully fetched open interest for {symbol} from MEXC")
-            else:
-                # Mark as unsupported if fetch_with_retry returned None due to not supported
-                self.unsupported_operations.add(operation_key)
-                logger.warning(f"Marking open_interest as unsupported for {symbol}")
+                logger.debug(f"Successfully fetched open interest for {symbol} from MEXC")
 
             return oi_data
         except Exception as e:
-            error_str = str(e)
-            if 'not supported' in error_str.lower():
-                self.unsupported_operations.add(operation_key)
-                logger.warning(f"Marking open_interest as unsupported for {symbol}: {e}")
-            else:
-                logger.debug(f"MEXC open interest failed for {symbol}: {e}")
+            logger.debug(f"MEXC open interest failed for {symbol}: {e}")
             return None
     
     async def get_funding_rate(self, symbol: str) -> Optional[Dict]:
@@ -502,19 +485,14 @@ class MarketDataEngine:
             df = await self.get_ohlcv(symbol, timeframe, limit=100)
             if df is None:
                 return None
-            
+
             # Run pandas calculations in thread pool to prevent blocking
-            thread_start = time.time()
             indicators = await asyncio.to_thread(self._calculate_indicators_sync, df)
-            thread_duration_ms = (time.time() - thread_start) * 1000
-            
+
             if indicators:
                 self.data_cache[f"{symbol}_indicators"] = indicators
                 self.last_update[f"{symbol}_indicators"] = datetime.now()
-            
-            total_duration_ms = (time.time() - start_time) * 1000
-            logger.debug(f"[PERF] calculate_indicators {symbol}: total={total_duration_ms:.2f}ms, thread={thread_duration_ms:.2f}ms")
-            
+
             return indicators
         except Exception as e:
             logger.error(f"Error calculating indicators for {symbol}: {e}")
@@ -623,20 +601,59 @@ class MarketDataEngine:
             return []
     
     async def get_market_overview(self) -> str:
-        """Lấy tổng quan thị trường"""
+        """Lấy tổng quan thị trường - handles None values safely"""
         try:
             overview = "📊 *Tổng quan thị trường*\n\n"
 
             for symbol in SYMBOLS:
                 ticker = await self.get_ticker(symbol)
                 if ticker:
-                    change_percent = ticker.get('percentage', 0)
-                    emoji = "🟢" if change_percent > 0 else "🔴"
+                    change_percent = ticker.get('percentage')
+                    last_price = ticker.get('last')
+                    volume = ticker.get('quoteVolume')
+
+                    # Validate all fields before comparison
+                    if change_percent is None:
+                        logger.warning(f"Market overview: change_percent is None for {symbol}, skipping comparison")
+                        emoji = "⚪"
+                        change_display = "N/A"
+                    else:
+                        try:
+                            emoji = "🟢" if change_percent > 0 else "🔴"
+                            change_display = f"{change_percent:.2f}%"
+                        except TypeError as e:
+                            logger.error(f"Market overview: invalid change_percent type for {symbol}: {change_percent}, error: {e}")
+                            emoji = "⚪"
+                            change_display = "N/A"
+
+                    if last_price is None:
+                        logger.warning(f"Market overview: last_price is None for {symbol}")
+                        price_display = "N/A"
+                    else:
+                        try:
+                            price_display = f"${last_price:,.2f}"
+                        except (TypeError, ValueError) as e:
+                            logger.error(f"Market overview: invalid last_price for {symbol}: {last_price}, error: {e}")
+                            price_display = "N/A"
+
+                    if volume is None:
+                        logger.warning(f"Market overview: volume is None for {symbol}")
+                        volume_display = "N/A"
+                    else:
+                        try:
+                            volume_display = f"${volume:,.0f}"
+                        except (TypeError, ValueError) as e:
+                            logger.error(f"Market overview: invalid volume for {symbol}: {volume}, error: {e}")
+                            volume_display = "N/A"
 
                     overview += f"{emoji} *{symbol}*\n"
-                    overview += f"💰 Giá: ${ticker.get('last', 0):,.2f}\n"
-                    overview += f"📈 Thay đổi: {change_percent:.2f}%\n"
-                    overview += f"📊 Volume: ${ticker.get('quoteVolume', 0):,.0f}\n\n"
+                    overview += f"💰 Giá: {price_display}\n"
+                    overview += f"📈 Thay đổi: {change_display}\n"
+                    overview += f"📊 Volume: {volume_display}\n\n"
+                else:
+                    logger.warning(f"Market overview: ticker is None for {symbol}")
+                    overview += f"⚪ *{symbol}*\n"
+                    overview += f"❌ Dữ liệu không khả dụng\n\n"
 
             return overview
         except Exception as e:

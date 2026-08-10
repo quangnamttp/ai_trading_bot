@@ -198,8 +198,6 @@ class SmartMoneyTracker:
     
     async def analyze_smart_money_confluence(self, symbol: str, market_data) -> Dict:
         """Phân tích sự hội tụ của các tín hiệu Smart Money - uses concurrent operations"""
-        import time
-        start_time = time.time()
         try:
             confluence = {
                 'bullish_signals': 0,
@@ -290,8 +288,6 @@ class SmartMoneyTracker:
                 confluence['trend'] = 'neutral'
 
             self.smart_money_indicators[symbol] = confluence
-            total_duration_ms = (time.time() - start_time) * 1000
-            logger.info(f"[PERF] analyze_smart_money_confluence {symbol}: total={total_duration_ms:.2f}ms, trend={confluence['trend']}")
 
             return confluence
         except Exception as e:

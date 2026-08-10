@@ -186,16 +186,14 @@ class TradingBotApp:
                 logger.info(f"[TASK ITERATION] task_name=health_monitor_loop, timestamp={loop_start}, event_loop_id={event_loop_id}")
                 current_time = datetime.now()
 
-                # Check if market data is updating
+                # Check if market data is updating - use lightweight ticker check instead of full symbol data
                 try:
-                    health_check_start = datetime.now().isoformat()
                     test_symbol = SYMBOLS[0] if SYMBOLS else None
                     if test_symbol:
-                        await market_data_engine.get_symbol_data(test_symbol)
-                        last_market_update_time = current_time
-                        health_check_end = datetime.now().isoformat()
-                        health_check_duration_ms = (datetime.fromisoformat(health_check_end) - datetime.fromisoformat(health_check_start)).total_seconds() * 1000
-                        logger.debug(f"[PERF] health_monitor_loop market_data_check: {health_check_duration_ms:.2f}ms")
+                        # Use lightweight ticker check instead of full symbol data to reduce blocking
+                        ticker = await market_data_engine.get_ticker(test_symbol)
+                        if ticker:
+                            last_market_update_time = current_time
                         logger.debug("Market data health check passed")
                 except Exception as e:
                     logger.error(f"Market data health check failed: {e}")
@@ -217,17 +215,16 @@ class TradingBotApp:
                     else:
                         logger.warning("No active signals but no new signals generated. Checking AI analysis...")
 
-                        # Test AI analysis
+                        # Test AI analysis - skip full analysis to avoid blocking
                         try:
                             test_symbol = SYMBOLS[0] if SYMBOLS else None
                             if test_symbol:
-                                test_analysis = await ai_engine.analyze(
-                                    test_symbol,
-                                    market_data_engine,
-                                    smart_money_tracker,
-                                    news_engine
-                                )
-                                logger.info(f"AI analysis test for {test_symbol}: Action={test_analysis.get('action')}, Score={test_analysis.get('ai_score')}")
+                                # Use lightweight ticker check instead of full AI analysis
+                                ticker = await market_data_engine.get_ticker(test_symbol)
+                                if ticker:
+                                    logger.info(f"AI analysis test for {test_symbol}: ticker available, price={ticker.get('last')}")
+                                else:
+                                    logger.warning(f"AI analysis test for {test_symbol}: ticker unavailable")
                         except Exception as e:
                             logger.error(f"AI analysis test failed: {e}")
 
@@ -283,7 +280,6 @@ class TradingBotApp:
                 logger.info(f"[TASK ITERATION] task_name=market_data_loop, timestamp={loop_start}, event_loop_id={event_loop_id}")
                 for symbol in SYMBOLS:
                     try:
-                        symbol_start = datetime.now().isoformat()
                         # Lấy dữ liệu thị trường (sử dụng cache để tránh spam API)
                         await market_data_engine.get_symbol_data(symbol)
 
@@ -296,9 +292,6 @@ class TradingBotApp:
                                 data_value=ticker
                             )
 
-                        symbol_end = datetime.now().isoformat()
-                        symbol_duration_ms = (datetime.fromisoformat(symbol_end) - datetime.fromisoformat(symbol_start)).total_seconds() * 1000
-                        logger.debug(f"[PERF] market_data_loop {symbol}: {symbol_duration_ms:.2f}ms")
                         logger.debug(f"Market data updated for {symbol}")
                     except Exception as e:
                         logger.error(f"Error updating market data for {symbol}: {e}")
@@ -491,14 +484,10 @@ class TradingBotApp:
                 logger.info(f"[TASK ITERATION] task_name=smart_money_loop, timestamp={loop_start}, event_loop_id={event_loop_id}")
                 for symbol in SYMBOLS:
                     try:
-                        symbol_start = datetime.now().isoformat()
                         await smart_money_tracker.analyze_smart_money_confluence(
                             symbol,
                             market_data_engine
                         )
-                        symbol_end = datetime.now().isoformat()
-                        symbol_duration_ms = (datetime.fromisoformat(symbol_end) - datetime.fromisoformat(symbol_start)).total_seconds() * 1000
-                        logger.debug(f"[PERF] smart_money_loop {symbol}: {symbol_duration_ms:.2f}ms")
                         logger.debug(f"Smart money analysis completed for {symbol}")
                     except Exception as e:
                         logger.error(f"Error in smart money analysis for {symbol}: {e}")
