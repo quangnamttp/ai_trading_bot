@@ -122,8 +122,8 @@ class MessageQueue:
             else:
                 # Gửi đến tất cả users (broadcast)
                 from ..core.database import db
-                users = db.get_all_users()
-                
+                users = await db.get_all_users_async()
+
                 success_count = 0
                 for user in users:
                     try:
@@ -136,7 +136,7 @@ class MessageQueue:
                         await asyncio.sleep(0.5)  # Small delay between users
                     except Exception as e:
                         logger.error(f"Error sending to user {user['telegram_id']}: {e}")
-                
+
                 logger.info(f"Broadcast sent to {success_count}/{len(users)} users")
             
             self.message_count += 1

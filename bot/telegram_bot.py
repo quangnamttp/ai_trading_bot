@@ -95,7 +95,7 @@ class TelegramBot:
         logger.info(f"[START PROCESSING] timestamp={start_processing_timestamp}, user_id={user.id}, event_loop_id={event_loop_id}")
 
         # Lưu user vào database
-        is_admin = db.is_admin(user.id)
+        is_admin = await db.is_admin_async(user.id) if hasattr(db, 'is_admin_async') else db.is_admin(user.id)
         await db.add_user_async(
             telegram_id=user.id,
             username=user.username,
