@@ -43,6 +43,8 @@ class TelegramBot:
     
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Lệnh /start - Khởi động bot"""
+        import time
+        handler_start = time.time()
         user = update.effective_user
         update_id = update.update_id
 
@@ -50,8 +52,9 @@ class TelegramBot:
         queue_wait_duration_ms = 0
         if self.queue_timestamps and update_id in self.queue_timestamps:
             queue_put_timestamp = self.queue_timestamps[update_id]
-            queue_consumer_start = datetime.now()
-            queue_wait_duration_ms = (queue_consumer_start - datetime.fromisoformat(queue_put_timestamp)).total_seconds() * 1000
+            queue_consumer_start = time.time()
+            queue_wait_duration_ms = (queue_consumer_start - datetime.fromisoformat(queue_put_timestamp).timestamp()) * 1000
+            logger.info(f"[QUEUE WAIT] duration_ms={queue_wait_duration_ms:.2f}, update_id={update_id}")
             if queue_wait_duration_ms > 1000:
                 logger.warning(f"[SLOW QUEUE WAIT] duration_ms={queue_wait_duration_ms:.2f}, update_id={update_id}")
             # Clean up the timestamp after use
@@ -90,6 +93,9 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
         except Exception as e:
             logger.error(f"Error sending start message: {e}", exc_info=True)
             raise
+
+        handler_duration_ms = (time.time() - handler_start) * 1000
+        logger.info(f"[HANDLER DURATION] duration_ms={handler_duration_ms:.2f}, update_id={update_id}")
     
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Lệnh /help - Hiển thị trợ giúp"""

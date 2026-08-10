@@ -662,7 +662,9 @@ class MarketDataEngine:
     
     async def get_symbol_data(self, symbol: str) -> Dict:
         """Lấy toàn bộ dữ liệu cho một symbol - uses concurrent operations for efficiency"""
+        import time
         try:
+            start_time = time.time()
             data = {
                 'symbol': symbol,
                 'timestamp': datetime.now().isoformat()
@@ -699,6 +701,9 @@ class MarketDataEngine:
                 data['order_blocks'] = order_blocks
             if isinstance(fvgs, list):
                 data['fvg'] = fvgs
+
+            total_duration_ms = (time.time() - start_time) * 1000
+            logger.info(f"[MARKET DATA SYMBOL] symbol={symbol}, duration_ms={total_duration_ms:.2f}")
 
             return data
         except Exception as e:

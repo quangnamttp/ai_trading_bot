@@ -290,22 +290,33 @@ class AIEngine:
     async def analyze(self, symbol: str, market_data, smart_money_tracker,
                      news_engine) -> Dict:
         """Phân tích toàn diện cho một symbol"""
+        import time
         try:
             logger.info(f"Starting AI analysis for {symbol}")
+            start_time = time.time()
 
             # 1. Lấy dữ liệu thị trường
+            data_start = time.time()
             symbol_data = await market_data.get_symbol_data(symbol)
             indicators = symbol_data.get('indicators', {})
+            data_duration_ms = (time.time() - data_start) * 1000
+            logger.info(f"[AI DATA FETCH] symbol={symbol}, duration_ms={data_duration_ms:.2f}")
 
             # 2. Phân tích xu hướng
             trend_analysis = self.analyze_trend(indicators)
 
             # 3. Lấy Smart Money analysis
+            smart_start = time.time()
             smart_money = await smart_money_tracker.analyze_smart_money_confluence(symbol, market_data)
+            smart_duration_ms = (time.time() - smart_start) * 1000
+            logger.info(f"[AI SMART MONEY] symbol={symbol}, duration_ms={smart_duration_ms:.2f}")
 
             # 4. Lấy news sentiment
+            news_start = time.time()
             news_summary = await news_engine.get_news_summary()
             news_sentiment = 'neutral'  # Simplified - trong thực tế cần phân tích sentiment
+            news_duration_ms = (time.time() - news_start) * 1000
+            logger.info(f"[AI NEWS] symbol={symbol}, duration_ms={news_duration_ms:.2f}")
 
             # 5. Tính toán xác suất
             probabilities = self.calculate_probabilities(trend_analysis, smart_money, news_sentiment)
@@ -338,6 +349,9 @@ class AIEngine:
             }
 
             self.analysis_cache[symbol] = analysis_result
+
+            total_duration_ms = (time.time() - start_time) * 1000
+            logger.info(f"[AI ANALYZE TOTAL] symbol={symbol}, duration_ms={total_duration_ms:.2f}, action={decision.get('action')}")
 
             return analysis_result
         except Exception as e:

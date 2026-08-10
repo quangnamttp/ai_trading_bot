@@ -127,11 +127,13 @@ class TradingBotApp:
 
     async def health_monitor_loop(self):
         """Loop giám sát health của background tasks"""
+        import time
         last_signal_time = datetime.now()
         last_market_update_time = datetime.now()
 
         while not self.shutdown_event.is_set():
             try:
+                loop_start = time.time()
                 current_time = datetime.now()
 
                 # Check if market data is updating - use lightweight ticker check instead of full symbol data
@@ -181,6 +183,8 @@ class TradingBotApp:
                 if recent_signals:
                     last_signal_time = datetime.now()
 
+                loop_duration_ms = (time.time() - loop_start) * 1000
+                logger.info(f"[HEALTH MONITOR] duration_ms={loop_duration_ms:.2f}")
                 await async_sleep(3600)  # Check every hour
             except Exception as e:
                 logger.error(f"Error in health monitor loop: {e}")
@@ -192,15 +196,17 @@ class TradingBotApp:
     
     async def market_data_loop(self):
         """Loop quét dữ liệu thị trường"""
+        import time
         while not self.shutdown_event.is_set():
             try:
+                loop_start = time.time()
                 for symbol in SYMBOLS:
                     try:
                         # Lấy dữ liệu thị trường (sử dụng cache để tránh spam API)
-                        await market_data_engine.get_symbol_data(symbol)
+                        symbol_data = await market_data_engine.get_symbol_data(symbol)
 
-                        # Lưu vào database (ticker đã được cache trong get_symbol_data)
-                        ticker = await market_data_engine.get_ticker(symbol)
+                        # Lưu vào database (ticker đã được cache trong get_symbol_data, không cần gọi lại)
+                        ticker = symbol_data.get('ticker')
                         if ticker:
                             await db.save_market_data_async(
                                 symbol=symbol,
@@ -212,6 +218,8 @@ class TradingBotApp:
                     except Exception as e:
                         logger.error(f"Error updating market data for {symbol}: {e}")
 
+                loop_duration_ms = (time.time() - loop_start) * 1000
+                logger.info(f"[MARKET DATA LOOP] duration_ms={loop_duration_ms:.2f}")
                 await async_sleep(MARKET_DATA_INTERVAL)
             except Exception as e:
                 logger.error(f"Error in market data loop: {e}")
@@ -219,12 +227,16 @@ class TradingBotApp:
 
     async def news_loop(self):
         """Loop cập nhật tin tức"""
+        import time
         while not self.shutdown_event.is_set():
             try:
+                loop_start = time.time()
                 await news_engine.update_news()
                 await news_engine.fetch_economic_calendar()
                 logger.info("News updated")
 
+                loop_duration_ms = (time.time() - loop_start) * 1000
+                logger.info(f"[NEWS LOOP] duration_ms={loop_duration_ms:.2f}")
                 await async_sleep(NEWS_CHECK_INTERVAL)
             except Exception as e:
                 logger.error(f"Error in news loop: {e}")
@@ -232,13 +244,16 @@ class TradingBotApp:
 
     async def analysis_loop(self):
         """Loop phân tích AI"""
+        import time
         signals_generated_this_cycle = 0
 
         while not self.shutdown_event.is_set():
             try:
+                loop_start = time.time()
                 signals_generated_this_cycle = 0
                 for symbol in SYMBOLS:
                     try:
+                        symbol_start = time.time()
                         # Phân tích AI
                         analysis = await ai_engine.analyze(
                             symbol,
@@ -279,6 +294,8 @@ class TradingBotApp:
                             else:
                                 logger.warning(f"Signal creation failed for {symbol} despite valid analysis")
 
+                        symbol_duration_ms = (time.time() - symbol_start) * 1000
+                        logger.info(f"[ANALYSIS SYMBOL] symbol={symbol}, duration_ms={symbol_duration_ms:.2f}")
                         logger.debug(f"AI analysis completed for {symbol}")
                     except Exception as e:
                         logger.error(f"Error analyzing {symbol}: {e}")
@@ -287,6 +304,8 @@ class TradingBotApp:
                 if signals_generated_this_cycle == 0:
                     logger.info("No high-quality trading setup found in this analysis cycle")
 
+                loop_duration_ms = (time.time() - loop_start) * 1000
+                logger.info(f"[ANALYSIS LOOP] duration_ms={loop_duration_ms:.2f}")
                 await async_sleep(AI_UPDATE_INTERVAL)
             except Exception as e:
                 logger.error(f"Error in analysis loop: {e}")
@@ -294,18 +313,25 @@ class TradingBotApp:
 
     async def smart_money_loop(self):
         """Loop theo dõi Smart Money"""
+        import time
         while not self.shutdown_event.is_set():
             try:
+                loop_start = time.time()
                 for symbol in SYMBOLS:
                     try:
+                        symbol_start = time.time()
                         await smart_money_tracker.analyze_smart_money_confluence(
                             symbol,
                             market_data_engine
                         )
+                        symbol_duration_ms = (time.time() - symbol_start) * 1000
+                        logger.info(f"[SMART MONEY SYMBOL] symbol={symbol}, duration_ms={symbol_duration_ms:.2f}")
                         logger.debug(f"Smart money analysis completed for {symbol}")
                     except Exception as e:
                         logger.error(f"Error in smart money analysis for {symbol}: {e}")
 
+                loop_duration_ms = (time.time() - loop_start) * 1000
+                logger.info(f"[SMART MONEY LOOP] duration_ms={loop_duration_ms:.2f}")
                 await async_sleep(120)  # Every 2 minutes
             except Exception as e:
                 logger.error(f"Error in smart money loop: {e}")
@@ -367,7 +393,7 @@ class TradingBotApp:
                                 for key in oldest_keys:
                                     del self.queue_put_timestamps[key]
                             telegram_bot.application.update_queue.put_nowait(update)
-                            logger.debug(f"Webhook update put into queue: update_id={update_id}")
+                            logger.info(f"[WEBHOOK QUEUE PUT] update_id={update_id}")
                         except Exception as e:
                             logger.error(f"Webhook queue put error: update_id={update_id}, error={e}", exc_info=True)
                             # Return 200 to prevent Telegram from retrying, even if queue put failed
