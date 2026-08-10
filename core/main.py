@@ -408,7 +408,7 @@ class TradingBotApp:
                         update_json = request.get_json(force=True)
                         update_id = update_json.get('update_id') if update_json else None
 
-                        # Put update into application's update_queue
+                        # Put update into application's update_queue using thread-safe method
                         try:
                             queue_put_timestamp = datetime.now().isoformat()
                             update = Update.de_json(update_json, telegram_bot.application.bot)
@@ -424,8 +424,16 @@ class TradingBotApp:
                                     del self.queue_put_timestamps[key]
                                     if key in self.queue_put_stack_traces:
                                         del self.queue_put_stack_traces[key]
-                            telegram_bot.application.update_queue.put_nowait(update)
-                            logger.info(f"[WEBHOOK QUEUE PUT] update_id={update_id}")
+                            # Use thread-safe method to put update into queue
+                            # Get the event loop from the application
+                            loop = telegram_bot.application._loop
+                            if loop and not loop.is_closed():
+                                # Schedule the queue put on the correct event loop
+                                loop.call_soon_threadsafe(telegram_bot.application.update_queue.put_nowait, update)
+                                logger.info(f"[WEBHOOK QUEUE PUT] update_id={update_id}")
+                            else:
+                                logger.error(f"[WEBHOOK QUEUE PUT] update_id={update_id}, error=Event loop not available")
+                                return 'Error', 503
                         except Exception as e:
                             logger.error(f"Webhook queue put error: update_id={update_id}, error={e}", exc_info=True)
                             # Return 200 to prevent Telegram from retrying, even if queue put failed
