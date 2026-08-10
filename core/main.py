@@ -7,6 +7,9 @@ import logging
 import signal
 import sys
 import os
+import threading
+import traceback
+import faulthandler
 from datetime import datetime
 from core.config import (
     TELEGRAM_BOT_TOKEN, TELEGRAM_ADMIN_ID,
@@ -15,6 +18,9 @@ from core.config import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Enable faulthandler to capture stack traces on crashes
+faulthandler.enable()
 from core.database import db
 from core.signal_tracker import signal_tracker
 from core.statistics import statistics_manager
@@ -44,6 +50,26 @@ class TradingBotApp:
         self.bot_application = None
         # Safe timing tracking - dictionary keyed by update_id
         self.queue_put_timestamps = {}
+        # Stack trace tracking for blocking detection
+        self.queue_put_stack_traces = {}
+
+    def set_queue_timestamps(self, queue_timestamps):
+        """Set the safe timing tracking dictionary"""
+        self.queue_put_timestamps = queue_timestamps
+
+    def set_queue_stack_traces(self, queue_stack_traces):
+        """Set the stack trace tracking dictionary for blocking detection"""
+        self.queue_put_stack_traces = queue_stack_traces
+
+    def capture_event_loop_stack(self):
+        """Capture current stack trace of event loop thread for blocking detection"""
+        import sys
+        import traceback
+        stack = []
+        for frame in sys._current_frames().values():
+            stack_trace = traceback.format_stack(frame)
+            stack.extend(stack_trace)
+        return ''.join(stack)
     
     async def initialize(self):
         """Khởi tạo tất cả các components"""
@@ -78,6 +104,8 @@ class TradingBotApp:
                 telegram_bot.set_dependencies(signal_engine, market_data_engine)
                 # Pass timing tracking dictionary to telegram bot
                 telegram_bot.set_queue_timestamps(self.queue_put_timestamps)
+                # Pass stack trace tracking dictionary to telegram bot
+                telegram_bot.set_queue_stack_traces(self.queue_put_stack_traces)
                 bot_app = await telegram_bot.start()
                 self.bot_application = bot_app
                 logger.info("Telegram bot application initialized")
@@ -386,12 +414,16 @@ class TradingBotApp:
                             update = Update.de_json(update_json, telegram_bot.application.bot)
                             # Store queue put timestamp in safe dictionary keyed by update_id
                             self.queue_put_timestamps[update_id] = queue_put_timestamp
+                            # Capture stack trace at queue put time for blocking detection
+                            self.queue_put_stack_traces[update_id] = self.capture_event_loop_stack()
                             # Clean up old entries (keep last 1000 to prevent memory leaks)
                             if len(self.queue_put_timestamps) > 1000:
                                 # Remove oldest entries
                                 oldest_keys = list(self.queue_put_timestamps.keys())[:100]
                                 for key in oldest_keys:
                                     del self.queue_put_timestamps[key]
+                                    if key in self.queue_put_stack_traces:
+                                        del self.queue_put_stack_traces[key]
                             telegram_bot.application.update_queue.put_nowait(update)
                             logger.info(f"[WEBHOOK QUEUE PUT] update_id={update_id}")
                         except Exception as e:
@@ -433,6 +465,12 @@ class TradingBotApp:
 
             # Initialize components
             bot_app = await self.initialize()
+
+            # Enable asyncio debug mode for blocking detection
+            loop = asyncio.get_event_loop()
+            loop.set_debug(True)
+            loop.slow_callback_duration = 0.1  # Log callbacks taking >100ms
+            logger.info("Asyncio debug mode enabled - slow_callback_duration=0.1s")
 
             # Start Flask server
             self.run_flask_server()

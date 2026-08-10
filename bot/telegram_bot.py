@@ -40,6 +40,10 @@ class TelegramBot:
     def set_queue_timestamps(self, queue_timestamps):
         """Set the safe timing tracking dictionary"""
         self.queue_timestamps = queue_timestamps
+
+    def set_queue_stack_traces(self, queue_stack_traces):
+        """Set the stack trace tracking dictionary for blocking detection"""
+        self.queue_stack_traces = queue_stack_traces
     
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Lệnh /start - Khởi động bot"""
@@ -57,8 +61,14 @@ class TelegramBot:
             logger.info(f"[QUEUE WAIT] duration_ms={queue_wait_duration_ms:.2f}, update_id={update_id}")
             if queue_wait_duration_ms > 1000:
                 logger.warning(f"[SLOW QUEUE WAIT] duration_ms={queue_wait_duration_ms:.2f}, update_id={update_id}")
+                # Log stack trace from queue put time to identify blocking operation
+                if self.queue_stack_traces and update_id in self.queue_stack_traces:
+                    stack_trace = self.queue_stack_traces[update_id]
+                    logger.error(f"[BLOCKING STACK TRACE at queue put time] update_id={update_id}:\n{stack_trace}")
             # Clean up the timestamp after use
             del self.queue_timestamps[update_id]
+            if self.queue_stack_traces and update_id in self.queue_stack_traces:
+                del self.queue_stack_traces[update_id]
 
         # Kiểm tra xem user có bị ban không
         is_banned = await db.is_banned_async(user.id) if hasattr(db, 'is_banned_async') else db.is_banned(user.id)
