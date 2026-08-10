@@ -89,7 +89,23 @@ class DatabaseManager:
     async def is_banned_async(self, telegram_id: int) -> bool:
         """Async wrapper for is_banned to prevent event loop blocking"""
         return await asyncio.to_thread(self.is_banned, telegram_id)
-    
+
+    async def is_admin_async(self, telegram_id: int) -> bool:
+        """Async wrapper for is_admin to prevent event loop blocking"""
+        return await asyncio.to_thread(self.is_admin, telegram_id)
+
+    async def ban_user_async(self, telegram_id: int, banned_by: int = None, reason: str = None) -> bool:
+        """Async wrapper for ban_user to prevent event loop blocking"""
+        return await asyncio.to_thread(self.ban_user, telegram_id, banned_by, reason)
+
+    async def unban_user_async(self, telegram_id: int) -> bool:
+        """Async wrapper for unban_user to prevent event loop blocking"""
+        return await asyncio.to_thread(self.unban_user, telegram_id)
+
+    async def get_recent_ai_logs_async(self, symbol: str = None, limit: int = 20) -> List[Dict]:
+        """Async wrapper for get_recent_ai_logs to prevent event loop blocking"""
+        return await asyncio.to_thread(self.get_recent_ai_logs, symbol, limit)
+
     def get_connection(self):
         """Tạo kết nối database with timeout to prevent blocking"""
         conn = sqlite3.connect(self.db_path, timeout=5.0)  # 5 second timeout

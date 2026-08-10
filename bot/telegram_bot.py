@@ -71,13 +71,13 @@ class TelegramBot:
                 del self.queue_stack_traces[update_id]
 
         # Kiểm tra xem user có bị ban không
-        is_banned = await db.is_banned_async(user.id) if hasattr(db, 'is_banned_async') else db.is_banned(user.id)
+        is_banned = await db.is_banned_async(user.id)
         if is_banned:
             await update.message.reply_text("❌ Bạn đã bị ban khỏi bot.")
             return
 
         # Lưu user vào database
-        is_admin = await db.is_admin_async(user.id) if hasattr(db, 'is_admin_async') else db.is_admin(user.id)
+        is_admin = await db.is_admin_async(user.id)
         await db.add_user_async(
             telegram_id=user.id,
             username=user.username,
@@ -148,9 +148,9 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
             return
 
         # Lấy thống kê
-        total_users = len(db.get_all_users())
-        recent_signals = db.get_recent_signals(limit=5)
-        recent_ai_logs = db.get_recent_ai_logs(limit=5)
+        total_users = len(await db.get_all_users_async())
+        recent_signals = await db.get_recent_signals_async(limit=5)
+        recent_ai_logs = await db.get_recent_ai_logs_async(limit=5)
 
         status_message = f"""
 📊 <b>Trạng thái Bot</b>
@@ -240,7 +240,7 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
         """Lệnh /settings - Cấu hình (Admin only)"""
         user_id = update.effective_user.id
         
-        if not db.is_admin(user_id):
+        if not await db.is_admin_async(user_id):
             await update.message.reply_text("❌ Chỉ Admin mới sử dụng lệnh này.")
             return
         
@@ -278,11 +278,11 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
         """Lệnh /users - Danh sách người dùng (Admin only)"""
         user_id = update.effective_user.id
 
-        if not db.is_admin(user_id):
+        if not await db.is_admin_async(user_id):
             await update.message.reply_text("❌ Chỉ Admin mới sử dụng lệnh này.")
             return
 
-        users = db.get_all_users()
+        users = await db.get_all_users_async()
 
         if not users:
             await update.message.reply_text("📋 Không có người dùng nào.")
@@ -301,7 +301,7 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
         """Lệnh /broadcast - Gửi thông báo (Admin only)"""
         user_id = update.effective_user.id
 
-        if not db.is_admin(user_id):
+        if not await db.is_admin_async(user_id):
             await update.message.reply_text("❌ Chỉ Admin mới sử dụng lệnh này.")
             return
 
@@ -310,7 +310,7 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
             return
 
         message = " ".join(context.args)
-        users = db.get_all_users()
+        users = await db.get_all_users_async()
 
         success_count = 0
         for user in users:
@@ -327,7 +327,7 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
         """Lệnh /ban - Cấm người dùng (Admin only)"""
         user_id = update.effective_user.id
 
-        if not db.is_admin(user_id):
+        if not await db.is_admin_async(user_id):
             await update.message.reply_text("❌ Chỉ Admin mới sử dụng lệnh này.")
             return
 
@@ -343,7 +343,7 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
 
             reason = " ".join(context.args[1:]) if len(context.args) > 1 else None
 
-            db.ban_user(target_user_id, banned_by=user_id, reason=reason)
+            await db.ban_user_async(target_user_id, banned_by=user_id, reason=reason)
             await update.message.reply_text(f"✅ Đã cấm người dùng {target_user_id}")
             logger.info(f"Admin {user_id} banned user {target_user_id}")
         except ValueError:
@@ -356,7 +356,7 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
         """Lệnh /unban - Bỏ cấm người dùng (Admin only)"""
         user_id = update.effective_user.id
 
-        if not db.is_admin(user_id):
+        if not await db.is_admin_async(user_id):
             await update.message.reply_text("❌ Chỉ Admin mới sử dụng lệnh này.")
             return
 
@@ -370,7 +370,7 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
                 await update.message.reply_text("❌ Telegram ID phải là số dương.")
                 return
 
-            db.unban_user(target_user_id)
+            await db.unban_user_async(target_user_id)
             await update.message.reply_text(f"✅ Đã bỏ cấm người dùng {target_user_id}")
             logger.info(f"Admin {user_id} unbanned user {target_user_id}")
         except ValueError:
@@ -387,7 +387,7 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
         user_id = update.effective_user.id
 
         # Kiểm tra xem user có bị ban không
-        if db.is_banned(user_id):
+        if await db.is_banned_async(user_id):
             await update.message.reply_text("❌ Bạn đã bị cấm sử dụng bot.")
             return
 
@@ -424,7 +424,7 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
             await update.message.reply_text("❌ Bạn không có quyền sử dụng bot này.")
             return
 
-        is_admin = db.is_admin(user_id)
+        is_admin = await db.is_admin_async(user_id)
         logger.info(f"[SIGNALS COMMAND PROCESSING] user_id={user_id}, is_admin={is_admin}, timestamp={datetime.now().isoformat()}")
         await self.show_signals(update, is_admin)
         logger.info(f"[SIGNALS COMMAND EXIT] user_id={user_id}, timestamp={datetime.now().isoformat()}")
@@ -442,7 +442,7 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
             await update.message.reply_text("❌ Bạn không có quyền sử dụng bot này.")
             return
 
-        is_admin = db.is_admin(user_id)
+        is_admin = await db.is_admin_async(user_id)
         logger.info(f"[ANALYZE COMMAND PROCESSING] user_id={user_id}, is_admin={is_admin}, timestamp={datetime.now().isoformat()}")
         await self.show_analysis(update, is_admin)
         logger.info(f"[ANALYZE COMMAND EXIT] user_id={user_id}, timestamp={datetime.now().isoformat()}")
@@ -487,14 +487,14 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
         """Lệnh /menu - Hiển thị menu"""
         user = update.effective_user
 
-        # Kiểm tra xem user có bị ban không (use async version if available)
-        is_banned = await db.is_banned_async(user.id) if hasattr(db, 'is_banned_async') else db.is_banned(user.id)
+        # Kiểm tra xem user có bị ban không
+        is_banned = await db.is_banned_async(user.id)
         if is_banned:
             await update.message.reply_text("❌ Bạn đã bị ban khỏi bot.")
             return
 
         # Hiển thị menu với Reply Keyboard
-        is_admin = db.is_admin(user.id)
+        is_admin = await db.is_admin_async(user.id)
         reply_markup = self.get_reply_keyboard(is_admin)
 
         await update.message.reply_text(
@@ -546,8 +546,8 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
         print(f"[HANDLER ENTER] timestamp={handler_enter_timestamp}, update_id={update_id}, user_id={user.id}, text={text}, event_loop_id={event_loop_id}")
         logger.info(f"[HANDLER ENTER] timestamp={handler_enter_timestamp}, update_id={update_id}, user_id={user.id}, text={text}, event_loop_id={event_loop_id}")
 
-        # Kiểm tra xem user có bị ban không (use async version if available)
-        is_banned = await db.is_banned_async(user.id) if hasattr(db, 'is_banned_async') else db.is_banned(user.id)
+        # Kiểm tra xem user có bị ban không
+        is_banned = await db.is_banned_async(user.id)
         if is_banned:
             print(f"[HANDLER BANNED] timestamp={datetime.now().isoformat()}, user_id={user.id}, event_loop_id={event_loop_id}")
             logger.info(f"[HANDLER BANNED] user_id={user.id}")
@@ -558,7 +558,7 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
             logger.info(f"[HANDLER EXIT] timestamp={handler_exit_timestamp}, update_id={update_id}, user_id={user.id}, text={text}, reason=BANNED, duration_ms={handler_duration_ms:.2f}, event_loop_id={event_loop_id}")
             return
 
-        is_admin = db.is_admin(user.id)
+        is_admin = await db.is_admin_async(user.id)
         print(f"[HANDLER AUTH] timestamp={datetime.now().isoformat()}, user_id={user.id}, is_admin={is_admin}, event_loop_id={event_loop_id}")
         logger.info(f"[HANDLER AUTH] user_id={user.id}, is_admin={is_admin}")
 
@@ -677,57 +677,11 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
 
     async def show_market(self, update: Update, is_admin: bool):
         """Hiển thị thị trường"""
-        if self.market_data:
-            market_info = self.market_data.get_market_summary()
-            await update.message.reply_text(market_info, parse_mode='HTML')
-        else:
-            await update.message.reply_text("❌ Dữ liệu thị trường chưa sẵn sàng.")
-
-    async def show_settings(self, update: Update, is_admin: bool):
-        """Hiển thị cài đặt (Admin only)"""
-        keyboard = [
-            [InlineKeyboardButton("📊 Xem cấu hình", callback_data="config_view")],
-            [InlineKeyboardButton("⬅️ Quay lại", callback_data="menu_main")]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        await update.message.reply_text(
-            "⚙️ <b>Cài đặt</b>\n\nChọn chức năng quản trị:",
-            reply_markup=reply_markup,
-            parse_mode='HTML'
-        )
-
-    async def show_commands(self, update: Update, is_admin: bool):
-        """Hiển thị danh sách lệnh"""
-        if is_admin:
-            commands_message = """
-📋 <b>Danh sách lệnh</b>
-
-🔹 <b>Lệnh quản trị (Chỉ Admin):</b>
-/ban <id> - Cấm người dùng
-/unban <id> - Bỏ cấm người dùng
-/users - Danh sách người dùng
-/broadcast <message> - Gửi thông báo
-
-🔹 <b>Lệnh cơ bản:</b>
-/start - Bắt đầu sử dụng bot
-            """
-        else:
-            commands_message = """
-📋 <b>Danh sách lệnh</b>
-
-🔹 <b>Lệnh cơ bản:</b>
-/start - Bắt đầu sử dụng bot
-            """
-
-        await update.message.reply_text(commands_message, parse_mode='HTML')
+        await self.market_command(update, None)
 
     async def show_news(self, update: Update, is_admin: bool):
         """Hiển thị tin tức"""
-        if self.market_data:
-            news = self.market_data.get_latest_news()
-            await update.message.reply_text(news, parse_mode='HTML')
-        else:
-            await update.message.reply_text("❌ Tin tức chưa sẵn sàng.")
+        await self.news_command(update, None)
 
     async def show_account(self, update: Update, is_admin: bool):
         """Hiển thị tài khoản"""
@@ -833,7 +787,7 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
         await query.answer()
 
         user_id = query.from_user.id
-        is_admin = db.is_admin(user_id)
+        is_admin = await db.is_admin_async(user_id)
 
         # Menu chính
         if query.data == "menu_main":
@@ -923,8 +877,8 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
             reply_markup = InlineKeyboardMarkup(keyboard)
             if self.market_data:
                 try:
-                    market_info = self.market_data.get_market_summary()
-                    await query.edit_message_text(market_info, reply_markup=reply_markup, parse_mode='HTML')
+                    market_info = await self.market_data.get_market_overview()
+                    await query.edit_message_text(market_info, reply_markup=reply_markup, parse_mode='Markdown')
                 except Exception as e:
                     logger.error(f"Error in menu_market: {e}")
                     await query.edit_message_text(
@@ -943,20 +897,21 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
         elif query.data == "menu_news":
             keyboard = self.get_navigation_keyboard("menu_main")
             reply_markup = InlineKeyboardMarkup(keyboard)
-            if self.market_data:
-                try:
-                    news = self.market_data.get_latest_news()
-                    await query.edit_message_text(news, reply_markup=reply_markup, parse_mode='HTML')
-                except Exception as e:
-                    logger.error(f"Error in menu_news: {e}")
+            try:
+                from data.news_engine import news_engine
+                news_summary = await news_engine.get_news_summary()
+                if news_summary:
+                    await query.edit_message_text(news_summary, reply_markup=reply_markup, parse_mode='Markdown')
+                else:
                     await query.edit_message_text(
-                        "📰 <b>Tin tức</b>\n\n❌ Lỗi khi tải tin tức.",
+                        "📰 <b>Tin tức</b>\n\n❌ Tin tức không khả dụng lúc này.",
                         reply_markup=reply_markup,
                         parse_mode='HTML'
                     )
-            else:
+            except Exception as e:
+                logger.error(f"Error in menu_news: {e}")
                 await query.edit_message_text(
-                    "📰 <b>Tin tức</b>\n\n❌ Tin tức chưa sẵn sàng.",
+                    "📰 <b>Tin tức</b>\n\n❌ Lỗi khi tải tin tức.",
                     reply_markup=reply_markup,
                     parse_mode='HTML'
                 )
@@ -1131,15 +1086,25 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
             print(f"[TELEGRAM APPLICATION CREATED] timestamp={created_timestamp}, object_id={app_object_id}, event_loop_id={event_loop_id}")
             logger.info(f"[TELEGRAM APPLICATION CREATED] timestamp={created_timestamp}, object_id={app_object_id}, event_loop_id={event_loop_id}")
 
-            # Đăng ký handlers - chỉ giữ admin commands cần thiết
+            # Đăng ký handlers - đăng ký tất cả commands
             adding_handlers_timestamp = datetime.now().isoformat()
             print(f"[TELEGRAM APPLICATION ADDING HANDLERS] timestamp={adding_handlers_timestamp}, event_loop_id={event_loop_id}")
             logger.info(f"[TELEGRAM APPLICATION ADDING HANDLERS] timestamp={adding_handlers_timestamp}, event_loop_id={event_loop_id}")
             self.application.add_handler(CommandHandler("start", self.start_command))
-            self.application.add_handler(CommandHandler("ban", self.ban_command))
-            self.application.add_handler(CommandHandler("unban", self.unban_command))
+            self.application.add_handler(CommandHandler("help", self.help_command))
+            self.application.add_handler(CommandHandler("status", self.status_command))
+            self.application.add_handler(CommandHandler("market", self.market_command))
+            self.application.add_handler(CommandHandler("news", self.news_command))
+            self.application.add_handler(CommandHandler("settings", self.settings_command))
+            self.application.add_handler(CommandHandler("id", self.id_command))
             self.application.add_handler(CommandHandler("users", self.users_command))
             self.application.add_handler(CommandHandler("broadcast", self.broadcast_command))
+            self.application.add_handler(CommandHandler("ban", self.ban_command))
+            self.application.add_handler(CommandHandler("unban", self.unban_command))
+            self.application.add_handler(CommandHandler("stats", self.stats_command))
+            self.application.add_handler(CommandHandler("signals", self.signals_command))
+            self.application.add_handler(CommandHandler("analyze", self.analyze_command))
+            self.application.add_handler(CommandHandler("menu", self.menu_command))
             self.application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
             self.application.add_handler(CallbackQueryHandler(self.button_callback))
             handlers_added_timestamp = datetime.now().isoformat()
