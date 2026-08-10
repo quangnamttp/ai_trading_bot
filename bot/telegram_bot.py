@@ -176,7 +176,7 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
 
         logger.info(f"[MARKET COMMAND ENTER] user_id={user_id}, timestamp={timestamp}")
 
-        if not db.is_authorized(user_id):
+        if not await db.is_authorized_async(user_id):
             logger.info(f"[MARKET COMMAND DENIED] user_id={user_id}, reason=NOT_AUTHORIZED")
             await update.message.reply_text("❌ Bạn không có quyền sử dụng bot này.")
             return
@@ -210,7 +210,7 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
 
         logger.info(f"[NEWS COMMAND ENTER] user_id={user_id}, timestamp={timestamp}")
 
-        if not db.is_authorized(user_id):
+        if not await db.is_authorized_async(user_id):
             logger.info(f"[NEWS COMMAND DENIED] user_id={user_id}, reason=NOT_AUTHORIZED")
             await update.message.reply_text("❌ Bạn không có quyền sử dụng bot này.")
             return
@@ -392,7 +392,7 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
             return
 
         # Kiểm tra xem user có được phép sử dụng không
-        if not db.is_authorized(user_id):
+        if not await db.is_authorized_async(user_id):
             await update.message.reply_text("❌ Bạn chưa được phép sử dụng bot.")
             return
 
@@ -419,7 +419,7 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
 
         logger.info(f"[SIGNALS COMMAND ENTER] user_id={user_id}, timestamp={timestamp}")
 
-        if not db.is_authorized(user_id):
+        if not await db.is_authorized_async(user_id):
             logger.info(f"[SIGNALS COMMAND DENIED] user_id={user_id}, reason=NOT_AUTHORIZED")
             await update.message.reply_text("❌ Bạn không có quyền sử dụng bot này.")
             return
@@ -437,7 +437,7 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
 
         logger.info(f"[ANALYZE COMMAND ENTER] user_id={user_id}, timestamp={timestamp}")
 
-        if not db.is_authorized(user_id):
+        if not await db.is_authorized_async(user_id):
             logger.info(f"[ANALYZE COMMAND DENIED] user_id={user_id}, reason=NOT_AUTHORIZED")
             await update.message.reply_text("❌ Bạn không có quyền sử dụng bot này.")
             return

@@ -106,6 +106,10 @@ class DatabaseManager:
         """Async wrapper for get_recent_ai_logs to prevent event loop blocking"""
         return await asyncio.to_thread(self.get_recent_ai_logs, symbol, limit)
 
+    async def is_authorized_async(self, telegram_id: int) -> bool:
+        """Async wrapper for is_authorized to prevent event loop blocking"""
+        return await asyncio.to_thread(self.is_authorized, telegram_id)
+
     def get_connection(self):
         """Tạo kết nối database with timeout to prevent blocking"""
         conn = sqlite3.connect(self.db_path, timeout=5.0)  # 5 second timeout
