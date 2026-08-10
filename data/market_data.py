@@ -497,6 +497,20 @@ class MarketDataEngine:
         except Exception as e:
             logger.error(f"Error calculating indicators for {symbol}: {e}")
             return None
+
+    async def calculate_indicators_from_df(self, df: pd.DataFrame) -> Optional[Dict]:
+        """Tính toán các chỉ số kỹ thuật từ pre-fetched DataFrame - runs in thread pool"""
+        try:
+            if df is None:
+                return None
+
+            # Run pandas calculations in thread pool to prevent blocking
+            indicators = await asyncio.to_thread(self._calculate_indicators_sync, df)
+
+            return indicators
+        except Exception as e:
+            logger.error(f"Error calculating indicators from DataFrame: {e}")
+            return None
     
     def _detect_order_blocks_sync(self, df: pd.DataFrame) -> List[Dict]:
         """Synchronous order block detection to run in thread pool"""
@@ -540,16 +554,30 @@ class MarketDataEngine:
             df = await self.get_ohlcv(symbol, timeframe, limit=100)
             if df is None:
                 return []
-            
+
             # Run pandas calculations in thread pool to prevent blocking
             order_blocks = await asyncio.to_thread(self._detect_order_blocks_sync, df)
-            
+
             self.data_cache[f"{symbol}_order_blocks"] = order_blocks
             self.last_update[f"{symbol}_order_blocks"] = datetime.now()
-            
+
             return order_blocks
         except Exception as e:
             logger.error(f"Error detecting order blocks for {symbol}: {e}")
+            return []
+
+    async def detect_order_blocks_from_df(self, df: pd.DataFrame) -> List[Dict]:
+        """Phát hiện Order Blocks từ pre-fetched DataFrame - runs in thread pool"""
+        try:
+            if df is None:
+                return []
+
+            # Run pandas calculations in thread pool to prevent blocking
+            order_blocks = await asyncio.to_thread(self._detect_order_blocks_sync, df)
+
+            return order_blocks
+        except Exception as e:
+            logger.error(f"Error detecting order blocks from DataFrame: {e}")
             return []
     
     def _detect_fvg_sync(self, df: pd.DataFrame) -> List[Dict]:
@@ -588,16 +616,30 @@ class MarketDataEngine:
             df = await self.get_ohlcv(symbol, timeframe, limit=100)
             if df is None:
                 return []
-            
+
             # Run pandas calculations in thread pool to prevent blocking
             fvgs = await asyncio.to_thread(self._detect_fvg_sync, df)
-            
+
             self.data_cache[f"{symbol}_fvg"] = fvgs
             self.last_update[f"{symbol}_fvg"] = datetime.now()
-            
+
             return fvgs
         except Exception as e:
             logger.error(f"Error detecting FVG for {symbol}: {e}")
+            return []
+
+    async def detect_fvg_from_df(self, df: pd.DataFrame) -> List[Dict]:
+        """Phát hiện Fair Value Gaps từ pre-fetched DataFrame - runs in thread pool"""
+        try:
+            if df is None:
+                return []
+
+            # Run pandas calculations in thread pool to prevent blocking
+            fvgs = await asyncio.to_thread(self._detect_fvg_sync, df)
+
+            return fvgs
+        except Exception as e:
+            logger.error(f"Error detecting FVG from DataFrame: {e}")
             return []
     
     async def get_market_overview(self) -> str:
@@ -661,7 +703,7 @@ class MarketDataEngine:
             return "❌ Không thể lấy dữ liệu thị trường"
     
     async def get_symbol_data(self, symbol: str) -> Dict:
-        """Lấy toàn bộ dữ liệu cho một symbol - uses concurrent operations for efficiency"""
+        """Lấy toàn bộ dữ liệu cho một symbol - fetch OHLCV once to avoid thread pool starvation"""
         import time
         try:
             start_time = time.time()
@@ -670,14 +712,19 @@ class MarketDataEngine:
                 'timestamp': datetime.now().isoformat()
             }
 
-            # Run independent operations concurrently to reduce total time
+            # Fetch OHLCV ONCE at the start to avoid duplicate thread pool submissions
+            # This prevents thread pool starvation when multiple functions need OHLCV
+            ohlcv_df = await self.get_ohlcv(symbol, '1h', limit=100)
+
+            # Run independent operations concurrently
+            # Pass the pre-fetched OHLCV DataFrame to functions that need it
             ticker_task = self.get_ticker(symbol)
-            indicators_task = self.calculate_indicators(symbol)
+            indicators_task = self.calculate_indicators_from_df(ohlcv_df) if ohlcv_df is not None else asyncio.sleep(0)
             order_book_task = self.get_order_book(symbol)
             funding_rate_task = self.get_funding_rate(symbol)
             open_interest_task = self.get_open_interest(symbol)
-            order_blocks_task = self.detect_order_blocks(symbol)
-            fvgs_task = self.detect_fvg(symbol)
+            order_blocks_task = self.detect_order_blocks_from_df(ohlcv_df) if ohlcv_df is not None else asyncio.sleep(0)
+            fvgs_task = self.detect_fvg_from_df(ohlcv_df) if ohlcv_df is not None else asyncio.sleep(0)
 
             # Wait for all operations to complete concurrently
             ticker, indicators, order_book, funding_rate, open_interest, order_blocks, fvgs = await asyncio.gather(
