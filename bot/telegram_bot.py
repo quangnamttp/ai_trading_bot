@@ -42,57 +42,26 @@ class TelegramBot:
         self.queue_timestamps = queue_timestamps
     
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Lệnh /start - Khởi động bot with comprehensive trace logging"""
-        import asyncio
-        import traceback
-        from datetime import datetime
-
-        # Get current event loop ID
-        try:
-            event_loop = asyncio.get_event_loop()
-            event_loop_id = id(event_loop)
-        except RuntimeError:
-            event_loop = None
-            event_loop_id = "NO_LOOP"
-
-        queue_consumer_start_timestamp = datetime.now().isoformat()
+        """Lệnh /start - Khởi động bot"""
         user = update.effective_user
-        text = update.message.text
         update_id = update.update_id
-
-        print(f"[QUEUE CONSUMER START] timestamp={queue_consumer_start_timestamp}, update_id={update_id}, event_loop_id={event_loop_id}")
-        logger.info(f"[QUEUE CONSUMER START] timestamp={queue_consumer_start_timestamp}, update_id={update_id}, event_loop_id={event_loop_id}")
 
         # Calculate queue wait duration (from webhook queue put to consumer start)
         queue_wait_duration_ms = 0
         if self.queue_timestamps and update_id in self.queue_timestamps:
             queue_put_timestamp = self.queue_timestamps[update_id]
-            queue_wait_duration_ms = (datetime.fromisoformat(queue_consumer_start_timestamp) - datetime.fromisoformat(queue_put_timestamp)).total_seconds() * 1000
-            print(f"[QUEUE WAIT DURATION] duration_ms={queue_wait_duration_ms:.2f}, update_id={update_id}, event_loop_id={event_loop_id}")
-            logger.info(f"[QUEUE WAIT DURATION] duration_ms={queue_wait_duration_ms:.2f}, update_id={update_id}, event_loop_id={event_loop_id}")
+            queue_consumer_start = datetime.now()
+            queue_wait_duration_ms = (queue_consumer_start - datetime.fromisoformat(queue_put_timestamp)).total_seconds() * 1000
             if queue_wait_duration_ms > 1000:
-                print(f"[SLOW QUEUE WAIT] duration_ms={queue_wait_duration_ms:.2f}, update_id={update_id}, event_loop_id={event_loop_id}")
-                logger.warning(f"[SLOW QUEUE WAIT] duration_ms={queue_wait_duration_ms:.2f}, update_id={update_id}, event_loop_id={event_loop_id}")
+                logger.warning(f"[SLOW QUEUE WAIT] duration_ms={queue_wait_duration_ms:.2f}, update_id={update_id}")
             # Clean up the timestamp after use
             del self.queue_timestamps[update_id]
 
-        print(f"[QUEUE WAIT START] timestamp={queue_consumer_start_timestamp}, update_id={update_id}, event_loop_id={event_loop_id}")
-        logger.info(f"[QUEUE WAIT START] timestamp={queue_consumer_start_timestamp}, update_id={update_id}, event_loop_id={event_loop_id}")
-
-        start_received_timestamp = datetime.now().isoformat()
-        print(f"[START RECEIVED] timestamp={start_received_timestamp}, user_id={user.id}, update_id={update_id}, event_loop_id={event_loop_id}")
-        logger.info(f"[START RECEIVED] timestamp={start_received_timestamp}, user_id={user.id}, update_id={update_id}, event_loop_id={event_loop_id}")
-
-        # Kiểm tra xem user có bị ban không (use async version if available)
+        # Kiểm tra xem user có bị ban không
         is_banned = await db.is_banned_async(user.id) if hasattr(db, 'is_banned_async') else db.is_banned(user.id)
         if is_banned:
-            logger.info(f"[START BANNED] user_id={user.id}")
             await update.message.reply_text("❌ Bạn đã bị ban khỏi bot.")
             return
-
-        start_processing_timestamp = datetime.now().isoformat()
-        print(f"[START PROCESSING] timestamp={start_processing_timestamp}, user_id={user.id}, event_loop_id={event_loop_id}")
-        logger.info(f"[START PROCESSING] timestamp={start_processing_timestamp}, user_id={user.id}, event_loop_id={event_loop_id}")
 
         # Lưu user vào database
         is_admin = await db.is_admin_async(user.id) if hasattr(db, 'is_admin_async') else db.is_admin(user.id)
@@ -102,9 +71,6 @@ class TelegramBot:
             first_name=user.first_name,
             is_admin=is_admin
         )
-        start_db_saved_timestamp = datetime.now().isoformat()
-        print(f"[START DATABASE SAVED] timestamp={start_db_saved_timestamp}, user_id={user.id}, is_admin={is_admin}, event_loop_id={event_loop_id}")
-        logger.info(f"[START DATABASE SAVED] timestamp={start_db_saved_timestamp}, user_id={user.id}, is_admin={is_admin}, event_loop_id={event_loop_id}")
 
         # Hiển thị menu chính với Reply Keyboard - tùy theo quyền
         reply_markup = self.get_reply_keyboard(is_admin)
@@ -119,26 +85,11 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
 ⚠️ <b>Lưu ý:</b> Bot chỉ cung cấp tín hiệu phân tích, không tự động giao dịch. Bạn tự quyết định vào lệnh thủ công.
         """
 
-        start_sending_timestamp = datetime.now().isoformat()
-        print(f"[START SENDING RESPONSE] timestamp={start_sending_timestamp}, user_id={user.id}, event_loop_id={event_loop_id}")
-        logger.info(f"[START SENDING RESPONSE] timestamp={start_sending_timestamp}, user_id={user.id}, event_loop_id={event_loop_id}")
-
         try:
             await update.message.reply_text(welcome_message, reply_markup=reply_markup, parse_mode='HTML')
-            start_response_sent_timestamp = datetime.now().isoformat()
-            print(f"[START RESPONSE SENT] timestamp={start_response_sent_timestamp}, user_id={user.id}, event_loop_id={event_loop_id}")
-            logger.info(f"[START RESPONSE SENT] timestamp={start_response_sent_timestamp}, user_id={user.id}, event_loop_id={event_loop_id}")
         except Exception as e:
-            start_error_timestamp = datetime.now().isoformat()
-            print(f"[START SEND ERROR] timestamp={start_error_timestamp}, user_id={user.id}, error={e}")
-            print(f"[FULL TRACEBACK]: {traceback.format_exc()}")
-            logger.error(f"[START SEND ERROR] timestamp={start_error_timestamp}, user_id={user.id}, error={e}", exc_info=True)
+            logger.error(f"Error sending start message: {e}", exc_info=True)
             raise
-
-        start_completed_timestamp = datetime.now().isoformat()
-        start_duration_ms = (datetime.fromisoformat(start_completed_timestamp) - datetime.fromisoformat(start_received_timestamp)).total_seconds() * 1000
-        print(f"[START COMPLETED] timestamp={start_completed_timestamp}, user_id={user.id}, is_admin={is_admin}, duration_ms={start_duration_ms:.2f}, event_loop_id={event_loop_id}")
-        logger.info(f"[START COMPLETED] timestamp={start_completed_timestamp}, user_id={user.id}, is_admin={is_admin}, duration_ms={start_duration_ms:.2f}, event_loop_id={event_loop_id}")
     
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Lệnh /help - Hiển thị trợ giúp"""

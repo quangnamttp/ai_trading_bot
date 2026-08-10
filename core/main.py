@@ -106,84 +106,32 @@ class TradingBotApp:
             raise
     
     async def signal_tracking_loop(self):
-        """Loop theo dõi tín hiệu (TP/SL) with event loop trace"""
-        import asyncio
-        from datetime import datetime
-
-        try:
-            event_loop = asyncio.get_event_loop()
-            event_loop_id = id(event_loop)
-        except RuntimeError:
-            event_loop = None
-            event_loop_id = "NO_LOOP"
-
-        logger.info(f"[TASK START] task_name=signal_tracking_loop, event_loop_id={event_loop_id}, timestamp={datetime.now().isoformat()}")
-
+        """Loop theo dõi tín hiệu (TP/SL)"""
         while self.running:
             try:
-                loop_start = datetime.now().isoformat()
-                logger.info(f"[TASK ITERATION] task_name=signal_tracking_loop, timestamp={loop_start}, event_loop_id={event_loop_id}")
                 await signal_tracker.monitoring_loop()
-                loop_end = datetime.now().isoformat()
-                duration_ms = (datetime.fromisoformat(loop_end) - datetime.fromisoformat(loop_start)).total_seconds() * 1000
-                logger.info(f"[TASK ITERATION COMPLETE] task_name=signal_tracking_loop, duration_ms={duration_ms:.2f}, event_loop_id={event_loop_id}")
-                if duration_ms > 1000:
-                    logger.warning(f"[SLOW TASK] task_name=signal_tracking_loop, duration_ms={duration_ms:.2f}, event_loop_id={event_loop_id}")
                 await async_sleep(60)
             except Exception as e:
                 logger.error(f"Error in signal tracking loop: {e}")
                 await async_sleep(30)
     
     async def cache_cleanup_loop(self):
-        """Loop cleanup cache with event loop trace"""
-        import asyncio
-        from datetime import datetime
-
-        try:
-            event_loop = asyncio.get_event_loop()
-            event_loop_id = id(event_loop)
-        except RuntimeError:
-            event_loop = None
-            event_loop_id = "NO_LOOP"
-
-        logger.info(f"[TASK START] task_name=cache_cleanup_loop, event_loop_id={event_loop_id}, timestamp={datetime.now().isoformat()}")
-
+        """Loop cleanup cache"""
         while self.running:
             try:
-                loop_start = datetime.now().isoformat()
-                logger.info(f"[TASK ITERATION] task_name=cache_cleanup_loop, timestamp={loop_start}, event_loop_id={event_loop_id}")
                 cache_manager.cleanup_expired()
-                loop_end = datetime.now().isoformat()
-                duration_ms = (datetime.fromisoformat(loop_end) - datetime.fromisoformat(loop_start)).total_seconds() * 1000
-                logger.info(f"[TASK ITERATION COMPLETE] task_name=cache_cleanup_loop, duration_ms={duration_ms:.2f}, event_loop_id={event_loop_id}")
-                if duration_ms > 1000:
-                    logger.warning(f"[SLOW TASK] task_name=cache_cleanup_loop, duration_ms={duration_ms:.2f}, event_loop_id={event_loop_id}")
                 await async_sleep(300)  # Every 5 minutes
             except Exception as e:
                 logger.error(f"Error in cache cleanup loop: {e}")
                 await async_sleep(60)
 
     async def health_monitor_loop(self):
-        """Loop giám sát health của background tasks with event loop trace"""
-        import asyncio
-        from datetime import datetime
-
-        try:
-            event_loop = asyncio.get_event_loop()
-            event_loop_id = id(event_loop)
-        except RuntimeError:
-            event_loop = None
-            event_loop_id = "NO_LOOP"
-
-        logger.info(f"[TASK START] task_name=health_monitor_loop, event_loop_id={event_loop_id}, timestamp={datetime.now().isoformat()}")
-
+        """Loop giám sát health của background tasks"""
         last_signal_time = datetime.now()
         last_market_update_time = datetime.now()
 
         while not self.shutdown_event.is_set():
             try:
-                loop_start = datetime.now().isoformat()
-                logger.info(f"[TASK ITERATION] task_name=health_monitor_loop, timestamp={loop_start}, event_loop_id={event_loop_id}")
                 current_time = datetime.now()
 
                 # Check if market data is updating - use lightweight ticker check instead of full symbol data
@@ -233,51 +181,19 @@ class TradingBotApp:
                 if recent_signals:
                     last_signal_time = datetime.now()
 
-                loop_end = datetime.now().isoformat()
-                duration_ms = (datetime.fromisoformat(loop_end) - datetime.fromisoformat(loop_start)).total_seconds() * 1000
-                logger.info(f"[TASK ITERATION COMPLETE] task_name=health_monitor_loop, duration_ms={duration_ms:.2f}, event_loop_id={event_loop_id}")
-                if duration_ms > 1000:
-                    logger.warning(f"[SLOW TASK] task_name=health_monitor_loop, duration_ms={duration_ms:.2f}, event_loop_id={event_loop_id}")
-
                 await async_sleep(3600)  # Check every hour
             except Exception as e:
                 logger.error(f"Error in health monitor loop: {e}")
                 await async_sleep(30)
 
     async def reporting_loop(self):
-        """Loop báo cáo tự động with event loop trace"""
-        import asyncio
-        from datetime import datetime
-
-        try:
-            event_loop = asyncio.get_event_loop()
-            event_loop_id = id(event_loop)
-        except RuntimeError:
-            event_loop = None
-            event_loop_id = "NO_LOOP"
-
-        logger.info(f"[TASK START] task_name=reporting_loop, event_loop_id={event_loop_id}, timestamp={datetime.now().isoformat()}")
-
+        """Loop báo cáo tự động"""
         await reporting_manager.reporting_loop(telegram_bot)
     
     async def market_data_loop(self):
-        """Loop quét dữ liệu thị trường with event loop trace"""
-        import asyncio
-        from datetime import datetime
-
-        try:
-            event_loop = asyncio.get_event_loop()
-            event_loop_id = id(event_loop)
-        except RuntimeError:
-            event_loop = None
-            event_loop_id = "NO_LOOP"
-
-        logger.info(f"[TASK START] task_name=market_data_loop, event_loop_id={event_loop_id}, timestamp={datetime.now().isoformat()}")
-
+        """Loop quét dữ liệu thị trường"""
         while not self.shutdown_event.is_set():
             try:
-                loop_start = datetime.now().isoformat()
-                logger.info(f"[TASK ITERATION] task_name=market_data_loop, timestamp={loop_start}, event_loop_id={event_loop_id}")
                 for symbol in SYMBOLS:
                     try:
                         # Lấy dữ liệu thị trường (sử dụng cache để tránh spam API)
@@ -296,97 +212,42 @@ class TradingBotApp:
                     except Exception as e:
                         logger.error(f"Error updating market data for {symbol}: {e}")
 
-                loop_end = datetime.now().isoformat()
-                duration_ms = (datetime.fromisoformat(loop_end) - datetime.fromisoformat(loop_start)).total_seconds() * 1000
-                logger.info(f"[TASK ITERATION COMPLETE] task_name=market_data_loop, duration_ms={duration_ms:.2f}, event_loop_id={event_loop_id}")
-                if duration_ms > 1000:
-                    logger.warning(f"[SLOW TASK] task_name=market_data_loop, duration_ms={duration_ms:.2f}, event_loop_id={event_loop_id}")
-                if duration_ms > 5000:
-                    logger.error(f"[BLOCKING WARNING] task_name=market_data_loop, duration_ms={duration_ms:.2f}, event_loop_id={event_loop_id}")
-
                 await async_sleep(MARKET_DATA_INTERVAL)
             except Exception as e:
                 logger.error(f"Error in market data loop: {e}")
                 await async_sleep(10)  # Wait before retry
-    
+
     async def news_loop(self):
-        """Loop cập nhật tin tức with event loop trace"""
-        import asyncio
-        from datetime import datetime
-
-        try:
-            event_loop = asyncio.get_event_loop()
-            event_loop_id = id(event_loop)
-        except RuntimeError:
-            event_loop = None
-            event_loop_id = "NO_LOOP"
-
-        logger.info(f"[TASK START] task_name=news_loop, event_loop_id={event_loop_id}, timestamp={datetime.now().isoformat()}")
-
+        """Loop cập nhật tin tức"""
         while not self.shutdown_event.is_set():
             try:
-                loop_start = datetime.now().isoformat()
-                logger.info(f"[TASK ITERATION] task_name=news_loop, timestamp={loop_start}, event_loop_id={event_loop_id}")
                 await news_engine.update_news()
                 await news_engine.fetch_economic_calendar()
                 logger.info("News updated")
-
-                loop_end = datetime.now().isoformat()
-                duration_ms = (datetime.fromisoformat(loop_end) - datetime.fromisoformat(loop_start)).total_seconds() * 1000
-                logger.info(f"[TASK ITERATION COMPLETE] task_name=news_loop, duration_ms={duration_ms:.2f}, event_loop_id={event_loop_id}")
-                if duration_ms > 1000:
-                    logger.warning(f"[SLOW TASK] task_name=news_loop, duration_ms={duration_ms:.2f}, event_loop_id={event_loop_id}")
-                if duration_ms > 5000:
-                    logger.error(f"[BLOCKING WARNING] task_name=news_loop, duration_ms={duration_ms:.2f}, event_loop_id={event_loop_id}")
 
                 await async_sleep(NEWS_CHECK_INTERVAL)
             except Exception as e:
                 logger.error(f"Error in news loop: {e}")
                 await async_sleep(30)
-    
+
     async def analysis_loop(self):
-        """Loop phân tích AI with event loop trace"""
-        import asyncio
-        from datetime import datetime
-
-        try:
-            event_loop = asyncio.get_event_loop()
-            event_loop_id = id(event_loop)
-        except RuntimeError:
-            event_loop = None
-            event_loop_id = "NO_LOOP"
-
-        logger.info(f"[TASK START] task_name=analysis_loop, event_loop_id={event_loop_id}, timestamp={datetime.now().isoformat()}")
-
+        """Loop phân tích AI"""
         signals_generated_this_cycle = 0
 
         while not self.shutdown_event.is_set():
             try:
-                loop_start = datetime.now().isoformat()
-                logger.info(f"[TASK ITERATION] task_name=analysis_loop, timestamp={loop_start}, event_loop_id={event_loop_id}")
                 signals_generated_this_cycle = 0
                 for symbol in SYMBOLS:
                     try:
-                        symbol_start = datetime.now().isoformat()
-                        logger.info(f"[ANALYSIS SYMBOL START] symbol={symbol}, timestamp={symbol_start}, event_loop_id={event_loop_id}")
-
                         # Phân tích AI
-                        analyze_start = datetime.now().isoformat()
-                        logger.info(f"[AI ANALYZE START] symbol={symbol}, timestamp={analyze_start}, event_loop_id={event_loop_id}")
                         analysis = await ai_engine.analyze(
                             symbol,
                             market_data_engine,
                             smart_money_tracker,
                             news_engine
                         )
-                        analyze_end = datetime.now().isoformat()
-                        analyze_duration_ms = (datetime.fromisoformat(analyze_end) - datetime.fromisoformat(analyze_start)).total_seconds() * 1000
-                        logger.info(f"[AI ANALYZE COMPLETE] symbol={symbol}, duration_ms={analyze_duration_ms:.2f}, event_loop_id={event_loop_id}")
-                        if analyze_duration_ms > 1000:
-                            logger.warning(f"[SLOW AI ANALYZE] symbol={symbol}, duration_ms={analyze_duration_ms:.2f}, event_loop_id={event_loop_id}")
 
                         # Lưu AI log
-                        db_save_start = datetime.now().isoformat()
                         await db.save_ai_log_async(
                             symbol=symbol,
                             analysis_data=analysis,
@@ -394,11 +255,6 @@ class TradingBotApp:
                             ai_score=analysis.get('ai_score'),
                             confidence=analysis.get('confidence')
                         )
-                        db_save_end = datetime.now().isoformat()
-                        db_save_duration_ms = (datetime.fromisoformat(db_save_end) - datetime.fromisoformat(db_save_start)).total_seconds() * 1000
-                        logger.info(f"[DB SAVE AI LOG] symbol={symbol}, duration_ms={db_save_duration_ms:.2f}, event_loop_id={event_loop_id}")
-                        if db_save_duration_ms > 1000:
-                            logger.warning(f"[SLOW DB SAVE] symbol={symbol}, duration_ms={db_save_duration_ms:.2f}, event_loop_id={event_loop_id}")
 
                         # Log diagnostics for why signal was not generated
                         action = analysis.get('action')
@@ -412,36 +268,16 @@ class TradingBotApp:
 
                         # Nếu có tín hiệu, tạo và gửi
                         if analysis.get('action') in ['LONG', 'SHORT']:
-                            signal_create_start = datetime.now().isoformat()
-                            logger.info(f"[SIGNAL CREATE START] symbol={symbol}, timestamp={signal_create_start}, event_loop_id={event_loop_id}")
                             signal = await signal_engine.create_signal(analysis)
-                            signal_create_end = datetime.now().isoformat()
-                            signal_create_duration_ms = (datetime.fromisoformat(signal_create_end) - datetime.fromisoformat(signal_create_start)).total_seconds() * 1000
-                            logger.info(f"[SIGNAL CREATE COMPLETE] symbol={symbol}, duration_ms={signal_create_duration_ms:.2f}, event_loop_id={event_loop_id}")
-                            if signal_create_duration_ms > 1000:
-                                logger.warning(f"[SLOW SIGNAL CREATE] symbol={symbol}, duration_ms={signal_create_duration_ms:.2f}, event_loop_id={event_loop_id}")
 
                             if signal and signal.get('message'):
                                 # Gửi tín hiệu qua Telegram với chart
                                 chart_path = signal.get('chart_path')
-                                signal_send_start = datetime.now().isoformat()
-                                logger.info(f"[SIGNAL SEND START] symbol={symbol}, timestamp={signal_send_start}, event_loop_id={event_loop_id}")
                                 await telegram_bot.send_signal(signal['message'], chart_path)
-                                signal_send_end = datetime.now().isoformat()
-                                signal_send_duration_ms = (datetime.fromisoformat(signal_send_end) - datetime.fromisoformat(signal_send_start)).total_seconds() * 1000
-                                logger.info(f"[SIGNAL SEND COMPLETE] symbol={symbol}, duration_ms={signal_send_duration_ms:.2f}, event_loop_id={event_loop_id}")
-                                if signal_send_duration_ms > 1000:
-                                    logger.warning(f"[SLOW SIGNAL SEND] symbol={symbol}, duration_ms={signal_send_duration_ms:.2f}, event_loop_id={event_loop_id}")
                                 logger.info(f"Signal sent for {symbol}")
                                 signals_generated_this_cycle += 1
                             else:
                                 logger.warning(f"Signal creation failed for {symbol} despite valid analysis")
-
-                        symbol_end = datetime.now().isoformat()
-                        symbol_duration_ms = (datetime.fromisoformat(symbol_end) - datetime.fromisoformat(symbol_start)).total_seconds() * 1000
-                        logger.info(f"[ANALYSIS SYMBOL COMPLETE] symbol={symbol}, duration_ms={symbol_duration_ms:.2f}, event_loop_id={event_loop_id}")
-                        if symbol_duration_ms > 1000:
-                            logger.warning(f"[SLOW SYMBOL ANALYSIS] symbol={symbol}, duration_ms={symbol_duration_ms:.2f}, event_loop_id={event_loop_id}")
 
                         logger.debug(f"AI analysis completed for {symbol}")
                     except Exception as e:
@@ -451,37 +287,15 @@ class TradingBotApp:
                 if signals_generated_this_cycle == 0:
                     logger.info("No high-quality trading setup found in this analysis cycle")
 
-                loop_end = datetime.now().isoformat()
-                duration_ms = (datetime.fromisoformat(loop_end) - datetime.fromisoformat(loop_start)).total_seconds() * 1000
-                logger.info(f"[TASK ITERATION COMPLETE] task_name=analysis_loop, duration_ms={duration_ms:.2f}, event_loop_id={event_loop_id}")
-                if duration_ms > 1000:
-                    logger.warning(f"[SLOW TASK] task_name=analysis_loop, duration_ms={duration_ms:.2f}, event_loop_id={event_loop_id}")
-                if duration_ms > 5000:
-                    logger.error(f"[BLOCKING WARNING] task_name=analysis_loop, duration_ms={duration_ms:.2f}, event_loop_id={event_loop_id}")
-
                 await async_sleep(AI_UPDATE_INTERVAL)
             except Exception as e:
                 logger.error(f"Error in analysis loop: {e}")
                 await async_sleep(30)
-    
+
     async def smart_money_loop(self):
-        """Loop theo dõi Smart Money with event loop trace"""
-        import asyncio
-        from datetime import datetime
-
-        try:
-            event_loop = asyncio.get_event_loop()
-            event_loop_id = id(event_loop)
-        except RuntimeError:
-            event_loop = None
-            event_loop_id = "NO_LOOP"
-
-        logger.info(f"[TASK START] task_name=smart_money_loop, event_loop_id={event_loop_id}, timestamp={datetime.now().isoformat()}")
-
+        """Loop theo dõi Smart Money"""
         while not self.shutdown_event.is_set():
             try:
-                loop_start = datetime.now().isoformat()
-                logger.info(f"[TASK ITERATION] task_name=smart_money_loop, timestamp={loop_start}, event_loop_id={event_loop_id}")
                 for symbol in SYMBOLS:
                     try:
                         await smart_money_tracker.analyze_smart_money_confluence(
@@ -491,14 +305,6 @@ class TradingBotApp:
                         logger.debug(f"Smart money analysis completed for {symbol}")
                     except Exception as e:
                         logger.error(f"Error in smart money analysis for {symbol}: {e}")
-
-                loop_end = datetime.now().isoformat()
-                duration_ms = (datetime.fromisoformat(loop_end) - datetime.fromisoformat(loop_start)).total_seconds() * 1000
-                logger.info(f"[TASK ITERATION COMPLETE] task_name=smart_money_loop, duration_ms={duration_ms:.2f}, event_loop_id={event_loop_id}")
-                if duration_ms > 1000:
-                    logger.warning(f"[SLOW TASK] task_name=smart_money_loop, duration_ms={duration_ms:.2f}, event_loop_id={event_loop_id}")
-                if duration_ms > 5000:
-                    logger.error(f"[BLOCKING WARNING] task_name=smart_money_loop, duration_ms={duration_ms:.2f}, event_loop_id={event_loop_id}")
 
                 await async_sleep(120)  # Every 2 minutes
             except Exception as e:
@@ -542,41 +348,11 @@ class TradingBotApp:
                     event_loop = None
                     event_loop_id = "NO_LOOP"
 
-                # Log webhook receiving update IMMEDIATELY
-                webhook_timestamp = datetime.now().isoformat()
-                print(f"[WEBHOOK RECEIVED] timestamp={webhook_timestamp}, method=POST, path=/webhook, event_loop_id={event_loop_id}")
-                logger.info(f"[WEBHOOK RECEIVED] timestamp={webhook_timestamp}, method=POST, path=/webhook, event_loop_id={event_loop_id}")
-
                 if telegram_bot.application:
                     try:
                         # Get update from request
                         update_json = request.get_json(force=True)
                         update_id = update_json.get('update_id') if update_json else None
-
-                        print(f"[WEBHOOK] Update JSON: {update_json}")
-                        logger.info(f"[WEBHOOK] Full update JSON: {update_json}")
-
-                        # Log update parsing
-                        parse_timestamp = datetime.now().isoformat()
-                        message = update_json.get('message', {}) if update_json else {}
-                        user_id = message.get('from', {}).get('id')
-                        chat_id = message.get('chat', {}).get('id')
-                        message_type = 'message' if 'message' in update_json else 'unknown'
-                        text = message.get('text')
-
-                        print(f"[UPDATE PARSED] timestamp={parse_timestamp}, update_id={update_id}, user_id={user_id}, chat_id={chat_id}, message_type={message_type}, text={text}, event_loop_id={event_loop_id}")
-                        logger.info(f"[UPDATE PARSED] timestamp={parse_timestamp}, update_id={update_id}, user_id={user_id}, chat_id={chat_id}, message_type={message_type}, text={text}, event_loop_id={event_loop_id}")
-
-                        # Log dispatcher start
-                        dispatch_start_timestamp = datetime.now().isoformat()
-                        print(f"[DISPATCH START] timestamp={dispatch_start_timestamp}, update_id={update_id}, event_loop_id={event_loop_id}")
-                        logger.info(f"[DISPATCH START] timestamp={dispatch_start_timestamp}, update_id={update_id}, event_loop_id={event_loop_id}")
-
-                        # Log if this is a callback query
-                        if 'callback_query' in update_json:
-                            callback_data = update_json.get('callback_query', {}).get('data', 'N/A')
-                            print(f"[CALLBACK RECEIVED] callback_data={callback_data}, update_id={update_id}, event_loop_id={event_loop_id}")
-                            logger.info(f"[CALLBACK RECEIVED] callback_data={callback_data}, update_id={update_id}, event_loop_id={event_loop_id}")
 
                         # Put update into application's update_queue
                         try:
@@ -591,41 +367,20 @@ class TradingBotApp:
                                 for key in oldest_keys:
                                     del self.queue_put_timestamps[key]
                             telegram_bot.application.update_queue.put_nowait(update)
-                            print(f"[QUEUE PUT] timestamp={queue_put_timestamp}, update_id={update_id}, event_loop_id={event_loop_id}")
-                            logger.info(f"[QUEUE PUT] timestamp={queue_put_timestamp}, update_id={update_id}, event_loop_id={event_loop_id}")
-                            print(f"[WEBHOOK] Update put into queue successfully: update_id={update_id}")
-                            logger.info(f"[WEBHOOK] Update put into queue successfully: update_id={update_id}")
+                            logger.debug(f"Webhook update put into queue: update_id={update_id}")
                         except Exception as e:
-                            print(f"[WEBHOOK ERROR] update_id={update_id}, error={e}")
-                            logger.error(f"[WEBHOOK ERROR] update_id={update_id}, error={e}", exc_info=True)
-                            print(f"[TELEGRAM UPDATE ERROR] timestamp={datetime.now().isoformat()}, update_id={update_id}, error={e}")
-                            logger.error(f"[TELEGRAM UPDATE ERROR] timestamp={datetime.now().isoformat()}, update_id={update_id}, error={e}", exc_info=True)
+                            logger.error(f"Webhook queue put error: update_id={update_id}, error={e}", exc_info=True)
                             # Return 200 to prevent Telegram from retrying, even if queue put failed
                             # Handler errors will be logged separately by the Telegram Application
-                            print(f"[WEBHOOK RETURNING 200 DESPITE ERROR] update_id={update_id}")
-                            logger.warning(f"[WEBHOOK RETURNING 200 DESPITE ERROR] update_id={update_id}")
                             return 'OK', 200
-
-                        # Log dispatcher end
-                        dispatch_end_timestamp = datetime.now().isoformat()
-                        dispatch_duration_ms = (datetime.fromisoformat(dispatch_end_timestamp) - datetime.fromisoformat(dispatch_start_timestamp)).total_seconds() * 1000
-                        print(f"[DISPATCH END] timestamp={dispatch_end_timestamp}, update_id={update_id}, duration_ms={dispatch_duration_ms:.2f}, event_loop_id={event_loop_id}")
-                        logger.info(f"[DISPATCH END] timestamp={dispatch_end_timestamp}, update_id={update_id}, duration_ms={dispatch_duration_ms:.2f}, event_loop_id={event_loop_id}")
-                        if dispatch_duration_ms > 1000:
-                            print(f"[SLOW DISPATCH] duration_ms={dispatch_duration_ms:.2f}, update_id={update_id}, event_loop_id={event_loop_id}")
-                            logger.warning(f"[SLOW DISPATCH] duration_ms={dispatch_duration_ms:.2f}, update_id={update_id}, event_loop_id={event_loop_id}")
 
                         return 'OK', 200
 
                     except Exception as e:
-                        error_timestamp = datetime.now().isoformat()
-                        print(f"[TELEGRAM UPDATE ERROR] timestamp={error_timestamp}, error={e}")
-                        print(f"[FULL TRACEBACK]: {traceback.format_exc()}")
-                        logger.error(f"[TELEGRAM UPDATE ERROR] timestamp={error_timestamp}, error={e}", exc_info=True)
+                        logger.error(f"Webhook error: {e}", exc_info=True)
                         return 'Error', 500
                 else:
-                    print("[WEBHOOK ERROR] Bot not initialized")
-                    logger.error("[WEBHOOK ERROR] Bot not initialized")
+                    logger.error("Bot not initialized for webhook")
                     return 'Bot not initialized', 503
 
             # Run Flask in a separate thread
