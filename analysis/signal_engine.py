@@ -19,65 +19,54 @@ class SignalEngine:
         self.signals_sent_this_hour = 0
         self.hour_start_time = datetime.now()
     
-    async def calculate_entry_range(self, price: float, action: str, symbol: str = None) -> str:
-        """Tính range entry dựa trên technical levels"""
+    async def calculate_entry_range(self, price: float, action: str, symbol: str = None,
+                                   gann_support: float = None, gann_resistance: float = None) -> str:
+        """Tính range entry dựa trên Gann levels và EMA trend"""
         try:
             # Default entry range around current price
             entry_low = price * 0.9995  # 0.05% below current price
             entry_high = price * 1.0005  # 0.05% above current price
 
-            # Try to get technical levels if symbol is provided
+            # Try to get Gann levels if symbol is provided
             if symbol:
                 try:
+                    from analysis.gann_engine import gann_engine
                     from data.market_data import market_data_engine
-                    symbol_data = await market_data_engine.get_symbol_data(symbol)
-                    if symbol_data:
-                        indicators = symbol_data.get('indicators', {})
-                        current_price = price
 
-                        # For LONG: Look for support levels below current price
-                        if action == 'LONG':
-                            # Check if near support (EMA levels, recent lows)
-                            ema_20 = indicators.get('ema_20')
-                            ema_50 = indicators.get('ema_50')
-                            recent_low = indicators.get('recent_low')
+                    # Get Gann analysis if not provided
+                    if gann_support is None or gann_resistance is None:
+                        gann_analysis = await gann_engine.analyze(symbol, market_data_engine)
+                        gann_support = gann_analysis.get('support')
+                        gann_resistance = gann_analysis.get('resistance')
 
-                            # Use EMA as support if close enough (within 0.5%)
-                            if ema_20 and abs(current_price - ema_20) / current_price < 0.005:
-                                entry_low = ema_20 * 0.9995
-                                entry_high = ema_20 * 1.0005
-                                logger.info(f"Entry based on EMA20 support for {symbol}")
-                            elif ema_50 and abs(current_price - ema_50) / current_price < 0.005:
-                                entry_low = ema_50 * 0.9995
-                                entry_high = ema_50 * 1.0005
-                                logger.info(f"Entry based on EMA50 support for {symbol}")
-                            elif recent_low and abs(current_price - recent_low) / current_price < 0.005:
-                                entry_low = recent_low * 0.9995
-                                entry_high = recent_low * 1.0005
-                                logger.info(f"Entry based on recent low support for {symbol}")
-
-                        # For SHORT: Look for resistance levels above current price
+                    # For LONG: Use Gann support if available
+                    if action == 'LONG' and gann_support:
+                        # Use Gann support if close enough (within 1%)
+                        if abs(price - gann_support) / price < 0.01:
+                            entry_low = gann_support * 0.9995
+                            entry_high = gann_support * 1.0005
+                            logger.info(f"Entry based on Gann support for {symbol}: {gann_support:.2f}")
                         else:
-                            # Check if near resistance (EMA levels, recent highs)
-                            ema_20 = indicators.get('ema_20')
-                            ema_50 = indicators.get('ema_50')
-                            recent_high = indicators.get('recent_high')
+                            # Entry around current price but aware of support
+                            entry_low = max(price * 0.9995, gann_support * 1.0005)
+                            entry_high = price * 1.0005
+                            logger.info(f"Entry near current price with Gann support: {gann_support:.2f}")
 
-                            # Use EMA as resistance if close enough (within 0.5%)
-                            if ema_20 and abs(current_price - ema_20) / current_price < 0.005:
-                                entry_low = ema_20 * 0.9995
-                                entry_high = ema_20 * 1.0005
-                                logger.info(f"Entry based on EMA20 resistance for {symbol}")
-                            elif ema_50 and abs(current_price - ema_50) / current_price < 0.005:
-                                entry_low = ema_50 * 0.9995
-                                entry_high = ema_50 * 1.0005
-                                logger.info(f"Entry based on EMA50 resistance for {symbol}")
-                            elif recent_high and abs(current_price - recent_high) / current_price < 0.005:
-                                entry_low = recent_high * 0.9995
-                                entry_high = recent_high * 1.0005
-                                logger.info(f"Entry based on recent high resistance for {symbol}")
+                    # For SHORT: Use Gann resistance if available
+                    elif action == 'SHORT' and gann_resistance:
+                        # Use Gann resistance if close enough (within 1%)
+                        if abs(price - gann_resistance) / price < 0.01:
+                            entry_low = gann_resistance * 0.9995
+                            entry_high = gann_resistance * 1.0005
+                            logger.info(f"Entry based on Gann resistance for {symbol}: {gann_resistance:.2f}")
+                        else:
+                            # Entry around current price but aware of resistance
+                            entry_low = price * 0.9995
+                            entry_high = min(price * 1.0005, gann_resistance * 0.9995)
+                            logger.info(f"Entry near current price with Gann resistance: {gann_resistance:.2f}")
+
                 except Exception as e:
-                    logger.error(f"Error getting technical levels for entry: {e}")
+                    logger.error(f"Error getting Gann levels for entry: {e}")
                     # Fall back to default entry range
 
             return f"{entry_low:.2f} - {entry_high:.2f}"
@@ -254,7 +243,8 @@ class SignalEngine:
             logger.error(f"Error checking rate limit: {e}")
             return False
     
-    async def format_signal_message(self, analysis: Dict) -> Optional[str]:
+    async def format_signal_message(self, analysis: Dict, entry_range: str = None,
+                                    take_profits: Dict = None, stop_loss: float = None) -> Optional[str]:
         """Định dạng tin nhắn tín hiệu - Vietnamese localization with professional formatting"""
         try:
             from core.config import clean_symbol, format_time
@@ -278,10 +268,13 @@ class SignalEngine:
             # Clean symbol for user-facing display
             display_symbol = clean_symbol(symbol)
 
-            # Tính levels
-            entry_range = await self.calculate_entry_range(price, action, symbol)
-            take_profits = self.calculate_take_profit(price, action)
-            stop_loss = self.calculate_stop_loss(price, action)
+            # Use provided levels or calculate them
+            if entry_range is None:
+                entry_range = await self.calculate_entry_range(price, action, symbol)
+            if take_profits is None:
+                take_profits = self.calculate_take_profit(price, action)
+            if stop_loss is None:
+                stop_loss = self.calculate_stop_loss(price, action)
 
             # Vietnamese trend mapping with emoji - 100% Vietnamese
             trend_vi = trend
@@ -383,7 +376,18 @@ class SignalEngine:
             except Exception as e:
                 logger.error(f"Error getting ATR: {e}")
 
-            entry_range = await self.calculate_entry_range(price, action, symbol)
+            # Get Gann levels for entry calculation
+            gann_support = None
+            gann_resistance = None
+            try:
+                from analysis.gann_engine import gann_engine
+                gann_analysis = await gann_engine.analyze(symbol, market_data_engine)
+                gann_support = gann_analysis.get('support')
+                gann_resistance = gann_analysis.get('resistance')
+            except Exception as e:
+                logger.error(f"Error getting Gann levels: {e}")
+
+            entry_range = await self.calculate_entry_range(price, action, symbol, gann_support, gann_resistance)
             take_profits = self.calculate_take_profit(price, action, atr)
             stop_loss = self.calculate_stop_loss(price, action, atr)
 
@@ -431,8 +435,8 @@ class SignalEngine:
                 self.signals_sent_this_hour += 1
                 logger.info(f"Signal created: {action} {symbol} (ID: {signal_id})")
 
-            # Format message
-            message = await self.format_signal_message(analysis)
+            # Format message with ATR-calculated levels
+            message = await self.format_signal_message(analysis, entry_range, take_profits, stop_loss)
 
             return {
                 'signal_id': signal_id,
@@ -480,22 +484,46 @@ class SignalEngine:
             elif price < ema_9 < ema_21:
                 ema_trend = 'bearish'
 
-            logger.info(f"[STRATEGY] symbol={symbol}, EMA Trend={ema_trend}")
-
             # 3. Phân tích Gann
             gann_analysis = await gann_engine.analyze(symbol, market_data_engine)
             gann_trend = gann_analysis.get('trend', 'neutral')
+            gann_bias = gann_analysis.get('bias', 'neutral')
+            gann_support = gann_analysis.get('support')
+            gann_resistance = gann_analysis.get('resistance')
             gann_confidence = gann_analysis.get('confidence', 0)
-
-            logger.info(f"[STRATEGY] symbol={symbol}, GANN Trend={gann_trend}, Confidence={gann_confidence:.2f}")
 
             # 4. Kiểm tra ATR/volatility
             atr_valid = atr and atr > 0
             atr_percent = (atr / price * 100) if price > 0 else 0
 
-            logger.info(f"[STRATEGY] symbol={symbol}, ATR={atr:.4f}, ATR%={atr_percent:.2f}%")
+            # 5. Fallback cho missing data
+            if not atr_valid:
+                logger.warning(f"[STRATEGY] symbol={symbol}, ATR missing or invalid, WAIT")
+                return f"⚪ {symbol} - WAIT (missing ATR data)"
+            if gann_trend == 'neutral':
+                logger.warning(f"[STRATEGY] symbol={symbol}, GANN neutral, WAIT")
+                return f"⚪ {symbol} - WAIT (GANN neutral)"
+            if ema_trend == 'neutral':
+                logger.warning(f"[STRATEGY] symbol={symbol}, EMA neutral, WAIT")
+                return f"⚪ {symbol} - WAIT (EMA neutral)"
 
-            # 5. Quyết định direction dựa trên EMA + Gann
+            # 6. Detailed logging
+            logger.info(f"[STRATEGY] symbol={symbol}")
+            logger.info(f"[STRATEGY] timeframe=1h")
+            logger.info(f"[STRATEGY] price={price:.2f}")
+            logger.info(f"[STRATEGY] ema_9={ema_9:.2f}")
+            logger.info(f"[STRATEGY] ema_21={ema_21:.2f}")
+            logger.info(f"[STRATEGY] ema_50={ema_50:.2f}")
+            logger.info(f"[STRATEGY] ema_trend={ema_trend}")
+            logger.info(f"[STRATEGY] gann_trend={gann_trend}")
+            logger.info(f"[STRATEGY] gann_bias={gann_bias}")
+            logger.info(f"[STRATEGY] gann_support={gann_support:.2f if gann_support else 'N/A'}")
+            logger.info(f"[STRATEGY] gann_resistance={gann_resistance:.2f if gann_resistance else 'N/A'}")
+            logger.info(f"[STRATEGY] gann_confidence={gann_confidence:.2f}")
+            logger.info(f"[STRATEGY] atr={atr:.4f}")
+            logger.info(f"[STRATEGY] atr_percent={atr_percent:.2f}%")
+
+            # 7. Quyết định direction dựa trên EMA + Gann
             direction = 'WAIT'
             reason = []
 
@@ -515,22 +543,15 @@ class SignalEngine:
                 direction = 'WAIT'
                 reason.append('Insufficient trend confirmation')
 
-            # 6. Log decision
-            logger.info(f"[STRATEGY] symbol={symbol}")
-            logger.info(f"[STRATEGY] EMA Trend={ema_trend}")
-            logger.info(f"[STRATEGY] GANN={gann_trend}")
-            logger.info(f"[STRATEGY] ATR={atr:.4f}")
-            logger.info(f"[STRATEGY] VOLATILITY={atr_percent:.2f}%")
-            logger.info(f"[STRATEGY] DIRECTION={direction}")
-            logger.info(f"[STRATEGY] DECISION={direction}")
+            logger.info(f"[STRATEGY] action={direction}")
             if direction == 'WAIT':
-                logger.info(f"[STRATEGY] REASON={', '.join(reason)}")
+                logger.info(f"[STRATEGY] reason={', '.join(reason)}")
 
-            # 7. Nếu WAIT, trả về summary
+            # 8. Nếu WAIT, trả về summary
             if direction == 'WAIT':
                 return f"⚪ {symbol} - WAIT ({', '.join(reason)})"
 
-            # 8. Nếu LONG/SHORT, tạo analysis dict cho signal creation
+            # 9. Nếu LONG/SHORT, tạo analysis dict cho signal creation
             analysis = {
                 'symbol': symbol,
                 'action': direction,
@@ -541,7 +562,21 @@ class SignalEngine:
                 'reasons': reason + [f'Gann confidence: {gann_confidence:.2f}', f'ATR: {atr_percent:.2f}%']
             }
 
-            # 9. Lưu AI log
+            # 10. Tính toán entry, SL, TP cho logging
+            gann_support_for_entry = gann_support if direction == 'LONG' else None
+            gann_resistance_for_entry = gann_resistance if direction == 'SHORT' else None
+            entry_range = await self.calculate_entry_range(price, direction, symbol, gann_support_for_entry, gann_resistance_for_entry)
+            take_profits = self.calculate_take_profit(price, direction, atr)
+            stop_loss = self.calculate_stop_loss(price, direction, atr)
+
+            # Log entry, SL, TP
+            logger.info(f"[STRATEGY] entry={entry_range}")
+            logger.info(f"[STRATEGY] sl={stop_loss:.2f}")
+            logger.info(f"[STRATEGY] tp1={take_profits['TP1']:.2f}")
+            logger.info(f"[STRATEGY] tp2={take_profits['TP2']:.2f}")
+            logger.info(f"[STRATEGY] tp3={take_profits['TP3']:.2f}")
+
+            # 11. Lưu AI log
             await db.save_ai_log_async(
                 symbol=symbol,
                 analysis_data=analysis,
@@ -550,7 +585,7 @@ class SignalEngine:
                 confidence=0.85
             )
 
-            # 10. Tạo signal
+            # 12. Tạo signal
             signal = await self.create_signal(analysis)
             if signal:
                 return signal['message']
