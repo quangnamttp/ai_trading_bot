@@ -48,6 +48,8 @@ class TradingBotApp:
         self.tasks = []
         self.shutdown_event = asyncio.Event()
         self.bot_application = None
+        # Store reference to the main event loop for thread-safe webhook calls
+        self.event_loop = None
         # Safe timing tracking - dictionary keyed by update_id
         self.queue_put_timestamps = {}
         # Stack trace tracking for blocking detection
@@ -75,7 +77,11 @@ class TradingBotApp:
         """Khởi tạo tất cả các components"""
         try:
             logger.info("Initializing AI Trading Signal Bot...")
-            
+
+            # Store reference to the current event loop for thread-safe webhook calls
+            self.event_loop = asyncio.get_event_loop()
+            logger.info(f"Event loop reference stored: {id(self.event_loop)}")
+
             # Validate config
             try:
                 validate_config()
@@ -425,8 +431,8 @@ class TradingBotApp:
                                     if key in self.queue_put_stack_traces:
                                         del self.queue_put_stack_traces[key]
                             # Use thread-safe method to put update into queue
-                            # Get the event loop from the application
-                            loop = telegram_bot.application._loop
+                            # Use the stored event loop reference from the main application
+                            loop = self.event_loop
                             if loop and not loop.is_closed():
                                 # Schedule the queue put on the correct event loop
                                 loop.call_soon_threadsafe(telegram_bot.application.update_queue.put_nowait, update)
