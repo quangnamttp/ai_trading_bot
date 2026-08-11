@@ -55,6 +55,7 @@ SYMBOLS = [s.strip() for s in SYMBOLS if s.strip()]
 EXCHANGE = "MEXC"
 AI_SCORE_THRESHOLD = float(os.getenv("AI_SCORE_THRESHOLD", "80"))
 MIN_CONFIDENCE = float(os.getenv("MIN_CONFIDENCE", "0.80"))
+GANN_MIN_CONFIDENCE = float(os.getenv("GANN_MIN_CONFIDENCE", "0.70"))
 
 def clean_symbol(symbol: str) -> str:
     """Clean symbol for user-facing display (remove exchange suffix)"""

@@ -315,18 +315,31 @@ class TradingBotApp:
                             display_symbol = clean_symbol(symbol)
                             logger.info(f"No signal for {display_symbol}: AI Score {ai_score} < threshold (reason: {analysis.get('reasons', ['Unknown'])})")
 
-                        # Nếu có tín hiệu, tạo và gửi
+                        # Nếu AI có tín hiệu, áp dụng bộ lọc Gann + EMA + ATR
                         if analysis.get('action') in ['LONG', 'SHORT']:
-                            signal = await signal_engine.create_signal(analysis)
+                            from analysis.gann_engine import gann_engine
+                            filter_result = await signal_engine.filter_signal(analysis, market_data_engine, gann_engine)
+                            filtered_action = filter_result.get('action')
+                            filter_reason = filter_result.get('reason')
 
-                            if signal and signal.get('message'):
-                                # Gửi tín hiệu qua Telegram với chart
-                                chart_path = signal.get('chart_path')
-                                await telegram_bot.send_signal(signal['message'], chart_path)
-                                logger.info(f"Signal sent for {symbol}")
-                                signals_generated_this_cycle += 1
+                            # Chỉ tạo signal nếu filter cho phép LONG hoặc SHORT
+                            if filtered_action in ['LONG', 'SHORT']:
+                                # Update analysis with filtered action
+                                analysis['action'] = filtered_action
+                                analysis['reasons'] = analysis.get('reasons', []) + [f'Filter: {filter_reason}']
+
+                                signal = await signal_engine.create_signal(analysis)
+
+                                if signal and signal.get('message'):
+                                    # Gửi tín hiệu qua Telegram với chart
+                                    chart_path = signal.get('chart_path')
+                                    await telegram_bot.send_signal(signal['message'], chart_path)
+                                    logger.info(f"Signal sent for {symbol}")
+                                    signals_generated_this_cycle += 1
+                                else:
+                                    logger.warning(f"Signal creation failed for {symbol} despite valid filter")
                             else:
-                                logger.warning(f"Signal creation failed for {symbol} despite valid analysis")
+                                logger.info(f"Signal filtered for {symbol}: {filter_reason}")
 
                         symbol_duration_ms = (time.time() - symbol_start) * 1000
                         logger.info(f"[ANALYSIS SYMBOL] symbol={symbol}, duration_ms={symbol_duration_ms:.2f}")

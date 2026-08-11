@@ -450,6 +450,133 @@ class SignalEngine:
             logger.error(f"Error creating signal: {e}")
             return None
     
+    async def filter_signal(self, ai_analysis: Dict, market_data_engine, gann_engine) -> Dict:
+        """Filter AI signal through Gann + EMA + ATR
+        
+        Args:
+            ai_analysis: Dict with ai_action, ai_score, symbol, etc.
+            market_data_engine: Market data engine instance
+            gann_engine: Gann engine instance
+            
+        Returns:
+            Dict with filtered action and reason
+        """
+        try:
+            from core.config import AI_SCORE_THRESHOLD, GANN_MIN_CONFIDENCE
+            
+            symbol = ai_analysis.get('symbol')
+            ai_action = ai_analysis.get('action')
+            ai_score = ai_analysis.get('ai_score', 0)
+            
+            # 1. Check AI score threshold
+            if ai_score < AI_SCORE_THRESHOLD:
+                logger.info(f"[SIGNAL FILTER] symbol={symbol}")
+                logger.info(f"[SIGNAL FILTER] ai_action={ai_action}")
+                logger.info(f"[SIGNAL FILTER] ai_score={ai_score}")
+                logger.info(f"[SIGNAL FILTER] decision=WAIT")
+                logger.info(f"[SIGNAL FILTER] reason=AI_SCORE_BELOW_THRESHOLD")
+                return {'action': 'WAIT', 'reason': 'AI_SCORE_BELOW_THRESHOLD'}
+            
+            # 2. Get market data and indicators
+            symbol_data = await market_data_engine.get_symbol_data(symbol)
+            if not symbol_data:
+                logger.warning(f"[SIGNAL FILTER] symbol={symbol}, no market data")
+                return {'action': 'WAIT', 'reason': 'NO_MARKET_DATA'}
+            
+            indicators = symbol_data.get('indicators', {})
+            price = indicators.get('price', 0)
+            ema_9 = indicators.get('ema_9', 0)
+            ema_21 = indicators.get('ema_21', 0)
+            ema_50 = indicators.get('ema_50', 0)
+            atr = indicators.get('atr', 0)
+            
+            # 3. Determine EMA trend
+            ema_trend = 'neutral'
+            if price > ema_9 > ema_21 > ema_50:
+                ema_trend = 'bullish'
+            elif price < ema_9 < ema_21 < ema_50:
+                ema_trend = 'bearish'
+            elif price > ema_9 > ema_21:
+                ema_trend = 'bullish'
+            elif price < ema_9 < ema_21:
+                ema_trend = 'bearish'
+            
+            # 4. Get Gann analysis
+            gann_analysis = await gann_engine.analyze(symbol, market_data_engine)
+            gann_trend = gann_analysis.get('trend', 'neutral')
+            gann_confidence = gann_analysis.get('confidence', 0)
+            
+            # 5. Check ATR validity
+            atr_valid = atr and atr > 0
+            atr_percent = (atr / price * 100) if price > 0 else 0
+            
+            # 6. Log all filter inputs
+            logger.info(f"[SIGNAL FILTER] symbol={symbol}")
+            logger.info(f"[SIGNAL FILTER] ai_action={ai_action}")
+            logger.info(f"[SIGNAL FILTER] ai_score={ai_score}")
+            logger.info(f"[SIGNAL FILTER] gann_trend={gann_trend}")
+            logger.info(f"[SIGNAL FILTER] gann_confidence={gann_confidence:.2f}")
+            logger.info(f"[SIGNAL FILTER] ema_trend={ema_trend}")
+            logger.info(f"[SIGNAL FILTER] atr={atr:.4f}")
+            
+            # 7. Apply filters
+            if not atr_valid:
+                logger.info(f"[SIGNAL FILTER] decision=WAIT")
+                logger.info(f"[SIGNAL FILTER] reason=ATR_INVALID")
+                return {'action': 'WAIT', 'reason': 'ATR_INVALID'}
+            
+            if gann_confidence < GANN_MIN_CONFIDENCE:
+                logger.info(f"[SIGNAL FILTER] decision=WAIT")
+                logger.info(f"[SIGNAL FILTER] reason=GANN_CONFIDENCE_LOW")
+                return {'action': 'WAIT', 'reason': 'GANN_CONFIDENCE_LOW'}
+            
+            if ema_trend == 'neutral':
+                logger.info(f"[SIGNAL FILTER] decision=WAIT")
+                logger.info(f"[SIGNAL FILTER] reason=EMA_NEUTRAL")
+                return {'action': 'WAIT', 'reason': 'EMA_NEUTRAL'}
+            
+            if gann_trend == 'neutral':
+                logger.info(f"[SIGNAL FILTER] decision=WAIT")
+                logger.info(f"[SIGNAL FILTER] reason=GANN_NEUTRAL")
+                return {'action': 'WAIT', 'reason': 'GANN_NEUTRAL'}
+            
+            # 8. Check alignment for LONG
+            if ai_action == 'LONG':
+                if gann_trend != 'bullish':
+                    logger.info(f"[SIGNAL FILTER] decision=WAIT")
+                    logger.info(f"[SIGNAL FILTER] reason=GANN_CONFLICT")
+                    return {'action': 'WAIT', 'reason': 'GANN_CONFLICT'}
+                if ema_trend != 'bullish':
+                    logger.info(f"[SIGNAL FILTER] decision=WAIT")
+                    logger.info(f"[SIGNAL FILTER] reason=EMA_CONFLICT")
+                    return {'action': 'WAIT', 'reason': 'EMA_CONFLICT'}
+                logger.info(f"[SIGNAL FILTER] decision=LONG")
+                logger.info(f"[SIGNAL FILTER] reason=ALL_FILTERS_PASSED")
+                return {'action': 'LONG', 'reason': 'ALL_FILTERS_PASSED'}
+            
+            # 9. Check alignment for SHORT
+            elif ai_action == 'SHORT':
+                if gann_trend != 'bearish':
+                    logger.info(f"[SIGNAL FILTER] decision=WAIT")
+                    logger.info(f"[SIGNAL FILTER] reason=GANN_CONFLICT")
+                    return {'action': 'WAIT', 'reason': 'GANN_CONFLICT'}
+                if ema_trend != 'bearish':
+                    logger.info(f"[SIGNAL FILTER] decision=WAIT")
+                    logger.info(f"[SIGNAL FILTER] reason=EMA_CONFLICT")
+                    return {'action': 'WAIT', 'reason': 'EMA_CONFLICT'}
+                logger.info(f"[SIGNAL FILTER] decision=SHORT")
+                logger.info(f"[SIGNAL FILTER] reason=ALL_FILTERS_PASSED")
+                return {'action': 'SHORT', 'reason': 'ALL_FILTERS_PASSED'}
+            
+            # 10. Default to WAIT
+            logger.info(f"[SIGNAL FILTER] decision=WAIT")
+            logger.info(f"[SIGNAL FILTER] reason=UNKNOWN_AI_ACTION")
+            return {'action': 'WAIT', 'reason': 'UNKNOWN_AI_ACTION'}
+            
+        except Exception as e:
+            logger.error(f"Error in signal filter: {e}")
+            return {'action': 'WAIT', 'reason': 'FILTER_ERROR'}
+    
     async def analyze_symbol(self, symbol: str) -> Optional[str]:
         """Phân tích symbol với chiến lược Gann + EMA Trend + ATR"""
         try:
