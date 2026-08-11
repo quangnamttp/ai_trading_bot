@@ -453,6 +453,13 @@ class MarketDataEngine:
             df['bb_std'] = df['close'].rolling(window=20).std()
             df['bb_upper'] = df['bb_middle'] + (df['bb_std'] * 2)
             df['bb_lower'] = df['bb_middle'] - (df['bb_std'] * 2)
+
+            # ATR (Average True Range) - 14 period
+            df['high_low'] = df['high'] - df['low']
+            df['high_close'] = abs(df['high'] - df['close'].shift())
+            df['low_close'] = abs(df['low'] - df['close'].shift())
+            df['true_range'] = df[['high_low', 'high_close', 'low_close']].max(axis=1)
+            df['atr'] = df['true_range'].rolling(window=14).mean()
             
             # Lấy giá trị hiện tại
             latest = df.iloc[-1]
@@ -469,6 +476,7 @@ class MarketDataEngine:
                 'bb_upper': latest['bb_upper'],
                 'bb_middle': latest['bb_middle'],
                 'bb_lower': latest['bb_lower'],
+                'atr': latest['atr'],
                 'volume': latest['volume']
             }
             

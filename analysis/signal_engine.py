@@ -85,18 +85,30 @@ class SignalEngine:
             logger.error(f"Error calculating entry range: {e}")
             return f"{price:.2f}"
     
-    def calculate_take_profit(self, price: float, action: str) -> Dict:
-        """Tính Take Profit levels"""
+    def calculate_take_profit(self, price: float, action: str, atr: float = None) -> Dict:
+        """Tính Take Profit levels dựa trên ATR"""
         try:
-            if action == 'LONG':
-                tp1 = price * 1.01  # +1%
-                tp2 = price * 1.02  # +2%
-                tp3 = price * 1.03  # +3%
-            else:  # SHORT
-                tp1 = price * 0.99  # -1%
-                tp2 = price * 0.98  # -2%
-                tp3 = price * 0.97  # -3%
-            
+            if atr and atr > 0:
+                # Use ATR-based TP
+                if action == 'LONG':
+                    tp1 = price + (atr * 1.5)  # 1.5x ATR
+                    tp2 = price + (atr * 2.5)  # 2.5x ATR
+                    tp3 = price + (atr * 4.0)  # 4.0x ATR
+                else:  # SHORT
+                    tp1 = price - (atr * 1.5)  # 1.5x ATR
+                    tp2 = price - (atr * 2.5)  # 2.5x ATR
+                    tp3 = price - (atr * 4.0)  # 4.0x ATR
+            else:
+                # Fallback to percentage-based if ATR not available
+                if action == 'LONG':
+                    tp1 = price * 1.01  # +1%
+                    tp2 = price * 1.02  # +2%
+                    tp3 = price * 1.03  # +3%
+                else:  # SHORT
+                    tp1 = price * 0.99  # -1%
+                    tp2 = price * 0.98  # -2%
+                    tp3 = price * 0.97  # -3%
+
             return {
                 'TP1': tp1,
                 'TP2': tp2,
@@ -106,14 +118,22 @@ class SignalEngine:
             logger.error(f"Error calculating take profit: {e}")
             return {'TP1': price, 'TP2': price, 'TP3': price}
     
-    def calculate_stop_loss(self, price: float, action: str) -> float:
-        """Tính Stop Loss"""
+    def calculate_stop_loss(self, price: float, action: str, atr: float = None) -> float:
+        """Tính Stop Loss dựa trên ATR"""
         try:
-            if action == 'LONG':
-                sl = price * 0.995  # -0.5%
-            else:  # SHORT
-                sl = price * 1.005  # +0.5%
-            
+            if atr and atr > 0:
+                # Use ATR-based SL
+                if action == 'LONG':
+                    sl = price - (atr * 1.5)  # 1.5x ATR below price
+                else:  # SHORT
+                    sl = price + (atr * 1.5)  # 1.5x ATR above price
+            else:
+                # Fallback to percentage-based if ATR not available
+                if action == 'LONG':
+                    sl = price * 0.995  # -0.5%
+                else:  # SHORT
+                    sl = price * 1.005  # +0.5%
+
             return sl
         except Exception as e:
             logger.error(f"Error calculating stop loss: {e}")
@@ -352,10 +372,20 @@ class SignalEngine:
                 logger.info("Rate limit reached")
                 return None
             
-            # Tính toán levels
+            # Tính toán levels - get ATR from indicators if available
+            atr = None
+            try:
+                from data.market_data import market_data_engine
+                symbol_data = await market_data_engine.get_symbol_data(symbol)
+                if symbol_data:
+                    indicators = symbol_data.get('indicators', {})
+                    atr = indicators.get('atr')
+            except Exception as e:
+                logger.error(f"Error getting ATR: {e}")
+
             entry_range = await self.calculate_entry_range(price, action, symbol)
-            take_profits = self.calculate_take_profit(price, action)
-            stop_loss = self.calculate_stop_loss(price, action)
+            take_profits = self.calculate_take_profit(price, action, atr)
+            stop_loss = self.calculate_stop_loss(price, action, atr)
 
             # Kiểm tra entry practicality (không quá xa current price)
             if not self.check_entry_practicality(entry_range, price):
@@ -417,35 +447,116 @@ class SignalEngine:
             return None
     
     async def analyze_symbol(self, symbol: str) -> Optional[str]:
-        """Phân tích symbol và trả về kết quả"""
+        """Phân tích symbol với chiến lược Gann + EMA Trend + ATR"""
         try:
-            # Import dependencies để avoid circular import
+            # Import dependencies
             from data.market_data import market_data_engine
-            from data.smart_money import smart_money_tracker
+            from analysis.gann_engine import gann_engine
             from analysis.ai_engine import ai_engine
-            from data.news_engine import news_engine
-            
-            # Phân tích AI
-            analysis = await ai_engine.analyze(symbol, market_data_engine, smart_money_tracker, news_engine)
-            
-            # Lưu AI log
+
+            logger.info(f"[STRATEGY] Starting analysis for {symbol}")
+
+            # 1. Lấy dữ liệu thị trường và indicators
+            symbol_data = await market_data_engine.get_symbol_data(symbol)
+            if not symbol_data:
+                logger.error(f"[STRATEGY] No data for {symbol}")
+                return None
+
+            indicators = symbol_data.get('indicators', {})
+            price = indicators.get('price', 0)
+            ema_9 = indicators.get('ema_9', 0)
+            ema_21 = indicators.get('ema_21', 0)
+            ema_50 = indicators.get('ema_50', 0)
+            atr = indicators.get('atr', 0)
+
+            # 2. Xác định EMA Trend
+            ema_trend = 'neutral'
+            if price > ema_9 > ema_21 > ema_50:
+                ema_trend = 'bullish'
+            elif price < ema_9 < ema_21 < ema_50:
+                ema_trend = 'bearish'
+            elif price > ema_9 > ema_21:
+                ema_trend = 'bullish'
+            elif price < ema_9 < ema_21:
+                ema_trend = 'bearish'
+
+            logger.info(f"[STRATEGY] symbol={symbol}, EMA Trend={ema_trend}")
+
+            # 3. Phân tích Gann
+            gann_analysis = await gann_engine.analyze(symbol, market_data_engine)
+            gann_trend = gann_analysis.get('trend', 'neutral')
+            gann_confidence = gann_analysis.get('confidence', 0)
+
+            logger.info(f"[STRATEGY] symbol={symbol}, GANN Trend={gann_trend}, Confidence={gann_confidence:.2f}")
+
+            # 4. Kiểm tra ATR/volatility
+            atr_valid = atr and atr > 0
+            atr_percent = (atr / price * 100) if price > 0 else 0
+
+            logger.info(f"[STRATEGY] symbol={symbol}, ATR={atr:.4f}, ATR%={atr_percent:.2f}%")
+
+            # 5. Quyết định direction dựa trên EMA + Gann
+            direction = 'WAIT'
+            reason = []
+
+            if ema_trend == 'bullish' and gann_trend == 'bullish':
+                direction = 'LONG'
+                reason.append('EMA bullish + Gann bullish')
+            elif ema_trend == 'bearish' and gann_trend == 'bearish':
+                direction = 'SHORT'
+                reason.append('EMA bearish + Gann bearish')
+            elif ema_trend == 'bullish' and gann_trend == 'bearish':
+                direction = 'WAIT'
+                reason.append('EMA/GANN conflict - EMA bullish but Gann bearish')
+            elif ema_trend == 'bearish' and gann_trend == 'bullish':
+                direction = 'WAIT'
+                reason.append('EMA/GANN conflict - EMA bearish but Gann bullish')
+            else:
+                direction = 'WAIT'
+                reason.append('Insufficient trend confirmation')
+
+            # 6. Log decision
+            logger.info(f"[STRATEGY] symbol={symbol}")
+            logger.info(f"[STRATEGY] EMA Trend={ema_trend}")
+            logger.info(f"[STRATEGY] GANN={gann_trend}")
+            logger.info(f"[STRATEGY] ATR={atr:.4f}")
+            logger.info(f"[STRATEGY] VOLATILITY={atr_percent:.2f}%")
+            logger.info(f"[STRATEGY] DIRECTION={direction}")
+            logger.info(f"[STRATEGY] DECISION={direction}")
+            if direction == 'WAIT':
+                logger.info(f"[STRATEGY] REASON={', '.join(reason)}")
+
+            # 7. Nếu WAIT, trả về summary
+            if direction == 'WAIT':
+                return f"⚪ {symbol} - WAIT ({', '.join(reason)})"
+
+            # 8. Nếu LONG/SHORT, tạo analysis dict cho signal creation
+            analysis = {
+                'symbol': symbol,
+                'action': direction,
+                'price': price,
+                'ai_score': 85,  # Base score for confirmed trend
+                'confidence': 0.85,
+                'trend': ema_trend,
+                'reasons': reason + [f'Gann confidence: {gann_confidence:.2f}', f'ATR: {atr_percent:.2f}%']
+            }
+
+            # 9. Lưu AI log
             await db.save_ai_log_async(
                 symbol=symbol,
                 analysis_data=analysis,
-                decision=analysis.get('action'),
-                ai_score=analysis.get('ai_score'),
-                confidence=analysis.get('confidence')
+                decision=direction,
+                ai_score=85,
+                confidence=0.85
             )
-            
-            # Nếu là tín hiệu BUY/SELL với AI Score cao, tạo signal
-            if analysis.get('action') in ['LONG', 'SHORT']:
-                signal = await self.create_signal(analysis)
-                if signal:
-                    return signal['message']
-            
-            # Nếu không phải tín hiệu, trả về analysis summary
-            from analysis.ai_engine import ai_engine
-            return ai_engine.get_analysis_summary(symbol)
+
+            # 10. Tạo signal
+            signal = await self.create_signal(analysis)
+            if signal:
+                return signal['message']
+
+            return None
+
         except Exception as e:
             logger.error(f"Error analyzing symbol {symbol}: {e}")
             return f"❌ Lỗi phân tích {symbol}: {str(e)}"
