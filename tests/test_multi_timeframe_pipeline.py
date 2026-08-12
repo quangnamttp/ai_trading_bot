@@ -85,6 +85,8 @@ class TestMultiTimeframePipeline:
                     'price': 100000,
                     'ema_20': 99500,
                     'ema_50': 99000,
+                    'ema_20_prev': 98900,  # For cross detection
+                    'ema_50_prev': 99000,  # For cross detection
                     'atr': 100,
                     'atr_ma50': 80,
                     'volume': 1000000,
@@ -121,6 +123,8 @@ class TestMultiTimeframePipeline:
                     'price': 90000,
                     'ema_20': 90500,
                     'ema_50': 91000,
+                    'ema_20_prev': 91100,  # For cross detection
+                    'ema_50_prev': 91000,  # For cross detection
                     'atr': 100,
                     'atr_ma50': 80,
                     'volume': 1000000,
@@ -571,6 +575,245 @@ class TestMultiTimeframePipeline:
         signal_engine._increment_daily_count()
         
         assert signal_engine.signals_sent_today == initial_count + 1
+    
+    @pytest.mark.asyncio
+    async def test_ema_no_cross(self, signal_engine, mock_market_data_engine, mock_gann_engine, sample_multi_timeframe_data_bullish):
+        """Test that signals are rejected when EMA20/EMA50 cross is not detected"""
+        # Data with aligned EMAs but no cross (already aligned for multiple candles)
+        data = sample_multi_timeframe_data_bullish.copy()
+        data['indicators']['15m']['ema_20_prev'] = 99400  # Already above EMA50
+        data['indicators']['15m']['ema_50_prev'] = 98900  # Still below EMA20
+        
+        mock_market_data_engine.get_symbol_data = AsyncMock(return_value=data)
+        mock_gann_engine.analyze = AsyncMock(return_value={
+            'trend': 'bullish',
+            'confidence': 0.80,
+            'support': 98000,
+            'resistance': 102000
+        })
+        
+        ai_analysis = {'symbol': 'BTC/USDT:USDT', 'action': 'LONG', 'ai_score': 85}
+        
+        result = await signal_engine.filter_signal(ai_analysis, mock_market_data_engine, mock_gann_engine)
+        
+        assert result['action'] == 'WAIT'
+        assert result['reason'] == 'EMA_NO_CROSS'
+    
+    @pytest.mark.asyncio
+    async def test_ema_cross_detected(self, signal_engine, mock_market_data_engine, mock_gann_engine, sample_multi_timeframe_data_bullish):
+        """Test that signals pass when EMA20/EMA50 cross is detected"""
+        # Data with bullish cross in current candle
+        data = sample_multi_timeframe_data_bullish.copy()
+        data['indicators']['15m']['ema_20_prev'] = 98900  # Below EMA50
+        data['indicators']['15m']['ema_50_prev'] = 99000  # Above EMA20 (cross happened)
+        
+        mock_market_data_engine.get_symbol_data = AsyncMock(return_value=data)
+        mock_gann_engine.analyze = AsyncMock(return_value={
+            'trend': 'bullish',
+            'confidence': 0.80,
+            'support': 98000,
+            'resistance': 102000
+        })
+        
+        ai_analysis = {'symbol': 'BTC/USDT:USDT', 'action': 'LONG', 'ai_score': 85}
+        
+        result = await signal_engine.filter_signal(ai_analysis, mock_market_data_engine, mock_gann_engine)
+        
+        # Should not fail on EMA_NO_CROSS
+        assert result['reason'] != 'EMA_NO_CROSS'
+    
+    @pytest.mark.asyncio
+    async def test_gann_too_far(self, signal_engine, mock_market_data_engine, mock_gann_engine, sample_multi_timeframe_data_bullish):
+        """Test that signals are rejected when price is too far from Gann level"""
+        # Data with price far from Gann resistance
+        data = sample_multi_timeframe_data_bullish.copy()
+        data['indicators']['15m']['ema_20_prev'] = 98900
+        data['indicators']['15m']['ema_50_prev'] = 99000
+        
+        mock_market_data_engine.get_symbol_data = AsyncMock(return_value=data)
+        mock_gann_engine.analyze = AsyncMock(return_value={
+            'trend': 'bullish',
+            'confidence': 0.80,
+            'support': 98000,
+            'resistance': 105000  # Far from price (100000)
+        })
+        
+        ai_analysis = {'symbol': 'BTC/USDT:USDT', 'action': 'LONG', 'ai_score': 85}
+        
+        result = await signal_engine.filter_signal(ai_analysis, mock_market_data_engine, mock_gann_engine)
+        
+        assert result['action'] == 'WAIT'
+        assert result['reason'] == 'GANN_TOO_FAR'
+    
+    @pytest.mark.asyncio
+    async def test_gann_proximity_ok(self, signal_engine, mock_market_data_engine, mock_gann_engine, sample_multi_timeframe_data_bullish):
+        """Test that signals pass when price is within Gann proximity threshold"""
+        # Data with price close to Gann resistance (within 0.3 * ATR)
+        data = sample_multi_timeframe_data_bullish.copy()
+        data['indicators']['15m']['ema_20_prev'] = 98900
+        data['indicators']['15m']['ema_50_prev'] = 99000
+        data['indicators']['15m']['atr'] = 100  # 0.3 * 100 = 30
+        
+        mock_market_data_engine.get_symbol_data = AsyncMock(return_value=data)
+        mock_gann_engine.analyze = AsyncMock(return_value={
+            'trend': 'bullish',
+            'confidence': 0.80,
+            'support': 98000,
+            'resistance': 100025  # Within 30 of price (100000)
+        })
+        
+        ai_analysis = {'symbol': 'BTC/USDT:USDT', 'action': 'LONG', 'ai_score': 85}
+        
+        result = await signal_engine.filter_signal(ai_analysis, mock_market_data_engine, mock_gann_engine)
+        
+        # Should not fail on GANN_TOO_FAR
+        assert result['reason'] != 'GANN_TOO_FAR'
+    
+    @pytest.mark.asyncio
+    async def test_atr_ma50_invalid(self, signal_engine, mock_market_data_engine, mock_gann_engine, sample_multi_timeframe_data_bullish):
+        """Test that signals are rejected when ATR_MA50 is missing or invalid"""
+        data = sample_multi_timeframe_data_bullish.copy()
+        data['indicators']['15m']['ema_20_prev'] = 98900
+        data['indicators']['15m']['ema_50_prev'] = 99000
+        data['indicators']['1h']['atr_ma50'] = 0  # Invalid
+        
+        mock_market_data_engine.get_symbol_data = AsyncMock(return_value=data)
+        mock_gann_engine.analyze = AsyncMock(return_value={
+            'trend': 'bullish',
+            'confidence': 0.80,
+            'support': 98000,
+            'resistance': 100025  # Within Gann proximity threshold
+        })
+        
+        ai_analysis = {'symbol': 'BTC/USDT:USDT', 'action': 'LONG', 'ai_score': 85}
+        
+        result = await signal_engine.filter_signal(ai_analysis, mock_market_data_engine, mock_gann_engine)
+        
+        assert result['action'] == 'WAIT'
+        assert result['reason'] == 'ATR_MA50_INVALID'
+    
+    @pytest.mark.asyncio
+    async def test_volume_ma20_invalid(self, signal_engine, mock_market_data_engine, mock_gann_engine, sample_multi_timeframe_data_bullish):
+        """Test that signals are rejected when Volume_MA20 is missing or invalid"""
+        data = sample_multi_timeframe_data_bullish.copy()
+        data['indicators']['15m']['ema_20_prev'] = 98900
+        data['indicators']['15m']['ema_50_prev'] = 99000
+        data['indicators']['15m']['volume_ma20'] = 0  # Invalid
+        
+        mock_market_data_engine.get_symbol_data = AsyncMock(return_value=data)
+        mock_gann_engine.analyze = AsyncMock(return_value={
+            'trend': 'bullish',
+            'confidence': 0.80,
+            'support': 98000,
+            'resistance': 100025  # Within Gann proximity threshold
+        })
+        
+        ai_analysis = {'symbol': 'BTC/USDT:USDT', 'action': 'LONG', 'ai_score': 85}
+        
+        result = await signal_engine.filter_signal(ai_analysis, mock_market_data_engine, mock_gann_engine)
+        
+        assert result['action'] == 'WAIT'
+        assert result['reason'] == 'VOLUME_MA20_INVALID'
+    
+    @pytest.mark.asyncio
+    async def test_funding_missing(self, signal_engine, mock_market_data_engine, mock_gann_engine, sample_multi_timeframe_data_bullish):
+        """Test that signals are rejected when funding data is missing"""
+        data = sample_multi_timeframe_data_bullish.copy()
+        data['indicators']['15m']['ema_20_prev'] = 98900
+        data['indicators']['15m']['ema_50_prev'] = 99000
+        data['funding_rate'] = {}  # Missing
+        
+        mock_market_data_engine.get_symbol_data = AsyncMock(return_value=data)
+        mock_gann_engine.analyze = AsyncMock(return_value={
+            'trend': 'bullish',
+            'confidence': 0.80,
+            'support': 98000,
+            'resistance': 100025  # Within Gann proximity threshold
+        })
+        
+        ai_analysis = {'symbol': 'BTC/USDT:USDT', 'action': 'LONG', 'ai_score': 85}
+        
+        result = await signal_engine.filter_signal(ai_analysis, mock_market_data_engine, mock_gann_engine)
+        
+        assert result['action'] == 'WAIT'
+        assert result['reason'] == 'FUNDING_MISSING'
+    
+    @pytest.mark.asyncio
+    async def test_funding_invalid(self, signal_engine, mock_market_data_engine, mock_gann_engine, sample_multi_timeframe_data_bullish):
+        """Test that signals are rejected when funding rate is invalid"""
+        data = sample_multi_timeframe_data_bullish.copy()
+        data['indicators']['15m']['ema_20_prev'] = 98900
+        data['indicators']['15m']['ema_50_prev'] = 99000
+        data['funding_rate']['fundingRate'] = float('nan')  # Invalid
+        
+        mock_market_data_engine.get_symbol_data = AsyncMock(return_value=data)
+        mock_gann_engine.analyze = AsyncMock(return_value={
+            'trend': 'bullish',
+            'confidence': 0.80,
+            'support': 98000,
+            'resistance': 100025  # Within Gann proximity threshold
+        })
+        
+        ai_analysis = {'symbol': 'BTC/USDT:USDT', 'action': 'LONG', 'ai_score': 85}
+        
+        result = await signal_engine.filter_signal(ai_analysis, mock_market_data_engine, mock_gann_engine)
+        
+        assert result['action'] == 'WAIT'
+        assert result['reason'] == 'FUNDING_INVALID'
+    
+    @pytest.mark.asyncio
+    async def test_rr_calculation_from_actual_sl_tp(self, signal_engine, mock_market_data_engine, mock_gann_engine, sample_multi_timeframe_data_bullish):
+        """Test that RR is calculated from actual SL/TP values (SL=1.2x, TP1=2.0x)"""
+        data = sample_multi_timeframe_data_bullish.copy()
+        data['indicators']['15m']['ema_20_prev'] = 98900
+        data['indicators']['15m']['ema_50_prev'] = 99000
+        
+        mock_market_data_engine.get_symbol_data = AsyncMock(return_value=data)
+        mock_gann_engine.analyze = AsyncMock(return_value={
+            'trend': 'bullish',
+            'confidence': 0.80,
+            'support': 98000,
+            'resistance': 102000
+        })
+        
+        ai_analysis = {'symbol': 'BTC/USDT:USDT', 'action': 'LONG', 'ai_score': 85}
+        
+        result = await signal_engine.filter_signal(ai_analysis, mock_market_data_engine, mock_gann_engine)
+        
+        # RR = TP1 / SL = 2.0 / 1.2 = 1.67, which is >= 1.6 (new RR_MIN)
+        # Should not fail on RR_TOO_LOW
+        assert result['reason'] != 'RR_TOO_LOW'
+    
+    def test_sl_tp_calculation_15m_atr(self, signal_engine):
+        """Test that SL/TP are calculated using 15m ATR values"""
+        price = 100000
+        atr_15m = 100
+        
+        # Test LONG
+        tp_long = signal_engine.calculate_take_profit(price, 'LONG', atr_15m, 102000)
+        sl_long = signal_engine.calculate_stop_loss(price, 'LONG', atr_15m)
+        
+        # SL = price - 1.2 * ATR = 100000 - 120 = 99880
+        assert sl_long == 99880
+        # TP1 = price + 2.0 * ATR = 100000 + 200 = 100200
+        assert tp_long['TP1'] == 100200
+        # TP2 = price + 3.5 * ATR = 100000 + 350 = 100350
+        assert tp_long['TP2'] == 100350
+        # TP3 should use Gann level (102000) since it's above TP2
+        assert tp_long['TP3'] == 102000
+        
+        # Test SHORT
+        tp_short = signal_engine.calculate_take_profit(price, 'SHORT', atr_15m, 98000)
+        sl_short = signal_engine.calculate_stop_loss(price, 'SHORT', atr_15m)
+        
+        # SL = price + 1.2 * ATR = 100000 + 120 = 100120
+        assert sl_short == 100120
+        # TP1 = price - 2.0 * ATR = 100000 - 200 = 99800
+        assert tp_short['TP1'] == 99800
+        # TP2 = price - 3.5 * ATR = 100000 - 350 = 99650
+        assert tp_short['TP2'] == 99650
+        # TP3 should use Gann level (98000) since it's below TP2
+        assert tp_short['TP3'] == 98000
 
 
 if __name__ == '__main__':

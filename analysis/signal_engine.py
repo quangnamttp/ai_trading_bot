@@ -96,19 +96,34 @@ class SignalEngine:
             logger.error(f"Error calculating entry range: {e}")
             return f"{price:.2f}"
     
-    def calculate_take_profit(self, price: float, action: str, atr: float = None) -> Dict:
-        """Tính Take Profit levels dựa trên ATR"""
+    def calculate_take_profit(self, price: float, action: str, atr: float = None, gann_level: float = None) -> Dict:
+        """Tính Take Profit levels dựa trên 15m ATR
+        
+        Args:
+            price: Current price
+            action: LONG or SHORT
+            atr: 15m ATR value
+            gann_level: Gann resistance (for LONG) or support (for SHORT) for TP3
+        """
         try:
             if atr and atr > 0:
-                # Use ATR-based TP
+                # Use 15m ATR-based TP: TP1=2.0x, TP2=3.5x, TP3=Gann or 5.0x
                 if action == 'LONG':
-                    tp1 = price + (atr * 1.5)  # 1.5x ATR
-                    tp2 = price + (atr * 2.5)  # 2.5x ATR
-                    tp3 = price + (atr * 4.0)  # 4.0x ATR
+                    tp1 = price + (atr * 2.0)  # 2.0x ATR
+                    tp2 = price + (atr * 3.5)  # 3.5x ATR
+                    # TP3: Use Gann resistance if available and above TP2, else 5.0x ATR
+                    if gann_level and gann_level > tp2:
+                        tp3 = gann_level
+                    else:
+                        tp3 = price + (atr * 5.0)  # 5.0x ATR
                 else:  # SHORT
-                    tp1 = price - (atr * 1.5)  # 1.5x ATR
-                    tp2 = price - (atr * 2.5)  # 2.5x ATR
-                    tp3 = price - (atr * 4.0)  # 4.0x ATR
+                    tp1 = price - (atr * 2.0)  # 2.0x ATR
+                    tp2 = price - (atr * 3.5)  # 3.5x ATR
+                    # TP3: Use Gann support if available and below TP2, else 5.0x ATR
+                    if gann_level and gann_level < tp2:
+                        tp3 = gann_level
+                    else:
+                        tp3 = price - (atr * 5.0)  # 5.0x ATR
             else:
                 # Fallback to percentage-based if ATR not available
                 if action == 'LONG':
@@ -130,14 +145,14 @@ class SignalEngine:
             return {'TP1': price, 'TP2': price, 'TP3': price}
     
     def calculate_stop_loss(self, price: float, action: str, atr: float = None) -> float:
-        """Tính Stop Loss dựa trên ATR"""
+        """Tính Stop Loss dựa trên 15m ATR (1.2x ATR)"""
         try:
             if atr and atr > 0:
-                # Use ATR-based SL
+                # Use 15m ATR-based SL: 1.2x ATR
                 if action == 'LONG':
-                    sl = price - (atr * 1.5)  # 1.5x ATR below price
+                    sl = price - (atr * 1.2)  # 1.2x ATR below price
                 else:  # SHORT
-                    sl = price + (atr * 1.5)  # 1.5x ATR above price
+                    sl = price + (atr * 1.2)  # 1.2x ATR above price
             else:
                 # Fallback to percentage-based if ATR not available
                 if action == 'LONG':
@@ -394,17 +409,24 @@ class SignalEngine:
                 return None
             
             # Tính toán levels - use pre-fetched data if available, otherwise fetch
-            atr = None
+            atr_15m = None
             if symbol_data:
                 indicators = symbol_data.get('indicators', {})
-                atr = indicators.get('atr')
+                # Use 15m ATR if available, otherwise fall back to 1h
+                if isinstance(indicators, dict) and '15m' in indicators:
+                    atr_15m = indicators['15m'].get('atr')
+                elif isinstance(indicators, dict):
+                    atr_15m = indicators.get('atr')
             else:
                 try:
                     from data.market_data import market_data_engine
-                    symbol_data_fetched = await market_data_engine.get_symbol_data(symbol)
+                    symbol_data_fetched = await market_data_engine.get_symbol_data(symbol, timeframes=['15m'])
                     if symbol_data_fetched:
                         indicators = symbol_data_fetched.get('indicators', {})
-                        atr = indicators.get('atr')
+                        if isinstance(indicators, dict) and '15m' in indicators:
+                            atr_15m = indicators['15m'].get('atr')
+                        elif isinstance(indicators, dict):
+                            atr_15m = indicators.get('atr')
                 except Exception as e:
                     logger.error(f"Error getting ATR: {e}")
 
@@ -425,8 +447,11 @@ class SignalEngine:
                     logger.error(f"Error getting Gann levels: {e}")
 
             entry_range = await self.calculate_entry_range(price, action, symbol, gann_support, gann_resistance)
-            take_profits = self.calculate_take_profit(price, action, atr)
-            stop_loss = self.calculate_stop_loss(price, action, atr)
+            
+            # Calculate TP3 using Gann level
+            gann_level_for_tp3 = gann_resistance if action == 'LONG' else gann_support
+            take_profits = self.calculate_take_profit(price, action, atr_15m, gann_level_for_tp3)
+            stop_loss = self.calculate_stop_loss(price, action, atr_15m)
 
             # Kiểm tra entry practicality (không quá xa current price)
             if not self.check_entry_practicality(entry_range, price):
@@ -603,20 +628,80 @@ class SignalEngine:
                 logger.info(f"[SIGNAL FILTER] reason=GANN_CONFLICT")
                 return {'action': 'WAIT', 'reason': 'GANN_CONFLICT'}
             
-            # 7. 15M Entry Filter (EMA20/EMA50)
+            # 7. Data Validity Checks (ATR, ATR_MA50, Volume_MA20, Funding)
+            atr_1h = indicators_1h.get('atr', 0)
+            atr_ma50_1h = indicators_1h.get('atr_ma50', 0)
+            volume_15m = indicators_15m.get('volume', 0)
+            volume_ma20_15m = indicators_15m.get('volume_ma20', 0)
+            funding_data = symbol_data.get('funding_rate', {})
+            
+            # Check for missing or invalid ATR
+            if not atr_1h or atr_1h == 0 or math.isnan(atr_1h):
+                logger.info(f"[SIGNAL FILTER] symbol={symbol}")
+                logger.info(f"[SIGNAL FILTER] atr_1h={atr_1h}")
+                logger.info(f"[SIGNAL FILTER] decision=WAIT")
+                logger.info(f"[SIGNAL FILTER] reason=ATR_INVALID")
+                return {'action': 'WAIT', 'reason': 'ATR_INVALID'}
+            
+            # Check for missing or invalid ATR_MA50
+            if not atr_ma50_1h or atr_ma50_1h == 0 or math.isnan(atr_ma50_1h):
+                logger.info(f"[SIGNAL FILTER] symbol={symbol}")
+                logger.info(f"[SIGNAL FILTER] atr_ma50_1h={atr_ma50_1h}")
+                logger.info(f"[SIGNAL FILTER] decision=WAIT")
+                logger.info(f"[SIGNAL FILTER] reason=ATR_MA50_INVALID")
+                return {'action': 'WAIT', 'reason': 'ATR_MA50_INVALID'}
+            
+            # Check for missing or invalid Volume_MA20
+            if not volume_ma20_15m or volume_ma20_15m == 0 or math.isnan(volume_ma20_15m):
+                logger.info(f"[SIGNAL FILTER] symbol={symbol}")
+                logger.info(f"[SIGNAL FILTER] volume_ma20_15m={volume_ma20_15m}")
+                logger.info(f"[SIGNAL FILTER] decision=WAIT")
+                logger.info(f"[SIGNAL FILTER] reason=VOLUME_MA20_INVALID")
+                return {'action': 'WAIT', 'reason': 'VOLUME_MA20_INVALID'}
+            
+            # Check for missing funding data
+            if not funding_data:
+                logger.info(f"[SIGNAL FILTER] symbol={symbol}")
+                logger.info(f"[SIGNAL FILTER] funding_data={funding_data}")
+                logger.info(f"[SIGNAL FILTER] decision=WAIT")
+                logger.info(f"[SIGNAL FILTER] reason=FUNDING_MISSING")
+                return {'action': 'WAIT', 'reason': 'FUNDING_MISSING'}
+            
+            funding_rate = funding_data.get('fundingRate', 0)
+            if funding_rate is None or math.isnan(funding_rate):
+                logger.info(f"[SIGNAL FILTER] symbol={symbol}")
+                logger.info(f"[SIGNAL FILTER] funding_rate={funding_rate}")
+                logger.info(f"[SIGNAL FILTER] decision=WAIT")
+                logger.info(f"[SIGNAL FILTER] reason=FUNDING_INVALID")
+                return {'action': 'WAIT', 'reason': 'FUNDING_INVALID'}
+            
+            # 8. 15M Entry Filter (EMA20/EMA50 with cross detection)
             price_15m = indicators_15m.get('price', 0)
             ema_20_15m = indicators_15m.get('ema_20', 0)
             ema_50_15m = indicators_15m.get('ema_50', 0)
+            ema_20_prev = indicators_15m.get('ema_20_prev', None)
+            ema_50_prev = indicators_15m.get('ema_50_prev', None)
             
             entry_trend = 'neutral'
+            ema_cross_detected = False
+            
+            # Check for missing/NaN EMA values
             if not ema_20_15m or not ema_50_15m:
                 entry_trend = 'neutral'
             elif math.isnan(ema_20_15m) or math.isnan(ema_50_15m):
                 entry_trend = 'neutral'
             elif ema_20_15m > ema_50_15m:
                 entry_trend = 'bullish'
+                # Check for bullish cross in current or previous candle
+                if ema_20_prev and ema_50_prev:
+                    if ema_20_prev <= ema_50_prev and ema_20_15m > ema_50_15m:
+                        ema_cross_detected = True
             elif ema_20_15m < ema_50_15m:
                 entry_trend = 'bearish'
+                # Check for bearish cross in current or previous candle
+                if ema_20_prev and ema_50_prev:
+                    if ema_20_prev >= ema_50_prev and ema_20_15m < ema_50_15m:
+                        ema_cross_detected = True
             
             if entry_trend != macro_trend:
                 logger.info(f"[SIGNAL FILTER] symbol={symbol}")
@@ -626,44 +711,60 @@ class SignalEngine:
                 logger.info(f"[SIGNAL FILTER] reason=EMA_NEUTRAL")
                 return {'action': 'WAIT', 'reason': 'EMA_NEUTRAL'}
             
-            # 8. ATR Filter (validity + regime)
-            atr_1h = indicators_1h.get('atr', 0)
-            atr_ma50_1h = indicators_1h.get('atr_ma50', 0)
-            
-            atr_valid = atr_1h and atr_1h > 0
-            if not atr_valid:
+            # Check for EMA cross (must have cross in current or ±1 candle)
+            if not ema_cross_detected:
                 logger.info(f"[SIGNAL FILTER] symbol={symbol}")
-                logger.info(f"[SIGNAL FILTER] atr_1h={atr_1h}")
+                logger.info(f"[SIGNAL FILTER] entry_15m={entry_trend}")
+                logger.info(f"[SIGNAL FILTER] ema_cross_detected={ema_cross_detected}")
                 logger.info(f"[SIGNAL FILTER] decision=WAIT")
-                logger.info(f"[SIGNAL FILTER] reason=ATR_INVALID")
-                return {'action': 'WAIT', 'reason': 'ATR_INVALID'}
+                logger.info(f"[SIGNAL FILTER] reason=EMA_NO_CROSS")
+                return {'action': 'WAIT', 'reason': 'EMA_NO_CROSS'}
             
-            # ATR regime check
-            if atr_ma50_1h and atr_ma50_1h > 0:
-                atr_ratio = atr_1h / atr_ma50_1h
-                if atr_ratio < ATR_REGIME_MIN or atr_ratio > ATR_REGIME_MAX:
-                    logger.info(f"[SIGNAL FILTER] symbol={symbol}")
-                    logger.info(f"[SIGNAL FILTER] atr_ratio={atr_ratio:.2f}")
-                    logger.info(f"[SIGNAL FILTER] decision=WAIT")
-                    logger.info(f"[SIGNAL FILTER] reason=ATR_REGIME_INVALID")
-                    return {'action': 'WAIT', 'reason': 'ATR_REGIME_INVALID'}
+            # 9. Gann proximity check: price must be within 0.3 * ATR(15m) of Gann level
+            atr_15m_for_gann = indicators_15m.get('atr', 0)
+            if atr_15m_for_gann and atr_15m_for_gann > 0:
+                gann_support = gann_analysis.get('support')
+                gann_resistance = gann_analysis.get('resistance')
+                gann_proximity_threshold = atr_15m_for_gann * 0.3
+                
+                if macro_trend == 'bullish' and gann_resistance:
+                    distance_to_resistance = abs(price_15m - gann_resistance)
+                    if distance_to_resistance > gann_proximity_threshold:
+                        logger.info(f"[SIGNAL FILTER] symbol={symbol}")
+                        logger.info(f"[SIGNAL FILTER] distance_to_resistance={distance_to_resistance:.2f}")
+                        logger.info(f"[SIGNAL FILTER] gann_proximity_threshold={gann_proximity_threshold:.2f}")
+                        logger.info(f"[SIGNAL FILTER] decision=WAIT")
+                        logger.info(f"[SIGNAL FILTER] reason=GANN_TOO_FAR")
+                        return {'action': 'WAIT', 'reason': 'GANN_TOO_FAR'}
+                elif macro_trend == 'bearish' and gann_support:
+                    distance_to_support = abs(price_15m - gann_support)
+                    if distance_to_support > gann_proximity_threshold:
+                        logger.info(f"[SIGNAL FILTER] symbol={symbol}")
+                        logger.info(f"[SIGNAL FILTER] distance_to_support={distance_to_support:.2f}")
+                        logger.info(f"[SIGNAL FILTER] gann_proximity_threshold={gann_proximity_threshold:.2f}")
+                        logger.info(f"[SIGNAL FILTER] decision=WAIT")
+                        logger.info(f"[SIGNAL FILTER] reason=GANN_TOO_FAR")
+                        return {'action': 'WAIT', 'reason': 'GANN_TOO_FAR'}
             
-            # 9. Volume Filter (15M Volume > 1.5 MA20)
-            volume_15m = indicators_15m.get('volume', 0)
-            volume_ma20_15m = indicators_15m.get('volume_ma20', 0)
+            # 10. ATR regime check
+            atr_ratio = atr_1h / atr_ma50_1h
+            if atr_ratio < ATR_REGIME_MIN or atr_ratio > ATR_REGIME_MAX:
+                logger.info(f"[SIGNAL FILTER] symbol={symbol}")
+                logger.info(f"[SIGNAL FILTER] atr_ratio={atr_ratio:.2f}")
+                logger.info(f"[SIGNAL FILTER] decision=WAIT")
+                logger.info(f"[SIGNAL FILTER] reason=ATR_REGIME_INVALID")
+                return {'action': 'WAIT', 'reason': 'ATR_REGIME_INVALID'}
             
-            if volume_ma20_15m and volume_ma20_15m > 0:
-                if volume_15m < volume_ma20_15m * VOLUME_MULTIPLIER:
-                    logger.info(f"[SIGNAL FILTER] symbol={symbol}")
-                    logger.info(f"[SIGNAL FILTER] volume_15m={volume_15m}")
-                    logger.info(f"[SIGNAL FILTER] volume_ma20_15m={volume_ma20_15m}")
-                    logger.info(f"[SIGNAL FILTER] decision=WAIT")
-                    logger.info(f"[SIGNAL FILTER] reason=VOLUME_LOW")
-                    return {'action': 'WAIT', 'reason': 'VOLUME_LOW'}
+            # 11. Volume Filter (15M Volume > 1.5 MA20)
+            if volume_15m < volume_ma20_15m * VOLUME_MULTIPLIER:
+                logger.info(f"[SIGNAL FILTER] symbol={symbol}")
+                logger.info(f"[SIGNAL FILTER] volume_15m={volume_15m}")
+                logger.info(f"[SIGNAL FILTER] volume_ma20_15m={volume_ma20_15m}")
+                logger.info(f"[SIGNAL FILTER] decision=WAIT")
+                logger.info(f"[SIGNAL FILTER] reason=VOLUME_LOW")
+                return {'action': 'WAIT', 'reason': 'VOLUME_LOW'}
             
-            # 10. Funding Filter
-            funding_data = symbol_data.get('funding_rate', {})
-            funding_rate = funding_data.get('fundingRate', 0) if funding_data else 0
+            # 12. Funding Filter (extreme check)
             if abs(funding_rate) > FUNDING_RATE_MAX:
                 logger.info(f"[SIGNAL FILTER] symbol={symbol}")
                 logger.info(f"[SIGNAL FILTER] funding_rate={funding_rate:.4f}")
@@ -671,7 +772,7 @@ class SignalEngine:
                 logger.info(f"[SIGNAL FILTER] reason=FUNDING_EXTREME")
                 return {'action': 'WAIT', 'reason': 'FUNDING_EXTREME'}
             
-            # 11. AI Score Filter
+            # 13. AI Score Filter
             if ai_score < AI_SCORE_THRESHOLD:
                 logger.info(f"[SIGNAL FILTER] symbol={symbol}")
                 logger.info(f"[SIGNAL FILTER] ai_score={ai_score}")
@@ -679,7 +780,7 @@ class SignalEngine:
                 logger.info(f"[SIGNAL FILTER] reason=AI_SCORE_BELOW_THRESHOLD")
                 return {'action': 'WAIT', 'reason': 'AI_SCORE_BELOW_THRESHOLD'}
             
-            # 12. AI must align with macro trend
+            # 14. AI must align with macro trend
             if ai_action == 'LONG' and macro_trend != 'bullish':
                 logger.info(f"[SIGNAL FILTER] symbol={symbol}")
                 logger.info(f"[SIGNAL FILTER] ai_action={ai_action}")
@@ -696,23 +797,27 @@ class SignalEngine:
                 logger.info(f"[SIGNAL FILTER] reason=MACRO_CONFLICT")
                 return {'action': 'WAIT', 'reason': 'MACRO_CONFLICT'}
             
-            # 13. R:R Filter (calculate based on ATR)
+            # 15. R:R Filter (calculate from actual SL/TP based on 15m ATR)
             atr_15m = indicators_15m.get('atr', 0)
             if atr_15m and atr_15m > 0:
-                # Calculate potential R:R based on ATR
-                # SL = 1.2 * ATR, TP = 2.2 * ATR, so R:R = 2.2 / 1.2 = 1.83 (above minimum 1.8)
-                sl_atr = 1.2
-                tp_atr = 2.2
-                calculated_rr = tp_atr / sl_atr
+                # Calculate actual SL and TP based on 15m ATR
+                sl_distance = atr_15m * 1.2  # SL = 1.2x ATR
+                tp1_distance = atr_15m * 2.0  # TP1 = 2.0x ATR
+                tp2_distance = atr_15m * 3.5  # TP2 = 3.5x ATR
+                
+                # Calculate RR using TP1 (most conservative) and SL
+                calculated_rr = tp1_distance / sl_distance  # 2.0 / 1.2 = 1.67
                 
                 if calculated_rr < RR_MIN:
                     logger.info(f"[SIGNAL FILTER] symbol={symbol}")
+                    logger.info(f"[SIGNAL FILTER] sl_distance={sl_distance:.2f}")
+                    logger.info(f"[SIGNAL FILTER] tp1_distance={tp1_distance:.2f}")
                     logger.info(f"[SIGNAL FILTER] calculated_rr={calculated_rr:.2f}")
                     logger.info(f"[SIGNAL FILTER] decision=WAIT")
                     logger.info(f"[SIGNAL FILTER] reason=RR_TOO_LOW")
                     return {'action': 'WAIT', 'reason': 'RR_TOO_LOW'}
             
-            # 14. All filters passed - return signal
+            # 16. All filters passed - return signal
             logger.info(f"[SIGNAL FILTER] symbol={symbol}")
             logger.info(f"[SIGNAL FILTER] ai_action={ai_action}")
             logger.info(f"[SIGNAL FILTER] ai_score={ai_score}")

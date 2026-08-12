@@ -467,8 +467,9 @@ class MarketDataEngine:
             # Volume MA20
             df['volume_ma20'] = df['volume'].rolling(window=20).mean()
             
-            # Lấy giá trị hiện tại
+            # Lấy giá trị hiện tại và lịch sử cho cross detection
             latest = df.iloc[-1]
+            prev = df.iloc[-2] if len(df) >= 2 else None
             
             indicators = {
                 'price': latest['close'],
@@ -489,6 +490,14 @@ class MarketDataEngine:
                 'volume': latest['volume'],
                 'volume_ma20': latest['volume_ma20']
             }
+            
+            # Add historical EMA values for cross detection
+            if prev is not None:
+                indicators['ema_20_prev'] = prev['ema_20']
+                indicators['ema_50_prev'] = prev['ema_50']
+            else:
+                indicators['ema_20_prev'] = None
+                indicators['ema_50_prev'] = None
             
             return indicators
         except Exception as e:

@@ -62,7 +62,7 @@ GANN_MIN_CONFIDENCE = float(os.getenv("GANN_MIN_CONFIDENCE", "0.70"))
 
 # Multi-timeframe Signal Pipeline Configuration
 MAX_SIGNALS_PER_DAY = int(os.getenv("MAX_SIGNALS_PER_DAY", "5"))
-RR_MIN = float(os.getenv("RR_MIN", "1.8"))
+RR_MIN = float(os.getenv("RR_MIN", "1.6"))  # Adjusted for SL=1.2x, TP1=2.0x (RR=1.67)
 VOLUME_MULTIPLIER = float(os.getenv("VOLUME_MULTIPLIER", "1.5"))
 FUNDING_RATE_MAX = float(os.getenv("FUNDING_RATE_MAX", "0.0005"))  # 0.05% as decimal
 ATR_REGIME_MIN = float(os.getenv("ATR_REGIME_MIN", "0.7"))
