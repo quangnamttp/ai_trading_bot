@@ -50,12 +50,23 @@ logger.info(f"[CONFIG] SIGNAL_RECEIVER_IDS={SIGNAL_RECEIVER_IDS}")
 DATABASE_PATH = os.getenv("DATABASE_PATH", "database/trading_bot.db")
 
 # Trading Configuration
-SYMBOLS = os.getenv("TRADING_SYMBOLS", "BTC/USDT:USDT,XAU/USDT:USDT").split(",")
+WATCHLIST = os.getenv("WATCHLIST", "BTC/USDT:USDT,ETH/USDT:USDT,SOL/USDT:USDT,BNB/USDT:USDT,XRP/USDT:USDT").split(",")
+WATCHLIST = [s.strip() for s in WATCHLIST if s.strip()]
+# Use WATCHLIST if set, otherwise fall back to SYMBOLS for backward compatibility
+SYMBOLS = WATCHLIST if WATCHLIST else os.getenv("TRADING_SYMBOLS", "BTC/USDT:USDT,XAU/USDT:USDT").split(",")
 SYMBOLS = [s.strip() for s in SYMBOLS if s.strip()]
 EXCHANGE = "MEXC"
 AI_SCORE_THRESHOLD = float(os.getenv("AI_SCORE_THRESHOLD", "80"))
 MIN_CONFIDENCE = float(os.getenv("MIN_CONFIDENCE", "0.80"))
 GANN_MIN_CONFIDENCE = float(os.getenv("GANN_MIN_CONFIDENCE", "0.70"))
+
+# Multi-timeframe Signal Pipeline Configuration
+MAX_SIGNALS_PER_DAY = int(os.getenv("MAX_SIGNALS_PER_DAY", "5"))
+RR_MIN = float(os.getenv("RR_MIN", "1.8"))
+VOLUME_MULTIPLIER = float(os.getenv("VOLUME_MULTIPLIER", "1.5"))
+FUNDING_RATE_MAX = float(os.getenv("FUNDING_RATE_MAX", "0.0005"))  # 0.05% as decimal
+ATR_REGIME_MIN = float(os.getenv("ATR_REGIME_MIN", "0.7"))
+ATR_REGIME_MAX = float(os.getenv("ATR_REGIME_MAX", "2.5"))
 
 def clean_symbol(symbol: str) -> str:
     """Clean symbol for user-facing display (remove exchange suffix)"""

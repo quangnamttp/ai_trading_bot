@@ -431,8 +431,10 @@ class MarketDataEngine:
             
             # EMA (Exponential Moving Average)
             df['ema_9'] = df['close'].ewm(span=9).mean()
+            df['ema_20'] = df['close'].ewm(span=20).mean()
             df['ema_21'] = df['close'].ewm(span=21).mean()
             df['ema_50'] = df['close'].ewm(span=50).mean()
+            df['ema_200'] = df['close'].ewm(span=200).mean()
             
             # RSI (Relative Strength Index)
             delta = df['close'].diff()
@@ -460,6 +462,10 @@ class MarketDataEngine:
             df['low_close'] = abs(df['low'] - df['close'].shift())
             df['true_range'] = df[['high_low', 'high_close', 'low_close']].max(axis=1)
             df['atr'] = df['true_range'].rolling(window=14).mean()
+            df['atr_ma50'] = df['atr'].rolling(window=50).mean()
+            
+            # Volume MA20
+            df['volume_ma20'] = df['volume'].rolling(window=20).mean()
             
             # Lấy giá trị hiện tại
             latest = df.iloc[-1]
@@ -467,8 +473,10 @@ class MarketDataEngine:
             indicators = {
                 'price': latest['close'],
                 'ema_9': latest['ema_9'],
+                'ema_20': latest['ema_20'],
                 'ema_21': latest['ema_21'],
                 'ema_50': latest['ema_50'],
+                'ema_200': latest['ema_200'],
                 'rsi': latest['rsi'],
                 'macd': latest['macd'],
                 'macd_signal': latest['macd_signal'],
@@ -477,7 +485,9 @@ class MarketDataEngine:
                 'bb_middle': latest['bb_middle'],
                 'bb_lower': latest['bb_lower'],
                 'atr': latest['atr'],
-                'volume': latest['volume']
+                'atr_ma50': latest['atr_ma50'],
+                'volume': latest['volume'],
+                'volume_ma20': latest['volume_ma20']
             }
             
             return indicators
@@ -710,42 +720,61 @@ class MarketDataEngine:
             logger.error(f"Error getting market overview: {e}")
             return "❌ Không thể lấy dữ liệu thị trường"
     
-    async def get_symbol_data(self, symbol: str) -> Dict:
-        """Lấy toàn bộ dữ liệu cho một symbol - fetch OHLCV once to avoid thread pool starvation"""
+    async def get_symbol_data(self, symbol: str, timeframes: List[str] = None) -> Dict:
+        """Lấy toàn bộ dữ liệu cho một symbol - fetch OHLCV for multiple timeframes to avoid thread pool starvation
+        
+        Args:
+            symbol: Trading symbol
+            timeframes: List of timeframes to fetch (default: ['1h'])
+            
+        Returns:
+            Dict with multi-timeframe indicators and market data
+        """
         import time
         try:
             start_time = time.time()
+            if timeframes is None:
+                timeframes = ['1h']
+            
             data = {
                 'symbol': symbol,
                 'timestamp': datetime.now().isoformat()
             }
 
-            # Fetch OHLCV ONCE at the start to avoid duplicate thread pool submissions
-            # This prevents thread pool starvation when multiple functions need OHLCV
-            ohlcv_df = await self.get_ohlcv(symbol, '1h', limit=100)
+            # Fetch OHLCV for all requested timeframes
+            ohlcv_tasks = {tf: self.get_ohlcv(symbol, tf, limit=100) for tf in timeframes}
+            ohlcv_results = await asyncio.gather(*ohlcv_tasks.values(), return_exceptions=True)
+            ohlcv_dfs = {tf: result for tf, result in zip(timeframes, ohlcv_results) if not isinstance(result, Exception) and result is not None}
 
             # Run independent operations concurrently
-            # Pass the pre-fetched OHLCV DataFrame to functions that need it
             ticker_task = self.get_ticker(symbol)
-            indicators_task = self.calculate_indicators_from_df(ohlcv_df) if ohlcv_df is not None else asyncio.sleep(0)
             order_book_task = self.get_order_book(symbol)
             funding_rate_task = self.get_funding_rate(symbol)
             open_interest_task = self.get_open_interest(symbol)
-            order_blocks_task = self.detect_order_blocks_from_df(ohlcv_df) if ohlcv_df is not None else asyncio.sleep(0)
-            fvgs_task = self.detect_fvg_from_df(ohlcv_df) if ohlcv_df is not None else asyncio.sleep(0)
+            
+            # Calculate indicators for each timeframe
+            indicators_tasks = {}
+            for tf, df in ohlcv_dfs.items():
+                indicators_tasks[f'tf_{tf}'] = self.calculate_indicators_from_df(df)
+            
+            # Detect order blocks and FVG from 1H (or first available timeframe)
+            primary_df = ohlcv_dfs.get('1h') or ohlcv_dfs.get(timeframes[0]) if ohlcv_dfs else None
+            order_blocks_task = self.detect_order_blocks_from_df(primary_df) if primary_df else asyncio.sleep(0)
+            fvgs_task = self.detect_fvg_from_df(primary_df) if primary_df else asyncio.sleep(0)
 
             # Wait for all operations to complete concurrently
-            ticker, indicators, order_book, funding_rate, open_interest, order_blocks, fvgs = await asyncio.gather(
-                ticker_task, indicators_task, order_book_task, funding_rate_task,
-                open_interest_task, order_blocks_task, fvgs_task,
+            results = await asyncio.gather(
+                ticker_task, order_book_task, funding_rate_task, open_interest_task,
+                order_blocks_task, fvgs_task, *indicators_tasks.values(),
                 return_exceptions=True
             )
 
             # Add successful results to data
+            ticker, order_book, funding_rate, open_interest, order_blocks, fvgs = results[:6]
+            indicator_results = results[6:]
+            
             if isinstance(ticker, dict) and ticker:
                 data['ticker'] = ticker
-            if isinstance(indicators, dict) and indicators:
-                data['indicators'] = indicators
             if isinstance(order_book, dict) and order_book:
                 data['order_book'] = order_book
             if isinstance(funding_rate, dict) and funding_rate:
@@ -756,9 +785,21 @@ class MarketDataEngine:
                 data['order_blocks'] = order_blocks
             if isinstance(fvgs, list):
                 data['fvg'] = fvgs
+            
+            # Add indicators for each timeframe
+            data['indicators'] = {}
+            for i, (tf, indicators) in enumerate(zip(indicators_tasks.keys(), indicator_results)):
+                if isinstance(indicators, dict) and indicators:
+                    # Store with timeframe prefix
+                    tf_name = tf.replace('tf_', '')
+                    data['indicators'][tf_name] = indicators
+            
+            # If only one timeframe requested, also store in 'indicators' key for backward compatibility
+            if len(timeframes) == 1 and timeframes[0] in data['indicators']:
+                data['indicators'] = data['indicators'][timeframes[0]]
 
             total_duration_ms = (time.time() - start_time) * 1000
-            logger.info(f"[MARKET DATA SYMBOL] symbol={symbol}, duration_ms={total_duration_ms:.2f}")
+            logger.info(f"[MARKET DATA SYMBOL] symbol={symbol}, timeframes={timeframes}, duration_ms={total_duration_ms:.2f}")
 
             return data
         except Exception as e:
