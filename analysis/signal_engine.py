@@ -330,8 +330,14 @@ class SignalEngine:
             logger.error(f"Error formatting signal message: {e}")
             return None
     
-    async def create_signal(self, analysis: Dict) -> Optional[Dict]:
-        """Tạo tín hiệu từ phân tích AI"""
+    async def create_signal(self, analysis: Dict, symbol_data: Dict = None, gann_analysis: Dict = None) -> Optional[Dict]:
+        """Tạo tín hiệu từ phân tích AI
+        
+        Args:
+            analysis: Dict with symbol, action, ai_score, etc.
+            symbol_data: Pre-fetched market data (from filter_signal to avoid duplicate fetches)
+            gann_analysis: Pre-fetched Gann analysis (from filter_signal to avoid duplicate fetches)
+        """
         try:
             symbol = analysis.get('symbol')
             action = analysis.get('action')
@@ -365,27 +371,36 @@ class SignalEngine:
                 logger.info("Rate limit reached")
                 return None
             
-            # Tính toán levels - get ATR from indicators if available
+            # Tính toán levels - use pre-fetched data if available, otherwise fetch
             atr = None
-            try:
-                from data.market_data import market_data_engine
-                symbol_data = await market_data_engine.get_symbol_data(symbol)
-                if symbol_data:
-                    indicators = symbol_data.get('indicators', {})
-                    atr = indicators.get('atr')
-            except Exception as e:
-                logger.error(f"Error getting ATR: {e}")
+            if symbol_data:
+                indicators = symbol_data.get('indicators', {})
+                atr = indicators.get('atr')
+            else:
+                try:
+                    from data.market_data import market_data_engine
+                    symbol_data_fetched = await market_data_engine.get_symbol_data(symbol)
+                    if symbol_data_fetched:
+                        indicators = symbol_data_fetched.get('indicators', {})
+                        atr = indicators.get('atr')
+                except Exception as e:
+                    logger.error(f"Error getting ATR: {e}")
 
-            # Get Gann levels for entry calculation
+            # Get Gann levels for entry calculation - use pre-fetched if available
             gann_support = None
             gann_resistance = None
-            try:
-                from analysis.gann_engine import gann_engine
-                gann_analysis = await gann_engine.analyze(symbol, market_data_engine)
+            if gann_analysis:
                 gann_support = gann_analysis.get('support')
                 gann_resistance = gann_analysis.get('resistance')
-            except Exception as e:
-                logger.error(f"Error getting Gann levels: {e}")
+            else:
+                try:
+                    from analysis.gann_engine import gann_engine
+                    from data.market_data import market_data_engine
+                    gann_analysis_fetched = await gann_engine.analyze(symbol, market_data_engine)
+                    gann_support = gann_analysis_fetched.get('support')
+                    gann_resistance = gann_analysis_fetched.get('resistance')
+                except Exception as e:
+                    logger.error(f"Error getting Gann levels: {e}")
 
             entry_range = await self.calculate_entry_range(price, action, symbol, gann_support, gann_resistance)
             take_profits = self.calculate_take_profit(price, action, atr)
@@ -459,7 +474,7 @@ class SignalEngine:
             gann_engine: Gann engine instance
             
         Returns:
-            Dict with filtered action and reason
+            Dict with filtered action, reason, and pre-fetched data for reuse
         """
         try:
             from core.config import AI_SCORE_THRESHOLD, GANN_MIN_CONFIDENCE
@@ -490,15 +505,11 @@ class SignalEngine:
             ema_50 = indicators.get('ema_50', 0)
             atr = indicators.get('atr', 0)
             
-            # 3. Determine EMA trend
+            # 3. Determine EMA trend (strict: must include EMA50)
             ema_trend = 'neutral'
             if price > ema_9 > ema_21 > ema_50:
                 ema_trend = 'bullish'
             elif price < ema_9 < ema_21 < ema_50:
-                ema_trend = 'bearish'
-            elif price > ema_9 > ema_21:
-                ema_trend = 'bullish'
-            elif price < ema_9 < ema_21:
                 ema_trend = 'bearish'
             
             # 4. Get Gann analysis
@@ -552,7 +563,13 @@ class SignalEngine:
                     return {'action': 'WAIT', 'reason': 'EMA_CONFLICT'}
                 logger.info(f"[SIGNAL FILTER] decision=LONG")
                 logger.info(f"[SIGNAL FILTER] reason=ALL_FILTERS_PASSED")
-                return {'action': 'LONG', 'reason': 'ALL_FILTERS_PASSED'}
+                # Return pre-fetched data to avoid duplicate fetches in create_signal
+                return {
+                    'action': 'LONG',
+                    'reason': 'ALL_FILTERS_PASSED',
+                    'symbol_data': symbol_data,
+                    'gann_analysis': gann_analysis
+                }
             
             # 9. Check alignment for SHORT
             elif ai_action == 'SHORT':
@@ -566,7 +583,13 @@ class SignalEngine:
                     return {'action': 'WAIT', 'reason': 'EMA_CONFLICT'}
                 logger.info(f"[SIGNAL FILTER] decision=SHORT")
                 logger.info(f"[SIGNAL FILTER] reason=ALL_FILTERS_PASSED")
-                return {'action': 'SHORT', 'reason': 'ALL_FILTERS_PASSED'}
+                # Return pre-fetched data to avoid duplicate fetches in create_signal
+                return {
+                    'action': 'SHORT',
+                    'reason': 'ALL_FILTERS_PASSED',
+                    'symbol_data': symbol_data,
+                    'gann_analysis': gann_analysis
+                }
             
             # 10. Default to WAIT
             logger.info(f"[SIGNAL FILTER] decision=WAIT")
@@ -600,15 +623,11 @@ class SignalEngine:
             ema_50 = indicators.get('ema_50', 0)
             atr = indicators.get('atr', 0)
 
-            # 2. Xác định EMA Trend
+            # 2. Xác định EMA Trend (strict: must include EMA50)
             ema_trend = 'neutral'
             if price > ema_9 > ema_21 > ema_50:
                 ema_trend = 'bullish'
             elif price < ema_9 < ema_21 < ema_50:
-                ema_trend = 'bearish'
-            elif price > ema_9 > ema_21:
-                ema_trend = 'bullish'
-            elif price < ema_9 < ema_21:
                 ema_trend = 'bearish'
 
             # 3. Phân tích Gann

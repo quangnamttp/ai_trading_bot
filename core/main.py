@@ -328,7 +328,10 @@ class TradingBotApp:
                                 analysis['action'] = filtered_action
                                 analysis['reasons'] = analysis.get('reasons', []) + [f'Filter: {filter_reason}']
 
-                                signal = await signal_engine.create_signal(analysis)
+                                # Pass pre-fetched data to avoid duplicate fetches
+                                symbol_data = filter_result.get('symbol_data')
+                                gann_analysis = filter_result.get('gann_analysis')
+                                signal = await signal_engine.create_signal(analysis, symbol_data, gann_analysis)
 
                                 if signal and signal.get('message'):
                                     # Gửi tín hiệu qua Telegram với chart
