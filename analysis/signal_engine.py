@@ -3,6 +3,7 @@ Module Signal Engine cho AI Trading Signal Bot
 Quản lý việc tạo và gửi tín hiệu giao dịch
 """
 import logging
+import math
 from datetime import datetime, timedelta
 from typing import Dict, Optional
 from core.config import SYMBOLS, AI_SCORE_THRESHOLD, SIGNAL_COOLDOWN_MINUTES, MAX_SIGNALS_PER_HOUR
@@ -505,9 +506,14 @@ class SignalEngine:
             ema_50 = indicators.get('ema_50', 0)
             atr = indicators.get('atr', 0)
             
-            # 3. Determine EMA trend (strict: must include EMA50)
+            # 3. Determine EMA trend (strict: must include EMA50 and all EMAs valid)
             ema_trend = 'neutral'
-            if price > ema_9 > ema_21 > ema_50:
+            # Check for missing/zero/NaN EMA values
+            if not ema_9 or not ema_21 or not ema_50:
+                ema_trend = 'neutral'
+            elif math.isnan(ema_9) or math.isnan(ema_21) or math.isnan(ema_50):
+                ema_trend = 'neutral'
+            elif price > ema_9 > ema_21 > ema_50:
                 ema_trend = 'bullish'
             elif price < ema_9 < ema_21 < ema_50:
                 ema_trend = 'bearish'
@@ -623,9 +629,14 @@ class SignalEngine:
             ema_50 = indicators.get('ema_50', 0)
             atr = indicators.get('atr', 0)
 
-            # 2. Xác định EMA Trend (strict: must include EMA50)
+            # 2. Xác định EMA Trend (strict: must include EMA50 and all EMAs valid)
             ema_trend = 'neutral'
-            if price > ema_9 > ema_21 > ema_50:
+            # Check for missing/zero/NaN EMA values
+            if not ema_9 or not ema_21 or not ema_50:
+                ema_trend = 'neutral'
+            elif math.isnan(ema_9) or math.isnan(ema_21) or math.isnan(ema_50):
+                ema_trend = 'neutral'
+            elif price > ema_9 > ema_21 > ema_50:
                 ema_trend = 'bullish'
             elif price < ema_9 < ema_21 < ema_50:
                 ema_trend = 'bearish'
