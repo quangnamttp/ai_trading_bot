@@ -755,33 +755,37 @@ class MarketDataEngine:
             ohlcv_results = await asyncio.gather(*ohlcv_tasks.values(), return_exceptions=True)
             ohlcv_dfs = {tf: result for tf, result in zip(timeframes, ohlcv_results) if not isinstance(result, Exception) and result is not None}
 
-            # Run independent operations concurrently
+            # Run independent operations concurrently (non-blocking API calls)
             ticker_task = self.get_ticker(symbol)
             order_book_task = self.get_order_book(symbol)
             funding_rate_task = self.get_funding_rate(symbol)
             open_interest_task = self.get_open_interest(symbol)
             
-            # Calculate indicators for each timeframe
-            indicators_tasks = {}
-            for tf, df in ohlcv_dfs.items():
-                indicators_tasks[f'tf_{tf}'] = self.calculate_indicators_from_df(df)
-            
-            # Detect order blocks and FVG from 1H (or first available timeframe)
-            primary_df = ohlcv_dfs.get('1h') or ohlcv_dfs.get(timeframes[0]) if ohlcv_dfs else None
-            order_blocks_task = self.detect_order_blocks_from_df(primary_df) if primary_df else asyncio.sleep(0)
-            fvgs_task = self.detect_fvg_from_df(primary_df) if primary_df else asyncio.sleep(0)
-
-            # Wait for all operations to complete concurrently
-            results = await asyncio.gather(
+            # Wait for API calls first (these are I/O bound, not CPU bound)
+            ticker, order_book, funding_rate, open_interest = await asyncio.gather(
                 ticker_task, order_book_task, funding_rate_task, open_interest_task,
-                order_blocks_task, fvgs_task, *indicators_tasks.values(),
                 return_exceptions=True
             )
+            
+            # Calculate indicators for each timeframe SEQUENTIALLY to avoid ThreadPoolExecutor contention
+            # This prevents Telegram handler from being blocked by thread pool starvation
+            data['indicators'] = {}
+            for tf, df in ohlcv_dfs.items():
+                indicators = await self.calculate_indicators_from_df(df)
+                if isinstance(indicators, dict) and indicators:
+                    tf_name = tf.replace('tf_', '')
+                    data['indicators'][tf_name] = indicators
+            
+            # Detect order blocks and FVG SEQUENTIALLY from 1H (or first available timeframe)
+            primary_df = ohlcv_dfs.get('1h') or ohlcv_dfs.get(timeframes[0]) if ohlcv_dfs else None
+            if primary_df:
+                order_blocks = await self.detect_order_blocks_from_df(primary_df)
+                fvgs = await self.detect_fvg_from_df(primary_df)
+            else:
+                order_blocks = []
+                fvgs = []
 
             # Add successful results to data
-            ticker, order_book, funding_rate, open_interest, order_blocks, fvgs = results[:6]
-            indicator_results = results[6:]
-            
             if isinstance(ticker, dict) and ticker:
                 data['ticker'] = ticker
             if isinstance(order_book, dict) and order_book:
@@ -794,14 +798,6 @@ class MarketDataEngine:
                 data['order_blocks'] = order_blocks
             if isinstance(fvgs, list):
                 data['fvg'] = fvgs
-            
-            # Add indicators for each timeframe
-            data['indicators'] = {}
-            for i, (tf, indicators) in enumerate(zip(indicators_tasks.keys(), indicator_results)):
-                if isinstance(indicators, dict) and indicators:
-                    # Store with timeframe prefix
-                    tf_name = tf.replace('tf_', '')
-                    data['indicators'][tf_name] = indicators
             
             # If only one timeframe requested, also store in 'indicators' key for backward compatibility
             if len(timeframes) == 1 and timeframes[0] in data['indicators']:
