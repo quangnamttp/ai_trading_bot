@@ -281,10 +281,17 @@ class TradingBotApp:
         import time
         signals_generated_this_cycle = 0
 
+        logger.info("[ANALYSIS LOOP] started")
+        logger.info(f"[ANALYSIS LOOP] active_symbols={SYMBOLS}")
+
+        if not SYMBOLS:
+            logger.warning("[WATCHLIST] No active symbols - analysis loop will run but process nothing")
+
         while not self.shutdown_event.is_set():
             try:
                 loop_start = time.time()
                 signals_generated_this_cycle = 0
+                logger.info(f"[ANALYSIS LOOP] cycle_start, active_symbols={SYMBOLS}")
                 for symbol in SYMBOLS:
                     try:
                         symbol_start = time.time()
@@ -355,10 +362,10 @@ class TradingBotApp:
                     logger.info("No high-quality trading setup found in this analysis cycle")
 
                 loop_duration_ms = (time.time() - loop_start) * 1000
-                logger.info(f"[ANALYSIS LOOP] duration_ms={loop_duration_ms:.2f}")
+                logger.info(f"[ANALYSIS LOOP] cycle_complete, duration_ms={loop_duration_ms:.2f}")
                 await async_sleep(AI_UPDATE_INTERVAL)
             except Exception as e:
-                logger.error(f"Error in analysis loop: {e}")
+                logger.error(f"[ANALYSIS LOOP ERROR] {e}", exc_info=True)
                 await async_sleep(30)
 
     async def smart_money_loop(self):
