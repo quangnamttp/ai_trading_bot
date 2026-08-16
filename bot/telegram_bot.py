@@ -749,74 +749,104 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
     async def handle_watchlist_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Xử lý callback từ Watchlist Manager"""
         query = update.callback_query
-        await query.answer()
-
-        user_id = query.from_user.id
-        is_admin = await db.is_admin_async(user_id)
         callback_data = query.data
+        user_id = query.from_user.id
 
-        if callback_data == "watchlist_add":
-            if not is_admin:
-                await query.edit_message_text("⛔ Chỉ Admin mới có thể thêm coin.")
-                return
-            await query.edit_message_text("➕ <b>Thêm coin</b>\n\nNhập symbol muốn thêm.\nVí dụ: BTC ETH SUI DOGE XRP", parse_mode='HTML')
-            # Set state to wait for symbol input
-            context.user_data['waiting_for_symbol'] = True
+        logger.info(f"[WATCHLIST CALLBACK] user_id={user_id}, callback_data={callback_data}")
 
-        elif callback_data == "watchlist_remove":
-            if not is_admin:
-                await query.edit_message_text("⛔ Chỉ Admin mới có thể xóa coin.")
-                return
-            watchlist = await db.get_watchlist_async()
-            if not watchlist:
-                await query.edit_message_text("❌ Chưa có coin nào trong watchlist.")
-                return
+        # Acknowledge callback immediately to prevent loading
+        try:
+            await query.answer()
+            logger.info(f"[WATCHLIST CALLBACK] acknowledged for user_id={user_id}")
+        except Exception as e:
+            logger.error(f"[WATCHLIST CALLBACK ERROR] failed to acknowledge: {e}")
+            return
 
-            keyboard = []
-            for symbol in watchlist:
-                keyboard.append([InlineKeyboardButton(symbol, callback_data=f"watchlist_remove_{symbol}")])
-            keyboard.append([InlineKeyboardButton("⬅️ Quay lại", callback_data="watchlist_back")])
-
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            await query.edit_message_text("➖ <b>Xóa coin</b>\n\nChọn coin để xóa:", reply_markup=reply_markup, parse_mode='HTML')
-
-        elif callback_data.startswith("watchlist_remove_"):
-            if not is_admin:
-                await query.edit_message_text("⛔ Chỉ Admin mới có thể xóa coin.")
-                return
-            symbol = callback_data.replace("watchlist_remove_", "")
-            success = await db.remove_from_watchlist_async(symbol)
-            if success:
-                await query.edit_message_text(f"✅ Đã xóa {symbol} khỏi watchlist.")
-            else:
-                await query.edit_message_text(f"❌ Không thể xóa {symbol}.")
-
-        elif callback_data == "watchlist_refresh":
-            await self.show_watchlist_manager(update, is_admin)
-
-        elif callback_data == "watchlist_back":
-            await self.show_watchlist_manager(update, is_admin)
-
-        elif callback_data == "menu_back":
-            # Return to main menu
+        try:
             is_admin = await db.is_admin_async(user_id)
-            reply_markup = self.get_reply_keyboard(is_admin)
-            await query.edit_message_text("🏠 Quay lại menu chính.", reply_markup=reply_markup)
+
+            if callback_data == "watchlist_add":
+                logger.info(f"[WATCHLIST ADD] clicked by user_id={user_id}, is_admin={is_admin}")
+                if not is_admin:
+                    await query.edit_message_text("⛔ Chỉ Admin mới có thể thêm coin.")
+                    logger.warning(f"[WATCHLIST ADD] denied for non-admin user_id={user_id}")
+                    return
+                try:
+                    await query.edit_message_text("➕ <b>Thêm coin</b>\n\nNhập symbol muốn thêm.\nVí dụ: BTC ETH SUI DOGE XRP", parse_mode='HTML')
+                    # Set state to wait for symbol input
+                    context.user_data['waiting_for_symbol'] = True
+                    logger.info(f"[WATCHLIST ADD] state set waiting_for_symbol=True for user_id={user_id}")
+                except Exception as e:
+                    logger.error(f"[WATCHLIST ADD ERROR] user_id={user_id}: {e}", exc_info=True)
+                    await query.edit_message_text("❌ Có lỗi xảy ra. Vui lòng thử lại.")
+
+            elif callback_data == "watchlist_remove":
+                if not is_admin:
+                    await query.edit_message_text("⛔ Chỉ Admin mới có thể xóa coin.")
+                    return
+                watchlist = await db.get_watchlist_async()
+                if not watchlist:
+                    await query.edit_message_text("❌ Chưa có coin nào trong watchlist.")
+                    return
+
+                keyboard = []
+                for symbol in watchlist:
+                    keyboard.append([InlineKeyboardButton(symbol, callback_data=f"watchlist_remove_{symbol}")])
+                keyboard.append([InlineKeyboardButton("⬅️ Quay lại", callback_data="watchlist_back")])
+
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                await query.edit_message_text("➖ <b>Xóa coin</b>\n\nChọn coin để xóa:", reply_markup=reply_markup, parse_mode='HTML')
+
+            elif callback_data.startswith("watchlist_remove_"):
+                if not is_admin:
+                    await query.edit_message_text("⛔ Chỉ Admin mới có thể xóa coin.")
+                    return
+                symbol = callback_data.replace("watchlist_remove_", "")
+                success = await db.remove_from_watchlist_async(symbol)
+                if success:
+                    await query.edit_message_text(f"✅ Đã xóa {symbol} khỏi watchlist.")
+                else:
+                    await query.edit_message_text(f"❌ Không thể xóa {symbol}.")
+
+            elif callback_data == "watchlist_refresh":
+                await self.show_watchlist_manager(update, is_admin)
+
+            elif callback_data == "watchlist_back":
+                await self.show_watchlist_manager(update, is_admin)
+
+            elif callback_data == "menu_back":
+                # Return to main menu
+                is_admin = await db.is_admin_async(user_id)
+                reply_markup = self.get_reply_keyboard(is_admin)
+                await query.edit_message_text("🏠 Quay lại menu chính.", reply_markup=reply_markup)
+
+        except Exception as e:
+            logger.error(f"[WATCHLIST CALLBACK ERROR] user_id={user_id}, callback_data={callback_data}: {e}", exc_info=True)
+            try:
+                await query.edit_message_text("❌ Có lỗi xảy ra. Vui lòng thử lại.")
+            except:
+                pass
 
     async def handle_symbol_input(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Xử lý input symbol từ admin"""
         user_id = update.effective_user.id
+        symbol_input = update.message.text.strip().upper()
+
+        logger.info(f"[WATCHLIST SYMBOL INPUT] user_id={user_id}, symbol={symbol_input}, waiting_state={context.user_data.get('waiting_for_symbol')}")
+
         is_admin = await db.is_admin_async(user_id)
 
         if not is_admin:
+            logger.warning(f"[WATCHLIST SYMBOL INPUT] denied for non-admin user_id={user_id}")
             await update.message.reply_text("⛔ Chỉ Admin mới có thể thêm coin.")
             return
 
         if not context.user_data.get('waiting_for_symbol'):
+            logger.warning(f"[WATCHLIST SYMBOL INPUT] user_id={user_id} not in waiting state")
             return
 
-        symbol_input = update.message.text.strip().upper()
         context.user_data['waiting_for_symbol'] = False
+        logger.info(f"[WATCHLIST SYMBOL INPUT] state cleared for user_id={user_id}")
 
         # Normalize symbol
         if not '/' in symbol_input:
@@ -825,36 +855,50 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
         else:
             symbol_normalized = symbol_input
 
+        logger.info(f"[WATCHLIST SYMBOL INPUT] normalized: {symbol_input} -> {symbol_normalized}")
+
         # Validate symbol exists on exchange
         try:
             if self.market_data:
                 # Check if symbol exists by fetching ticker
+                logger.info(f"[WATCHLIST SYMBOL INPUT] validating symbol {symbol_normalized} on exchange")
                 ticker = await self.market_data.get_ticker(symbol_normalized)
                 if not ticker:
+                    logger.warning(f"[WATCHLIST SYMBOL INPUT] symbol {symbol_normalized} not found on exchange")
                     await update.message.reply_text(f"❌ Symbol {symbol_normalized} không tồn tại trên exchange.")
                     return
+                logger.info(f"[WATCHLIST SYMBOL INPUT] symbol {symbol_normalized} validated successfully")
             else:
+                logger.error(f"[WATCHLIST SYMBOL INPUT] market_data engine not available")
                 await update.message.reply_text("❌ Market data engine không khả dụng.")
                 return
         except Exception as e:
-            logger.error(f"Error validating symbol: {e}")
+            logger.error(f"[WATCHLIST SYMBOL INPUT ERROR] validation failed for {symbol_normalized}: {e}", exc_info=True)
             await update.message.reply_text(f"❌ Không thể kiểm tra symbol {symbol_normalized}.")
             return
 
         # Check if already in watchlist
         watchlist = await db.get_watchlist_async()
         if symbol_normalized in watchlist:
+            logger.info(f"[WATCHLIST SYMBOL INPUT] symbol {symbol_normalized} already in watchlist")
             await update.message.reply_text(f"⚠️ {symbol_normalized} đã có trong watchlist.")
             return
 
         # Add to watchlist
-        success = await db.add_to_watchlist_async(symbol_normalized, added_by=user_id)
-        if success:
-            await update.message.reply_text(f"✅ Đã thêm {symbol_normalized} vào watchlist.")
-            # Reload watchlist in main app
-            from core.main import TradingBotApp
-            # Note: We need to trigger a reload, but this is handled on next cycle
-        else:
+        try:
+            logger.info(f"[WATCHLIST SYMBOL INPUT] adding {symbol_normalized} to watchlist by user_id={user_id}")
+            success = await db.add_to_watchlist_async(symbol_normalized, added_by=user_id)
+            if success:
+                logger.info(f"[WATCHLIST SYMBOL INPUT] successfully added {symbol_normalized}")
+                await update.message.reply_text(f"✅ Đã thêm {symbol_normalized} vào watchlist.")
+                # Reload watchlist in main app
+                from core.main import TradingBotApp
+                # Note: We need to trigger a reload, but this is handled on next cycle
+            else:
+                logger.error(f"[WATCHLIST SYMBOL INPUT] failed to add {symbol_normalized}")
+                await update.message.reply_text(f"❌ Không thể thêm {symbol_normalized} vào watchlist.")
+        except Exception as e:
+            logger.error(f"[WATCHLIST SYMBOL INPUT ERROR] add failed for {symbol_normalized}: {e}", exc_info=True)
             await update.message.reply_text(f"❌ Không thể thêm {symbol_normalized} vào watchlist.")
 
     async def show_settings(self, update: Update, is_admin: bool):
@@ -1269,8 +1313,9 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
             self.application.add_handler(CommandHandler("analyze", self.analyze_command))
             self.application.add_handler(CommandHandler("menu", self.menu_command))
             self.application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
-            self.application.add_handler(CallbackQueryHandler(self.button_callback))
+            # Register watchlist callback BEFORE general button_callback to ensure it's processed first
             self.application.add_handler(CallbackQueryHandler(self.handle_watchlist_callback, pattern='^watchlist_'))
+            self.application.add_handler(CallbackQueryHandler(self.button_callback))
             handlers_added_timestamp = datetime.now().isoformat()
             print(f"[TELEGRAM APPLICATION HANDLERS ADDED] timestamp={handlers_added_timestamp}, event_loop_id={event_loop_id}")
             logger.info(f"[TELEGRAM APPLICATION HANDLERS ADDED] timestamp={handlers_added_timestamp}, event_loop_id={event_loop_id}")
