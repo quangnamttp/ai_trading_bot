@@ -14,7 +14,7 @@ from datetime import datetime
 from core.config import (
     TELEGRAM_BOT_TOKEN, TELEGRAM_ADMIN_ID,
     MARKET_DATA_INTERVAL, NEWS_CHECK_INTERVAL, AI_UPDATE_INTERVAL,
-    validate_config, PORT, SYMBOLS, AI_SCORE_THRESHOLD, MIN_CONFIDENCE
+    validate_config, PORT, AI_SCORE_THRESHOLD, MIN_CONFIDENCE
 )
 
 logger = logging.getLogger(__name__)
@@ -54,6 +54,8 @@ class TradingBotApp:
         self.queue_put_timestamps = {}
         # Stack trace tracking for blocking detection
         self.queue_put_stack_traces = {}
+        # Dynamic watchlist loaded from database
+        self.active_symbols = []
 
     def set_queue_timestamps(self, queue_timestamps):
         """Set the safe timing tracking dictionary"""
@@ -72,6 +74,17 @@ class TradingBotApp:
             stack_trace = traceback.format_stack(frame)
             stack.extend(stack_trace)
         return ''.join(stack)
+
+    async def load_watchlist(self):
+        """Load watchlist from database"""
+        try:
+            self.active_symbols = await db.get_watchlist_async()
+            logger.info(f"[WATCHLIST] Loaded {len(self.active_symbols)} symbols from database: {self.active_symbols}")
+            return self.active_symbols
+        except Exception as e:
+            logger.error(f"[WATCHLIST] Error loading watchlist: {e}")
+            self.active_symbols = []
+            return []
     
     async def initialize(self):
         """Khởi tạo tất cả các components"""
@@ -132,7 +145,10 @@ class TradingBotApp:
                 logger.info(f"Admin {TELEGRAM_ADMIN_ID} added to database")
             except Exception as e:
                 logger.error(f"Failed to add admin to database: {e}")
-            
+
+            # Load watchlist from database
+            await self.load_watchlist()
+
             logger.info("All components initialized successfully")
             return bot_app
         except Exception as e:
@@ -172,7 +188,7 @@ class TradingBotApp:
 
                 # Check if market data is updating - use lightweight ticker check instead of full symbol data
                 try:
-                    test_symbol = SYMBOLS[0] if SYMBOLS else None
+                    test_symbol = self.active_symbols[0] if self.active_symbols else None
                     if test_symbol:
                         # Use lightweight ticker check instead of full symbol data to reduce blocking
                         ticker = await market_data_engine.get_ticker(test_symbol)
@@ -189,7 +205,7 @@ class TradingBotApp:
 
                     # Check for active signals
                     active_signals = []
-                    for symbol in SYMBOLS:
+                    for symbol in self.active_symbols:
                         active = await db.get_active_signal_async(symbol) if hasattr(db, 'get_active_signal_async') else db.get_active_signal(symbol)
                         if active:
                             active_signals.append(symbol)
@@ -201,7 +217,7 @@ class TradingBotApp:
 
                         # Test AI analysis - skip full analysis to avoid blocking
                         try:
-                            test_symbol = SYMBOLS[0] if SYMBOLS else None
+                            test_symbol = self.active_symbols[0] if self.active_symbols else None
                             if test_symbol:
                                 # Use lightweight ticker check instead of full AI analysis
                                 ticker = await market_data_engine.get_ticker(test_symbol)
@@ -234,7 +250,7 @@ class TradingBotApp:
         while not self.shutdown_event.is_set():
             try:
                 loop_start = time.time()
-                for symbol in SYMBOLS:
+                for symbol in self.active_symbols:
                     try:
                         # Lấy dữ liệu thị trường (sử dụng cache để tránh spam API)
                         symbol_data = await market_data_engine.get_symbol_data(symbol)
@@ -282,17 +298,25 @@ class TradingBotApp:
         signals_generated_this_cycle = 0
 
         logger.info("[ANALYSIS LOOP] started")
-        logger.info(f"[ANALYSIS LOOP] active_symbols={SYMBOLS}")
+        logger.info(f"[ANALYSIS LOOP] active_symbols={self.active_symbols}")
 
-        if not SYMBOLS:
+        if not self.active_symbols:
             logger.warning("[WATCHLIST] No active symbols - analysis loop will run but process nothing")
 
+        cycle_count = 0
         while not self.shutdown_event.is_set():
             try:
                 loop_start = time.time()
                 signals_generated_this_cycle = 0
-                logger.info(f"[ANALYSIS LOOP] cycle_start, active_symbols={SYMBOLS}")
-                for symbol in SYMBOLS:
+
+                # Reload watchlist every 10 cycles (30 minutes) to pick up Telegram changes
+                cycle_count += 1
+                if cycle_count % 10 == 0:
+                    await self.load_watchlist()
+                    logger.info(f"[ANALYSIS LOOP] reloaded watchlist at cycle {cycle_count}")
+
+                logger.info(f"[ANALYSIS LOOP] cycle_start, active_symbols={self.active_symbols}")
+                for symbol in self.active_symbols:
                     try:
                         symbol_start = time.time()
                         # Phân tích AI
@@ -374,7 +398,7 @@ class TradingBotApp:
         while not self.shutdown_event.is_set():
             try:
                 loop_start = time.time()
-                for symbol in SYMBOLS:
+                for symbol in self.active_symbols:
                     try:
                         symbol_start = time.time()
                         await smart_money_tracker.analyze_smart_money_confluence(
@@ -498,7 +522,7 @@ class TradingBotApp:
             logger.info("=" * 50)
             logger.info(f"AI Score Threshold: {AI_SCORE_THRESHOLD}")
             logger.info(f"Min Confidence: {MIN_CONFIDENCE}")
-            logger.info(f"Trading Symbols: {', '.join(SYMBOLS)}")
+            logger.info(f"Trading Symbols: {', '.join(self.active_symbols) if self.active_symbols else 'None (empty watchlist)'}")
 
             # Initialize components
             bot_app = await self.initialize()

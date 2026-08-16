@@ -50,11 +50,9 @@ logger.info(f"[CONFIG] SIGNAL_RECEIVER_IDS={SIGNAL_RECEIVER_IDS}")
 DATABASE_PATH = os.getenv("DATABASE_PATH", "database/trading_bot.db")
 
 # Trading Configuration
-WATCHLIST = os.getenv("WATCHLIST", "BTC/USDT:USDT,ETH/USDT:USDT,SOL/USDT:USDT,BNB/USDT:USDT,XRP/USDT:USDT").split(",")
-WATCHLIST = [s.strip() for s in WATCHLIST if s.strip()]
-# Use WATCHLIST if set, otherwise fall back to SYMBOLS for backward compatibility
-SYMBOLS = WATCHLIST if WATCHLIST else os.getenv("TRADING_SYMBOLS", "BTC/USDT:USDT,XAU/USDT:USDT").split(",")
-SYMBOLS = [s.strip() for s in SYMBOLS if s.strip()]
+# SYMBOLS will be loaded from database watchlist at runtime
+# No hard-coded defaults - admin must add coins via Telegram
+SYMBOLS = []  # Empty by default, loaded from database
 EXCHANGE = "MEXC"
 AI_SCORE_THRESHOLD = float(os.getenv("AI_SCORE_THRESHOLD", "80"))
 MIN_CONFIDENCE = float(os.getenv("MIN_CONFIDENCE", "0.80"))

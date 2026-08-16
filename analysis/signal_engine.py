@@ -6,7 +6,7 @@ import logging
 import math
 from datetime import datetime, timedelta
 from typing import Dict, Optional
-from core.config import SYMBOLS, AI_SCORE_THRESHOLD, SIGNAL_COOLDOWN_MINUTES, MAX_SIGNALS_PER_HOUR
+from core.config import AI_SCORE_THRESHOLD, SIGNAL_COOLDOWN_MINUTES, MAX_SIGNALS_PER_HOUR
 from core.database import db
 
 logger = logging.getLogger(__name__)

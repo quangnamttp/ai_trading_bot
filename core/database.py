@@ -110,6 +110,22 @@ class DatabaseManager:
         """Async wrapper for is_authorized to prevent event loop blocking"""
         return await asyncio.to_thread(self.is_authorized, telegram_id)
 
+    async def get_watchlist_async(self) -> List[str]:
+        """Async wrapper for get_watchlist to prevent event loop blocking"""
+        return await asyncio.to_thread(self.get_watchlist)
+
+    async def add_to_watchlist_async(self, symbol: str, added_by: int = None) -> bool:
+        """Async wrapper for add_to_watchlist to prevent event loop blocking"""
+        return await asyncio.to_thread(self.add_to_watchlist, symbol, added_by)
+
+    async def remove_from_watchlist_async(self, symbol: str) -> bool:
+        """Async wrapper for remove_from_watchlist to prevent event loop blocking"""
+        return await asyncio.to_thread(self.remove_from_watchlist, symbol)
+
+    async def clear_watchlist_async(self) -> bool:
+        """Async wrapper for clear_watchlist to prevent event loop blocking"""
+        return await asyncio.to_thread(self.clear_watchlist)
+
     def get_connection(self):
         """Tạo kết nối database with timeout to prevent blocking"""
         conn = sqlite3.connect(self.db_path, timeout=5.0)  # 5 second timeout
@@ -258,6 +274,16 @@ class DatabaseManager:
                         total_pnl REAL,
                         win_rate REAL,
                         generated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+
+                # Bảng watchlist - Lưu trữ danh sách coin theo dõi
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS watchlist (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        symbol TEXT UNIQUE NOT NULL,
+                        added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        added_by INTEGER
                     )
                 """)
                 
@@ -871,6 +897,62 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"Error calculating statistics: {e}")
             return {}
+
+    # ==================== WATCHLIST MANAGEMENT ====================
+
+    def get_watchlist(self) -> List[str]:
+        """Lấy danh sách coin trong watchlist"""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT symbol FROM watchlist ORDER BY added_at ASC")
+                rows = cursor.fetchall()
+                return [row['symbol'] for row in rows]
+        except Exception as e:
+            logger.error(f"Error getting watchlist: {e}")
+            return []
+
+    def add_to_watchlist(self, symbol: str, added_by: int = None) -> bool:
+        """Thêm coin vào watchlist"""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    INSERT OR IGNORE INTO watchlist (symbol, added_by)
+                    VALUES (?, ?)
+                """, (symbol, added_by))
+                conn.commit()
+                logger.info(f"Added {symbol} to watchlist")
+                return True
+        except Exception as e:
+            logger.error(f"Error adding to watchlist: {e}")
+            return False
+
+    def remove_from_watchlist(self, symbol: str) -> bool:
+        """Xóa coin khỏi watchlist"""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("DELETE FROM watchlist WHERE symbol = ?", (symbol,))
+                conn.commit()
+                logger.info(f"Removed {symbol} from watchlist")
+                return True
+        except Exception as e:
+            logger.error(f"Error removing from watchlist: {e}")
+            return False
+
+    def clear_watchlist(self) -> bool:
+        """Xóa toàn bộ watchlist"""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("DELETE FROM watchlist")
+                conn.commit()
+                logger.info("Cleared watchlist")
+                return True
+        except Exception as e:
+            logger.error(f"Error clearing watchlist: {e}")
+            return False
 
     async def calculate_statistics_async(self, period: str = 'all') -> Dict:
         """Async wrapper for calculate_statistics to prevent event loop blocking"""

@@ -454,7 +454,7 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
         keyboard = [
             [KeyboardButton("📰 Tin tức"), KeyboardButton("📈 Thị trường")],
             [KeyboardButton("📨 Tín hiệu"), KeyboardButton("📊 Phân tích")],
-            [KeyboardButton("⚙️ Cài đặt"), KeyboardButton("📋 Danh sách lệnh")]
+            [KeyboardButton("⚙️ Cài đặt"), KeyboardButton("🪙 Danh sách coin")]
         ]
         return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False, is_persistent=True)
 
@@ -562,6 +562,11 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
         print(f"[HANDLER AUTH] timestamp={datetime.now().isoformat()}, user_id={user.id}, is_admin={is_admin}, event_loop_id={event_loop_id}")
         logger.info(f"[HANDLER AUTH] user_id={user.id}, is_admin={is_admin}")
 
+        # Check if waiting for symbol input
+        if context.user_data.get('waiting_for_symbol'):
+            await self.handle_symbol_input(update, context)
+            return
+
         # Xử lý các nút menu - gọi trực tiếp các command handlers
         try:
             if text == "📰 Tin tức":
@@ -615,15 +620,15 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
                     button_denied_timestamp = datetime.now().isoformat()
                     print(f"[BUTTON DENIED] timestamp={button_denied_timestamp}, text=⚙️ Cài đặt, user_id={user.id}, reason=NOT_ADMIN, event_loop_id={event_loop_id}")
                     logger.info(f"[BUTTON DENIED] timestamp={button_denied_timestamp}, text=⚙️ Cài đặt, user_id={user.id}, reason=NOT_ADMIN, event_loop_id={event_loop_id}")
-            elif text == "📋 Danh sách lệnh":
+            elif text == "🪙 Danh sách coin":
                 button_received_timestamp = datetime.now().isoformat()
-                print(f"[BUTTON RECEIVED] timestamp={button_received_timestamp}, text=📋 Danh sách lệnh, user_id={user.id}, update_id={update_id}, event_loop_id={event_loop_id}")
-                logger.info(f"[BUTTON RECEIVED] timestamp={button_received_timestamp}, text=📋 Danh sách lệnh, user_id={user.id}, update_id={update_id}, event_loop_id={event_loop_id}")
-                await self.show_commands(update, is_admin)
+                print(f"[BUTTON RECEIVED] timestamp={button_received_timestamp}, text=🪙 Danh sách coin, user_id={user.id}, update_id={update_id}, event_loop_id={event_loop_id}")
+                logger.info(f"[BUTTON RECEIVED] timestamp={button_received_timestamp}, text=🪙 Danh sách coin, user_id={user.id}, update_id={update_id}, event_loop_id={event_loop_id}")
+                await self.show_watchlist_manager(update, is_admin)
                 button_completed_timestamp = datetime.now().isoformat()
                 button_duration_ms = (datetime.fromisoformat(button_completed_timestamp) - datetime.fromisoformat(button_received_timestamp)).total_seconds() * 1000
-                print(f"[BUTTON COMPLETED] timestamp={button_completed_timestamp}, text=📋 Danh sách lệnh, user_id={user.id}, update_id={update_id}, duration_ms={button_duration_ms:.2f}, event_loop_id={event_loop_id}")
-                logger.info(f"[BUTTON COMPLETED] timestamp={button_completed_timestamp}, text=📋 Danh sách lệnh, user_id={user.id}, update_id={update_id}, duration_ms={button_duration_ms:.2f}, event_loop_id={event_loop_id}")
+                print(f"[BUTTON COMPLETED] timestamp={button_completed_timestamp}, text=🪙 Danh sách coin, user_id={user.id}, update_id={update_id}, duration_ms={button_duration_ms:.2f}, event_loop_id={event_loop_id}")
+                logger.info(f"[BUTTON COMPLETED] timestamp={button_completed_timestamp}, text=🪙 Danh sách coin, user_id={user.id}, update_id={update_id}, duration_ms={button_duration_ms:.2f}, event_loop_id={event_loop_id}")
             else:
                 # Tin nhắn không phải menu - có thể xử lý khác hoặc bỏ qua
                 print(f"[HANDLER UNKNOWN] timestamp={datetime.now().isoformat()}, user_id={user.id}, text={text}, event_loop_id={event_loop_id}")
@@ -697,6 +702,160 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
         """
 
         await update.message.reply_text(account_message, parse_mode='HTML')
+
+    async def show_watchlist_manager(self, update: Update, is_admin: bool):
+        """Hiển thị Watchlist Manager"""
+        try:
+            watchlist = await db.get_watchlist_async()
+
+            if not watchlist:
+                message = "🪙 <b>DANH SÁCH COIN</b>\n\n"
+                message += "Chưa có coin nào trong watchlist.\n\n"
+                if is_admin:
+                    keyboard = [
+                        [InlineKeyboardButton("➕ Thêm coin", callback_data="watchlist_add")],
+                        [InlineKeyboardButton("⬅️ Quay lại", callback_data="menu_back")]
+                    ]
+                else:
+                    keyboard = [
+                        [InlineKeyboardButton("⬅️ Quay lại", callback_data="menu_back")]
+                    ]
+            else:
+                message = "🪙 <b>DANH SÁCH COIN</b>\n\n"
+                message += "<b>Danh sách ACTIVE:</b>\n\n"
+                for symbol in watchlist:
+                    message += f"• {symbol}\n"
+                message += f"\nTổng: {len(watchlist)} coin\n\n"
+
+                if is_admin:
+                    keyboard = [
+                        [InlineKeyboardButton("➕ Thêm coin", callback_data="watchlist_add")],
+                        [InlineKeyboardButton("➖ Xóa coin", callback_data="watchlist_remove")],
+                        [InlineKeyboardButton("🔄 Làm mới", callback_data="watchlist_refresh")],
+                        [InlineKeyboardButton("⬅️ Quay lại", callback_data="menu_back")]
+                    ]
+                else:
+                    keyboard = [
+                        [InlineKeyboardButton("🔄 Làm mới", callback_data="watchlist_refresh")],
+                        [InlineKeyboardButton("⬅️ Quay lại", callback_data="menu_back")]
+                    ]
+
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await update.message.reply_text(message, reply_markup=reply_markup, parse_mode='HTML')
+        except Exception as e:
+            logger.error(f"Error showing watchlist manager: {e}")
+            await update.message.reply_text("❌ Có lỗi xảy ra khi hiển thị watchlist.")
+
+    async def handle_watchlist_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Xử lý callback từ Watchlist Manager"""
+        query = update.callback_query
+        await query.answer()
+
+        user_id = query.from_user.id
+        is_admin = await db.is_admin_async(user_id)
+        callback_data = query.data
+
+        if callback_data == "watchlist_add":
+            if not is_admin:
+                await query.edit_message_text("⛔ Chỉ Admin mới có thể thêm coin.")
+                return
+            await query.edit_message_text("➕ <b>Thêm coin</b>\n\nNhập symbol muốn thêm.\nVí dụ: BTC ETH SUI DOGE XRP", parse_mode='HTML')
+            # Set state to wait for symbol input
+            context.user_data['waiting_for_symbol'] = True
+
+        elif callback_data == "watchlist_remove":
+            if not is_admin:
+                await query.edit_message_text("⛔ Chỉ Admin mới có thể xóa coin.")
+                return
+            watchlist = await db.get_watchlist_async()
+            if not watchlist:
+                await query.edit_message_text("❌ Chưa có coin nào trong watchlist.")
+                return
+
+            keyboard = []
+            for symbol in watchlist:
+                keyboard.append([InlineKeyboardButton(symbol, callback_data=f"watchlist_remove_{symbol}")])
+            keyboard.append([InlineKeyboardButton("⬅️ Quay lại", callback_data="watchlist_back")])
+
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await query.edit_message_text("➖ <b>Xóa coin</b>\n\nChọn coin để xóa:", reply_markup=reply_markup, parse_mode='HTML')
+
+        elif callback_data.startswith("watchlist_remove_"):
+            if not is_admin:
+                await query.edit_message_text("⛔ Chỉ Admin mới có thể xóa coin.")
+                return
+            symbol = callback_data.replace("watchlist_remove_", "")
+            success = await db.remove_from_watchlist_async(symbol)
+            if success:
+                await query.edit_message_text(f"✅ Đã xóa {symbol} khỏi watchlist.")
+            else:
+                await query.edit_message_text(f"❌ Không thể xóa {symbol}.")
+
+        elif callback_data == "watchlist_refresh":
+            await self.show_watchlist_manager(update, is_admin)
+
+        elif callback_data == "watchlist_back":
+            await self.show_watchlist_manager(update, is_admin)
+
+        elif callback_data == "menu_back":
+            # Return to main menu
+            is_admin = await db.is_admin_async(user_id)
+            reply_markup = self.get_reply_keyboard(is_admin)
+            await query.edit_message_text("🏠 Quay lại menu chính.", reply_markup=reply_markup)
+
+    async def handle_symbol_input(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Xử lý input symbol từ admin"""
+        user_id = update.effective_user.id
+        is_admin = await db.is_admin_async(user_id)
+
+        if not is_admin:
+            await update.message.reply_text("⛔ Chỉ Admin mới có thể thêm coin.")
+            return
+
+        if not context.user_data.get('waiting_for_symbol'):
+            return
+
+        symbol_input = update.message.text.strip().upper()
+        context.user_data['waiting_for_symbol'] = False
+
+        # Normalize symbol
+        if not '/' in symbol_input:
+            # Add exchange suffix
+            symbol_normalized = f"{symbol_input}/USDT:USDT"
+        else:
+            symbol_normalized = symbol_input
+
+        # Validate symbol exists on exchange
+        try:
+            if self.market_data:
+                # Check if symbol exists by fetching ticker
+                ticker = await self.market_data.get_ticker(symbol_normalized)
+                if not ticker:
+                    await update.message.reply_text(f"❌ Symbol {symbol_normalized} không tồn tại trên exchange.")
+                    return
+            else:
+                await update.message.reply_text("❌ Market data engine không khả dụng.")
+                return
+        except Exception as e:
+            logger.error(f"Error validating symbol: {e}")
+            await update.message.reply_text(f"❌ Không thể kiểm tra symbol {symbol_normalized}.")
+            return
+
+        # Check if already in watchlist
+        watchlist = await db.get_watchlist_async()
+        if symbol_normalized in watchlist:
+            await update.message.reply_text(f"⚠️ {symbol_normalized} đã có trong watchlist.")
+            return
+
+        # Add to watchlist
+        success = await db.add_to_watchlist_async(symbol_normalized, added_by=user_id)
+        if success:
+            await update.message.reply_text(f"✅ Đã thêm {symbol_normalized} vào watchlist.")
+            # Reload watchlist in main app
+            from core.main import TradingBotApp
+            # Note: We need to trigger a reload, but this is handled on next cycle
+        else:
+            await update.message.reply_text(f"❌ Không thể thêm {symbol_normalized} vào watchlist.")
 
     async def show_settings(self, update: Update, is_admin: bool):
         """Hiển thị cài đặt (Admin only)"""
@@ -1006,8 +1165,13 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
                 AI_SCORE_THRESHOLD, MIN_CONFIDENCE, MAX_RISK_PER_TRADE,
                 MAX_POSITIONS, SIGNAL_COOLDOWN_MINUTES, MAX_SIGNALS_PER_HOUR,
                 MARKET_DATA_INTERVAL, NEWS_CHECK_INTERVAL, AI_UPDATE_INTERVAL,
-                SYMBOLS, EXCHANGE, clean_symbol
+                EXCHANGE
             )
+            # Get watchlist from database
+            watchlist = await db.get_watchlist_async()
+            from core.config import clean_symbol
+            clean_symbols = [clean_symbol(s) for s in watchlist]
+
             config_text = "📊 <b>Cấu hình hiện tại:</b>\n\n"
             config_text += f"• Ngưỡng điểm AI: {AI_SCORE_THRESHOLD}\n"
             config_text += f"• Độ tin cậy tối thiểu: {MIN_CONFIDENCE}\n"
@@ -1018,8 +1182,7 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
             config_text += f"• Cập nhật dữ liệu thị trường: {MARKET_DATA_INTERVAL} giây\n"
             config_text += f"• Kiểm tra tin tức: {NEWS_CHECK_INTERVAL} giây\n"
             config_text += f"• Cập nhật AI: {AI_UPDATE_INTERVAL} giây\n"
-            clean_symbols = [clean_symbol(s) for s in SYMBOLS]
-            config_text += f"• Cặp tiền giao dịch: {', '.join(clean_symbols)}\n"
+            config_text += f"• Cặp tiền giao dịch: {', '.join(clean_symbols) if clean_symbols else 'Chưa có'}\n"
             config_text += f"• Sàn giao dịch: {EXCHANGE}\n"
 
             keyboard = [
@@ -1107,6 +1270,7 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
             self.application.add_handler(CommandHandler("menu", self.menu_command))
             self.application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
             self.application.add_handler(CallbackQueryHandler(self.button_callback))
+            self.application.add_handler(CallbackQueryHandler(self.handle_watchlist_callback, pattern='^watchlist_'))
             handlers_added_timestamp = datetime.now().isoformat()
             print(f"[TELEGRAM APPLICATION HANDLERS ADDED] timestamp={handlers_added_timestamp}, event_loop_id={event_loop_id}")
             logger.info(f"[TELEGRAM APPLICATION HANDLERS ADDED] timestamp={handlers_added_timestamp}, event_loop_id={event_loop_id}")
