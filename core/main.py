@@ -85,6 +85,17 @@ class TradingBotApp:
             logger.error(f"[WATCHLIST] Error loading watchlist: {e}")
             self.active_symbols = []
             return []
+
+    async def reload_watchlist(self):
+        """Reload watchlist from database immediately (called after add/remove)"""
+        try:
+            old_symbols = list(self.active_symbols)
+            self.active_symbols = await db.get_watchlist_async()
+            logger.info(f"[WATCHLIST] Reloaded watchlist: {old_symbols} -> {self.active_symbols}")
+            return self.active_symbols
+        except Exception as e:
+            logger.error(f"[WATCHLIST] Error reloading watchlist: {e}")
+            return self.active_symbols
     
     async def initialize(self):
         """Khởi tạo tất cả các components"""
@@ -125,6 +136,8 @@ class TradingBotApp:
                 telegram_bot.set_queue_timestamps(self.queue_put_timestamps)
                 # Pass stack trace tracking dictionary to telegram bot
                 telegram_bot.set_queue_stack_traces(self.queue_put_stack_traces)
+                # Pass TradingBotApp reference for watchlist synchronization
+                telegram_bot.set_bot_app(self)
                 bot_app = await telegram_bot.start()
                 self.bot_application = bot_app
                 logger.info("Telegram bot application initialized")

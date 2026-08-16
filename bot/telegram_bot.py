@@ -31,6 +31,7 @@ class TelegramBot:
         self.market_data = None
         self.running = False
         self.queue_timestamps = None  # Safe timing tracking dictionary
+        self.bot_app = None  # Reference to TradingBotApp for watchlist sync
 
     def set_dependencies(self, signal_engine, market_data):
         """Set dependencies cho bot"""
@@ -44,6 +45,10 @@ class TelegramBot:
     def set_queue_stack_traces(self, queue_stack_traces):
         """Set the stack trace tracking dictionary for blocking detection"""
         self.queue_stack_traces = queue_stack_traces
+
+    def set_bot_app(self, bot_app):
+        """Set reference to TradingBotApp for watchlist synchronization"""
+        self.bot_app = bot_app
     
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Lệnh /start - Khởi động bot"""
@@ -804,7 +809,14 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
                 symbol = callback_data.replace("watchlist_remove_", "")
                 success = await db.remove_from_watchlist_async(symbol)
                 if success:
+                    logger.info(f"[WATCHLIST] Removed symbol={symbol}")
                     await query.edit_message_text(f"✅ Đã xóa {symbol} khỏi watchlist.")
+                    # Reload watchlist in main app immediately
+                    if self.bot_app:
+                        await self.bot_app.reload_watchlist()
+                        logger.info(f"[WATCHLIST] Active symbols updated={self.bot_app.active_symbols}")
+                    else:
+                        logger.warning("[WATCHLIST] bot_app reference not available for immediate sync")
                 else:
                     await query.edit_message_text(f"❌ Không thể xóa {symbol}.")
 
@@ -891,9 +903,12 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
             if success:
                 logger.info(f"[WATCHLIST SYMBOL INPUT] successfully added {symbol_normalized}")
                 await update.message.reply_text(f"✅ Đã thêm {symbol_normalized} vào watchlist.")
-                # Reload watchlist in main app
-                from core.main import TradingBotApp
-                # Note: We need to trigger a reload, but this is handled on next cycle
+                # Reload watchlist in main app immediately
+                if self.bot_app:
+                    await self.bot_app.reload_watchlist()
+                    logger.info(f"[WATCHLIST] Active symbols updated={self.bot_app.active_symbols}")
+                else:
+                    logger.warning("[WATCHLIST] bot_app reference not available for immediate sync")
             else:
                 logger.error(f"[WATCHLIST SYMBOL INPUT] failed to add {symbol_normalized}")
                 await update.message.reply_text(f"❌ Không thể thêm {symbol_normalized} vào watchlist.")
