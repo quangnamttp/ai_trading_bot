@@ -533,7 +533,7 @@ class TradingBotApp:
                                 # Schedule the queue put on the correct event loop
                                 loop.call_soon_threadsafe(telegram_bot.application.update_queue.put_nowait, update)
                                 queue_size = telegram_bot.application.update_queue.qsize()
-                                logger.info(f"[WEBHOOK QUEUE PUT SUCCESS] update_id={update_id}, queue_size={queue_size}")
+                                logger.info(f"[WEBHOOK QUEUE SCHEDULED] update_id={update_id}, queue_size={queue_size}")
                             else:
                                 logger.error(f"[WEBHOOK QUEUE PUT ERROR] update_id={update_id}, error=Event loop not available or closed")
                                 return 'Error', 503

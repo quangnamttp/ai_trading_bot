@@ -57,23 +57,20 @@ class TelegramBot:
         user = update.effective_user
         update_id = update.update_id
 
-        # Calculate queue wait duration (from webhook queue put to consumer start)
+        # Log queue consumer start and queue wait duration
         queue_wait_duration_ms = 0
         if self.queue_timestamps and update_id in self.queue_timestamps:
             queue_put_timestamp = self.queue_timestamps[update_id]
-            queue_consumer_start = time.time()
-            queue_wait_duration_ms = (queue_consumer_start - datetime.fromisoformat(queue_put_timestamp).timestamp()) * 1000
-            logger.info(f"[QUEUE WAIT] duration_ms={queue_wait_duration_ms:.2f}, update_id={update_id}")
-            if queue_wait_duration_ms > 1000:
-                logger.warning(f"[SLOW QUEUE WAIT] duration_ms={queue_wait_duration_ms:.2f}, update_id={update_id}")
-                # Log stack trace from queue put time to identify blocking operation
-                if self.queue_stack_traces and update_id in self.queue_stack_traces:
-                    stack_trace = self.queue_stack_traces[update_id]
-                    logger.error(f"[BLOCKING STACK TRACE at queue put time] update_id={update_id}:\n{stack_trace}")
-            # Clean up the timestamp after use
+            queue_wait_duration = (datetime.now() - datetime.fromisoformat(queue_put_timestamp)).total_seconds() * 1000
+            logger.info(f"[WEBHOOK QUEUE CONSUMED] update_id={update_id}, queue_wait_duration_ms={queue_wait_duration_ms:.2f}")
+            # Clean up timestamp
             del self.queue_timestamps[update_id]
-            if self.queue_stack_traces and update_id in self.queue_stack_traces:
-                del self.queue_stack_traces[update_id]
+            if update_id in self.queue_put_stack_traces:
+                del self.queue_put_stack_traces[update_id]
+        else:
+            logger.info(f"[WEBHOOK QUEUE CONSUMED] update_id={update_id}, queue_wait_duration_ms=unknown")
+
+        logger.info(f"[TELEGRAM UPDATE HANDLER START] handler=start_command, update_id={update_id}, user_id={user.id}")
 
         # Kiểm tra xem user có bị ban không
         is_banned = await db.is_banned_async(user.id)
@@ -528,8 +525,8 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
         text = update.message.text
         update_id = update.update_id
 
-        print(f"[QUEUE CONSUMER START] timestamp={queue_consumer_start_timestamp}, update_id={update_id}, event_loop_id={event_loop_id}")
-        logger.info(f"[QUEUE CONSUMER START] timestamp={queue_consumer_start_timestamp}, update_id={update_id}, event_loop_id={event_loop_id}")
+        print(f"[WEBHOOK QUEUE CONSUMED] timestamp={queue_consumer_start_timestamp}, update_id={update_id}, event_loop_id={event_loop_id}")
+        logger.info(f"[WEBHOOK QUEUE CONSUMED] timestamp={queue_consumer_start_timestamp}, update_id={update_id}, event_loop_id={event_loop_id}")
 
         # Calculate queue wait duration (from webhook queue put to consumer start)
         queue_wait_duration_ms = 0
@@ -767,7 +764,9 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
         query = update.callback_query
         callback_data = query.data
         user_id = query.from_user.id
+        update_id = update.update_id if hasattr(update, 'update_id') else 'unknown'
 
+        logger.info(f"[TELEGRAM UPDATE HANDLER START] handler=handle_watchlist_callback, update_id={update_id}, user_id={user_id}, callback_data={callback_data}")
         logger.info(f"[WATCHLIST CALLBACK] user_id={user_id}, callback_data={callback_data}")
 
         # Acknowledge callback immediately to prevent loading
