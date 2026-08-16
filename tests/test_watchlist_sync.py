@@ -168,6 +168,7 @@ class TestWatchlistSync:
         with patch('bot.telegram_bot.db') as mock_db:
             mock_db.is_admin_async = AsyncMock(return_value=True)
             mock_db.remove_from_watchlist_async = AsyncMock(return_value=True)
+            mock_db.get_watchlist_async = AsyncMock(return_value=[])
 
             # Mock app reload
             app.reload_watchlist = AsyncMock()
@@ -177,6 +178,49 @@ class TestWatchlistSync:
 
             # Verify reload was called
             app.reload_watchlist.assert_called_once()
+
+    def test_watchlist_refresh_callback(self, setup_database):
+        """Test that watchlist refresh callback works correctly"""
+        from bot.telegram_bot import TelegramBot
+        from core.database import db
+        from telegram import Update, CallbackQuery, User
+
+        bot = TelegramBot()
+
+        # Add symbol to database
+        db.add_to_watchlist("PEPE/USDT:USDT", added_by=123456)
+
+        # Create mock update for refresh callback
+        update = Mock(spec=Update)
+        query = Mock(spec=CallbackQuery)
+        user = Mock(spec=User)
+        user.id = 123456
+        query.from_user = user
+        query.data = "watchlist_refresh"
+        query.answer = AsyncMock()
+        query.edit_message_text = AsyncMock()
+        update.callback_query = query
+
+        # Create mock context
+        from telegram.ext import ContextTypes
+        context = Mock(spec=ContextTypes.DEFAULT_TYPE)
+
+        # Mock database
+        with patch('bot.telegram_bot.db') as mock_db:
+            mock_db.is_admin_async = AsyncMock(return_value=True)
+            mock_db.get_watchlist_async = AsyncMock(return_value=["PEPE/USDT:USDT"])
+
+            import asyncio
+            asyncio.run(bot.handle_watchlist_callback(update, context))
+
+            # Verify callback was acknowledged
+            query.answer.assert_called_once()
+
+            # Verify message was edited (not new message created)
+            query.edit_message_text.assert_called_once()
+
+            # Verify no exception
+            assert True
 
     def test_restart_loads_watchlist_correctly(self, setup_database):
         """Test that bot restart loads watchlist correctly"""
@@ -205,9 +249,9 @@ class TestWatchlistSync:
         app = TradingBotApp()
 
         # Add multiple symbols
-        db.add_to_watchlist("BTC/USDT:USDT", added_by=123456)
-        db.add_to_watchlist("ETH/USDT:USDT", added_by=123456)
-        db.add_to_watchlist("PEPE/USDT:USDT", added_by=123456)
+        db.add_to_watchlist("BTC/USDT:PEPE", added_by=123456)
+        db.add_to_watchlist("ETH/USDT:PEPE", added_by=123456)
+        db.add_to_watchlist("SUI/USDT:PEPE", added_by=123456)
 
         # Reload
         import asyncio
@@ -215,9 +259,9 @@ class TestWatchlistSync:
 
         # Verify all symbols synced
         assert len(app.active_symbols) == 3
-        assert "BTC/USDT:USDT" in app.active_symbols
-        assert "ETH/USDT:USDT" in app.active_symbols
-        assert "PEPE/USDT:USDT" in app.active_symbols
+        assert "BTC/USDT:PEPE" in app.active_symbols
+        assert "ETH/USDT:PEPE" in app.active_symbols
+        assert "SUI/USDT:PEPE" in app.active_symbols
 
     def test_reload_logs_transition(self, setup_database):
         """Test that reload logs the transition from old to new symbols"""
@@ -240,7 +284,7 @@ class TestWatchlistSync:
         asyncio.run(app.load_watchlist())
 
         # Add symbol
-        db.add_to_watchlist("PEPE/USDT:USDT", added_by=123456)
+        db.add_to_watchlist("PEPE/USDT:PEPE", added_by=123456)
 
         # Reload
         asyncio.run(app.reload_watchlist())
@@ -248,7 +292,7 @@ class TestWatchlistSync:
         # Check logs
         log_output = log_capture.getvalue()
         assert "Reloaded watchlist" in log_output
-        assert "PEPE/USDT:USDT" in log_output
+        assert "PEPE/USDT:PEPE" in log_output
 
         logger.removeHandler(handler)
 

@@ -135,9 +135,10 @@ class DatabaseManager:
     def init_database(self):
         """Khởi tạo các bảng database"""
         try:
+            logger.info(f"[DATABASE] path={self.db_path}")
             with self.get_connection() as conn:
                 cursor = conn.cursor()
-                
+
                 # Bảng users - Lưu trữ Telegram users được phép nhận tín hiệu
                 cursor.execute("""
                     CREATE TABLE IF NOT EXISTS users (

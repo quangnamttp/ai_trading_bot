@@ -708,8 +708,8 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
 
         await update.message.reply_text(account_message, parse_mode='HTML')
 
-    async def show_watchlist_manager(self, update: Update, is_admin: bool):
-        """Hiển thị Watchlist Manager"""
+    async def render_watchlist_message(self, update: Update, is_admin: bool, is_callback: bool = False):
+        """Render watchlist message - supports both message and callback contexts"""
         try:
             watchlist = await db.get_watchlist_async()
 
@@ -746,10 +746,21 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
                     ]
 
             reply_markup = InlineKeyboardMarkup(keyboard)
-            await update.message.reply_text(message, reply_markup=reply_markup, parse_mode='HTML')
+
+            if is_callback and update.callback_query:
+                await update.callback_query.edit_message_text(message, reply_markup=reply_markup, parse_mode='HTML')
+            else:
+                await update.message.reply_text(message, reply_markup=reply_markup, parse_mode='HTML')
         except Exception as e:
-            logger.error(f"Error showing watchlist manager: {e}")
-            await update.message.reply_text("❌ Có lỗi xảy ra khi hiển thị watchlist.")
+            logger.error(f"Error rendering watchlist message: {e}")
+            if is_callback and update.callback_query:
+                await update.callback_query.edit_message_text("❌ Có lỗi xảy ra khi hiển thị watchlist.")
+            else:
+                await update.message.reply_text("❌ Có lỗi xảy ra khi hiển thị watchlist.")
+
+    async def show_watchlist_manager(self, update: Update, is_admin: bool):
+        """Hiển thị Watchlist Manager (message context)"""
+        await self.render_watchlist_message(update, is_admin, is_callback=False)
 
     async def handle_watchlist_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Xử lý callback từ Watchlist Manager"""
@@ -810,6 +821,9 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
                 success = await db.remove_from_watchlist_async(symbol)
                 if success:
                     logger.info(f"[WATCHLIST] Removed symbol={symbol}")
+                    # Log database state after remove
+                    watchlist_after = await db.get_watchlist_async()
+                    logger.info(f"[WATCHLIST DB] symbols={watchlist_after}")
                     await query.edit_message_text(f"✅ Đã xóa {symbol} khỏi watchlist.")
                     # Reload watchlist in main app immediately
                     if self.bot_app:
@@ -821,10 +835,10 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
                     await query.edit_message_text(f"❌ Không thể xóa {symbol}.")
 
             elif callback_data == "watchlist_refresh":
-                await self.show_watchlist_manager(update, is_admin)
+                await self.render_watchlist_message(update, is_admin, is_callback=True)
 
             elif callback_data == "watchlist_back":
-                await self.show_watchlist_manager(update, is_admin)
+                await self.render_watchlist_message(update, is_admin, is_callback=True)
 
             elif callback_data == "menu_back":
                 # Return to main menu
@@ -902,6 +916,9 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
             success = await db.add_to_watchlist_async(symbol_normalized, added_by=user_id)
             if success:
                 logger.info(f"[WATCHLIST SYMBOL INPUT] successfully added {symbol_normalized}")
+                # Log database state after add
+                watchlist_after = await db.get_watchlist_async()
+                logger.info(f"[WATCHLIST DB] symbols={watchlist_after}")
                 await update.message.reply_text(f"✅ Đã thêm {symbol_normalized} vào watchlist.")
                 # Reload watchlist in main app immediately
                 if self.bot_app:

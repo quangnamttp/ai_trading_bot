@@ -10,7 +10,6 @@ import numpy as np
 import aiohttp
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
-from core.config import SYMBOLS
 
 logger = logging.getLogger(__name__)
 

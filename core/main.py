@@ -322,13 +322,15 @@ class TradingBotApp:
                 loop_start = time.time()
                 signals_generated_this_cycle = 0
 
+                # Log cycle start with active symbols
+                logger.info(f"[ANALYSIS LOOP] cycle_start, active_symbols={self.active_symbols}")
+
                 # Reload watchlist every 10 cycles (30 minutes) to pick up Telegram changes
                 cycle_count += 1
                 if cycle_count % 10 == 0:
                     await self.load_watchlist()
                     logger.info(f"[ANALYSIS LOOP] reloaded watchlist at cycle {cycle_count}")
 
-                logger.info(f"[ANALYSIS LOOP] cycle_start, active_symbols={self.active_symbols}")
                 for symbol in self.active_symbols:
                     try:
                         symbol_start = time.time()
