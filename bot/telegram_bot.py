@@ -773,13 +773,14 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
         # Acknowledge callback immediately to prevent loading
         try:
             await query.answer()
-            logger.info(f"[WATCHLIST CALLBACK] acknowledged for user_id={user_id}")
+            logger.info(f"[WATCHLIST CALLBACK ACK] user_id={user_id}, callback_data={callback_data}")
         except Exception as e:
-            logger.error(f"[WATCHLIST CALLBACK ERROR] failed to acknowledge: {e}")
+            logger.error(f"[WATCHLIST CALLBACK ACK ERROR] user_id={user_id}, callback_data={callback_data}: {e}")
             return
 
         try:
             is_admin = await db.is_admin_async(user_id)
+            logger.info(f"[WATCHLIST CALLBACK ADMIN CHECK] user_id={user_id}, is_admin={is_admin}")
 
             if callback_data == "watchlist_add":
                 logger.info(f"[WATCHLIST ADD] clicked by user_id={user_id}, is_admin={is_admin}")
@@ -881,56 +882,57 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
         else:
             symbol_normalized = symbol_input
 
-        logger.info(f"[WATCHLIST SYMBOL INPUT] normalized: {symbol_input} -> {symbol_normalized}")
+        logger.info(f"[WATCHLIST NORMALIZED] input={symbol_input}, normalized={symbol_normalized}")
 
         # Validate symbol exists on exchange
         try:
             if self.market_data:
                 # Check if symbol exists by fetching ticker
-                logger.info(f"[WATCHLIST SYMBOL INPUT] validating symbol {symbol_normalized} on exchange")
+                logger.info(f"[WATCHLIST VALIDATING] symbol={symbol_normalized}")
                 ticker = await self.market_data.get_ticker(symbol_normalized)
                 if not ticker:
-                    logger.warning(f"[WATCHLIST SYMBOL INPUT] symbol {symbol_normalized} not found on exchange")
+                    logger.warning(f"[WATCHLIST VALIDATION FAILED] symbol={symbol_normalized} not found on exchange")
                     await update.message.reply_text(f"❌ Symbol {symbol_normalized} không tồn tại trên exchange.")
                     return
-                logger.info(f"[WATCHLIST SYMBOL INPUT] symbol {symbol_normalized} validated successfully")
+                logger.info(f"[WATCHLIST VALIDATED] symbol={symbol_normalized}")
             else:
-                logger.error(f"[WATCHLIST SYMBOL INPUT] market_data engine not available")
+                logger.error(f"[WATCHLIST VALIDATION ERROR] market_data engine not available")
                 await update.message.reply_text("❌ Market data engine không khả dụng.")
                 return
         except Exception as e:
-            logger.error(f"[WATCHLIST SYMBOL INPUT ERROR] validation failed for {symbol_normalized}: {e}", exc_info=True)
+            logger.error(f"[WATCHLIST VALIDATION ERROR] symbol={symbol_normalized}: {e}", exc_info=True)
             await update.message.reply_text(f"❌ Không thể kiểm tra symbol {symbol_normalized}.")
             return
 
         # Check if already in watchlist
         watchlist = await db.get_watchlist_async()
         if symbol_normalized in watchlist:
-            logger.info(f"[WATCHLIST SYMBOL INPUT] symbol {symbol_normalized} already in watchlist")
+            logger.info(f"[WATCHLIST DUPLICATE] symbol={symbol_normalized} already in watchlist")
             await update.message.reply_text(f"⚠️ {symbol_normalized} đã có trong watchlist.")
             return
 
         # Add to watchlist
         try:
-            logger.info(f"[WATCHLIST SYMBOL INPUT] adding {symbol_normalized} to watchlist by user_id={user_id}")
+            logger.info(f"[WATCHLIST DB WRITE START] symbol={symbol_normalized}, user_id={user_id}")
             success = await db.add_to_watchlist_async(symbol_normalized, added_by=user_id)
             if success:
-                logger.info(f"[WATCHLIST SYMBOL INPUT] successfully added {symbol_normalized}")
+                logger.info(f"[WATCHLIST DB WRITE SUCCESS] symbol={symbol_normalized}")
                 # Log database state after add
                 watchlist_after = await db.get_watchlist_async()
-                logger.info(f"[WATCHLIST DB] symbols={watchlist_after}")
+                logger.info(f"[WATCHLIST DB STATE] symbols={watchlist_after}")
                 await update.message.reply_text(f"✅ Đã thêm {symbol_normalized} vào watchlist.")
                 # Reload watchlist in main app immediately
                 if self.bot_app:
+                    logger.info(f"[WATCHLIST RELOAD START] symbol={symbol_normalized}")
                     await self.bot_app.reload_watchlist()
-                    logger.info(f"[WATCHLIST] Active symbols updated={self.bot_app.active_symbols}")
+                    logger.info(f"[WATCHLIST ACTIVE SYMBOLS UPDATED] symbols={self.bot_app.active_symbols}")
                 else:
-                    logger.warning("[WATCHLIST] bot_app reference not available for immediate sync")
+                    logger.error("[WATCHLIST SYNC ERROR] reason=bot_app_none")
             else:
-                logger.error(f"[WATCHLIST SYMBOL INPUT] failed to add {symbol_normalized}")
+                logger.error(f"[WATCHLIST DB WRITE FAILED] symbol={symbol_normalized}")
                 await update.message.reply_text(f"❌ Không thể thêm {symbol_normalized} vào watchlist.")
         except Exception as e:
-            logger.error(f"[WATCHLIST SYMBOL INPUT ERROR] add failed for {symbol_normalized}: {e}", exc_info=True)
+            logger.error(f"[WATCHLIST DB WRITE ERROR] symbol={symbol_normalized}: {e}", exc_info=True)
             await update.message.reply_text(f"❌ Không thể thêm {symbol_normalized} vào watchlist.")
 
     async def show_settings(self, update: Update, is_admin: bool):

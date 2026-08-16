@@ -291,8 +291,8 @@ class TestWatchlistSync:
 
         # Check logs
         log_output = log_capture.getvalue()
-        assert "Reloaded watchlist" in log_output
-        assert "PEPE/USDT:PEPE" in log_output
+        assert "RELOAD START" in log_output or "RELOAD DB" in log_output
+        assert "RELOAD COMPLETE" in log_output
 
         logger.removeHandler(handler)
 

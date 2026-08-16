@@ -90,11 +90,14 @@ class TradingBotApp:
         """Reload watchlist from database immediately (called after add/remove)"""
         try:
             old_symbols = list(self.active_symbols)
-            self.active_symbols = await db.get_watchlist_async()
-            logger.info(f"[WATCHLIST] Reloaded watchlist: {old_symbols} -> {self.active_symbols}")
+            logger.info(f"[WATCHLIST RELOAD START] old_symbols={old_symbols}")
+            db_symbols = await db.get_watchlist_async()
+            logger.info(f"[WATCHLIST RELOAD DB] db_symbols={db_symbols}")
+            self.active_symbols = db_symbols
+            logger.info(f"[WATCHLIST RELOAD COMPLETE] active_symbols={self.active_symbols}")
             return self.active_symbols
         except Exception as e:
-            logger.error(f"[WATCHLIST] Error reloading watchlist: {e}")
+            logger.error(f"[WATCHLIST RELOAD ERROR] {e}", exc_info=True)
             return self.active_symbols
     
     async def initialize(self):
@@ -460,24 +463,55 @@ class TradingBotApp:
                 import asyncio
                 import logging
                 import traceback
+                import threading
                 from telegram import Update
 
-                # Get current event loop ID
+                # Log incoming request
+                logger.info(f"[WEBHOOK REQUEST] method=POST, path=/webhook, timestamp={datetime.now().isoformat()}, content_length={request.content_length}, remote_addr={request.remote_addr}")
+
+                # Get current event loop ID and thread info
                 try:
                     event_loop = asyncio.get_event_loop()
                     event_loop_id = id(event_loop)
-                except RuntimeError:
+                    current_thread = threading.current_thread().name
+                    loop_closed = event_loop.is_closed()
+                    loop_running = event_loop.is_running()
+                    logger.info(f"[WEBHOOK EVENT LOOP] stored_loop_id={id(self.event_loop) if self.event_loop else 'None'}, current_loop_id={event_loop_id}, current_thread={current_thread}, loop_closed={loop_closed}, loop_running={loop_running}")
+                except RuntimeError as e:
                     event_loop = None
                     event_loop_id = "NO_LOOP"
+                    logger.error(f"[WEBHOOK EVENT LOOP ERROR] {e}")
 
                 if telegram_bot.application:
                     try:
                         # Get update from request
                         update_json = request.get_json(force=True)
-                        update_id = update_json.get('update_id') if update_json else None
+                        if not update_json:
+                            logger.error("[WEBHOOK PARSE ERROR] No JSON data received")
+                            return 'Error', 400
+
+                        update_id = update_json.get('update_id')
+                        has_message = 'message' in update_json
+                        has_callback_query = 'callback_query' in update_json
+                        user_id = None
+                        callback_data = None
+                        message_text = None
+
+                        if has_message:
+                            user_id = update_json.get('message', {}).get('from', {}).get('id')
+                            message_text = update_json.get('message', {}).get('text')
+                        elif has_callback_query:
+                            user_id = update_json.get('callback_query', {}).get('from', {}).get('id')
+                            callback_data = update_json.get('callback_query', {}).get('data')
+
+                        logger.info(f"[WEBHOOK RECEIVED] update_id={update_id}, has_message={has_message}, has_callback_query={has_callback_query}, user_id={user_id}, callback_data={callback_data}, message_text={message_text}")
+
+                        if not has_message and not has_callback_query:
+                            logger.warning(f"[WEBHOOK UNKNOWN UPDATE] update_id={update_id}, update_type={list(update_json.keys())}")
 
                         # Put update into application's update_queue using thread-safe method
                         try:
+                            logger.info(f"[WEBHOOK QUEUE PUT START] update_id={update_id}")
                             queue_put_timestamp = datetime.now().isoformat()
                             update = Update.de_json(update_json, telegram_bot.application.bot)
                             # Store queue put timestamp in safe dictionary keyed by update_id
@@ -498,12 +532,13 @@ class TradingBotApp:
                             if loop and not loop.is_closed():
                                 # Schedule the queue put on the correct event loop
                                 loop.call_soon_threadsafe(telegram_bot.application.update_queue.put_nowait, update)
-                                logger.info(f"[WEBHOOK QUEUE PUT] update_id={update_id}")
+                                queue_size = telegram_bot.application.update_queue.qsize()
+                                logger.info(f"[WEBHOOK QUEUE PUT SUCCESS] update_id={update_id}, queue_size={queue_size}")
                             else:
-                                logger.error(f"[WEBHOOK QUEUE PUT] update_id={update_id}, error=Event loop not available")
+                                logger.error(f"[WEBHOOK QUEUE PUT ERROR] update_id={update_id}, error=Event loop not available or closed")
                                 return 'Error', 503
                         except Exception as e:
-                            logger.error(f"Webhook queue put error: update_id={update_id}, error={e}", exc_info=True)
+                            logger.error(f"[WEBHOOK QUEUE PUT ERROR] update_id={update_id}, error={e}", exc_info=True)
                             # Return 200 to prevent Telegram from retrying, even if queue put failed
                             # Handler errors will be logged separately by the Telegram Application
                             return 'OK', 200
@@ -511,10 +546,10 @@ class TradingBotApp:
                         return 'OK', 200
 
                     except Exception as e:
-                        logger.error(f"Webhook error: {e}", exc_info=True)
+                        logger.error(f"[WEBHOOK ERROR] {e}", exc_info=True)
                         return 'Error', 500
                 else:
-                    logger.error("Bot not initialized for webhook")
+                    logger.error("[WEBHOOK ERROR] Bot not initialized for webhook")
                     return 'Bot not initialized', 503
 
             # Run Flask in a separate thread
