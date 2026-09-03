@@ -537,6 +537,23 @@ class MarketDataEngine:
             else:
                 indicators['ema_20_prev'] = None
                 indicators['ema_50_prev'] = None
+
+            # Phát hiện cú cắt EMA20/EMA50 trong N nến gần nhất (không chỉ nến ngay trước đó).
+            # Trước đây chỉ so với 1 nến trước -> yêu cầu cú cắt đúng khoảnh khắc quét, xác suất
+            # cực thấp khi kết hợp với hàng loạt điều kiện khác trong signal_engine.filter_signal(),
+            # khiến bot gần như không bao giờ đủ điều kiện gửi tín hiệu trong thực tế.
+            cross_lookback = min(5, len(df) - 1)
+            indicators['ema_cross_bullish_recent'] = False
+            indicators['ema_cross_bearish_recent'] = False
+            if cross_lookback >= 1:
+                window = df.iloc[-(cross_lookback + 1):]
+                ema20_series = window['ema_20'].values
+                ema50_series = window['ema_50'].values
+                for i in range(1, len(ema20_series)):
+                    if ema20_series[i - 1] <= ema50_series[i - 1] and ema20_series[i] > ema50_series[i]:
+                        indicators['ema_cross_bullish_recent'] = True
+                    if ema20_series[i - 1] >= ema50_series[i - 1] and ema20_series[i] < ema50_series[i]:
+                        indicators['ema_cross_bearish_recent'] = True
             
             return indicators
         except Exception as e:

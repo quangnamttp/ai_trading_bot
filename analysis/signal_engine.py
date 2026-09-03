@@ -679,12 +679,12 @@ class SignalEngine:
                 logger.info(f"[SIGNAL FILTER] reason=FUNDING_INVALID")
                 return {'action': 'WAIT', 'reason': 'FUNDING_INVALID'}
             
-            # 8. 15M Entry Filter (EMA20/EMA50 with cross detection)
+            # 8. 15M Entry Filter (EMA20/EMA50 with cross detection trong 5 nến gần nhất)
             price_15m = indicators_15m.get('price', 0)
             ema_20_15m = indicators_15m.get('ema_20', 0)
             ema_50_15m = indicators_15m.get('ema_50', 0)
-            ema_20_prev = indicators_15m.get('ema_20_prev', None)
-            ema_50_prev = indicators_15m.get('ema_50_prev', None)
+            ema_cross_bullish_recent = indicators_15m.get('ema_cross_bullish_recent', False)
+            ema_cross_bearish_recent = indicators_15m.get('ema_cross_bearish_recent', False)
             
             entry_trend = 'neutral'
             ema_cross_detected = False
@@ -696,16 +696,10 @@ class SignalEngine:
                 entry_trend = 'neutral'
             elif ema_20_15m > ema_50_15m:
                 entry_trend = 'bullish'
-                # Check for bullish cross in current or previous candle
-                if ema_20_prev and ema_50_prev:
-                    if ema_20_prev <= ema_50_prev and ema_20_15m > ema_50_15m:
-                        ema_cross_detected = True
+                ema_cross_detected = ema_cross_bullish_recent
             elif ema_20_15m < ema_50_15m:
                 entry_trend = 'bearish'
-                # Check for bearish cross in current or previous candle
-                if ema_20_prev and ema_50_prev:
-                    if ema_20_prev >= ema_50_prev and ema_20_15m < ema_50_15m:
-                        ema_cross_detected = True
+                ema_cross_detected = ema_cross_bearish_recent
             
             if entry_trend != macro_trend:
                 logger.info(f"[SIGNAL FILTER] symbol={symbol}")
@@ -715,7 +709,8 @@ class SignalEngine:
                 logger.info(f"[SIGNAL FILTER] reason=EMA_NEUTRAL")
                 return {'action': 'WAIT', 'reason': 'EMA_NEUTRAL'}
             
-            # Check for EMA cross (must have cross in current or ±1 candle)
+            # Check for EMA cross trong 5 nến gần nhất (trước đây chỉ 1 nến - quá hẹp,
+            # gần như không bao giờ khớp cùng lúc với các điều kiện khác)
             if not ema_cross_detected:
                 logger.info(f"[SIGNAL FILTER] symbol={symbol}")
                 logger.info(f"[SIGNAL FILTER] entry_15m={entry_trend}")
@@ -729,7 +724,11 @@ class SignalEngine:
             if atr_15m_for_gann and atr_15m_for_gann > 0:
                 gann_support = gann_analysis.get('support')
                 gann_resistance = gann_analysis.get('resistance')
-                gann_proximity_threshold = atr_15m_for_gann * 0.3
+                # Nới ngưỡng từ 0.3x lên 0.6x ATR - 0.3x quá hẹp, gần như không bao giờ khớp
+                # cùng lúc với các điều kiện khác (macro trend, Gann trend, EMA cross, volume...),
+                # là một trong các nguyên nhân chính khiến bot không gửi được tín hiệu nào
+                # trong thời gian dài dù thị trường có setup hợp lý.
+                gann_proximity_threshold = atr_15m_for_gann * 0.6
                 
                 if macro_trend == 'bullish' and gann_resistance:
                     distance_to_resistance = abs(price_15m - gann_resistance)
