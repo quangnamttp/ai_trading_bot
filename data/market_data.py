@@ -238,14 +238,48 @@ class MarketDataEngine:
             logger.error(f"Error fetching order book for {symbol}: {e}")
             return None
     
-    async def get_open_interest(self, symbol: str) -> Optional[Dict]:
-        """Lấy Open Interest từ MEXC với caching - checks capability before calling API"""
-        # Skip if symbol is unsupported
-        if not self._is_symbol_supported(symbol):
+    def _to_mexc_contract_symbol(self, symbol: str) -> str:
+        """Chuyển symbol dạng ccxt (vd: 'BTC/USDT:USDT') sang dạng MEXC contract API (vd: 'BTC_USDT')"""
+        base = symbol.split(':')[0]  # 'BTC/USDT:USDT' -> 'BTC/USDT'
+        return base.replace('/', '_')
+
+    async def _fetch_mexc_oi_raw(self, symbol: str) -> Optional[Dict]:
+        """Gọi thẳng API công khai của MEXC Futures (không qua ccxt, không cần API key)
+        vì ccxt không hỗ trợ fetchOpenInterest cho MEXC (đã xác nhận qua log thực tế khi chạy bot).
+        Endpoint: GET https://contract.mexc.com/api/v1/contract/ticker?symbol=BTC_USDT
+        Trả về field 'holdVol' = Open Interest (docs: mexc.com/api-docs/futures)"""
+        try:
+            contract_symbol = self._to_mexc_contract_symbol(symbol)
+            url = "https://contract.mexc.com/api/v1/contract/ticker"
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, params={'symbol': contract_symbol},
+                                        timeout=aiohttp.ClientTimeout(total=8.0)) as response:
+                    if response.status != 200:
+                        return None
+                    payload = await response.json()
+
+            if not payload.get('success') or not payload.get('data'):
+                return None
+
+            data = payload['data']
+            hold_vol = data.get('holdVol')
+            if hold_vol is None:
+                return None
+
+            return {
+                'openInterestAmount': float(hold_vol),
+                'symbol': symbol,
+                'timestamp': data.get('timestamp')
+            }
+        except Exception as e:
+            logger.debug(f"MEXC raw open interest fetch failed for {symbol}: {e}")
             return None
 
-        # Check MEXC capability once - if not supported, return None immediately
-        if not self.mexc_has_open_interest:
+    async def get_open_interest(self, symbol: str) -> Optional[Dict]:
+        """Lấy Open Interest - ccxt không hỗ trợ fetchOpenInterest cho MEXC nên fallback
+        sang gọi thẳng REST API công khai của MEXC (không cần API key)."""
+        # Skip if symbol is unsupported
+        if not self._is_symbol_supported(symbol):
             return None
 
         cache_key = f"{symbol}_open_interest"
@@ -256,29 +290,32 @@ class MarketDataEngine:
             logger.debug(f"Using cached open interest for {symbol}")
             return self.data_cache[cache_key]
 
-        # Fetch fresh data
-        try:
-            if 'mexc' not in self.exchanges:
-                logger.warning("MEXC exchange not initialized for open interest")
-                return None
+        oi_data = None
 
-            exchange_instance = self.exchanges['mexc']
+        # Ưu tiên ccxt nếu có hỗ trợ (hiếm khi đúng với MEXC, nhưng giữ để tương thích tương lai)
+        if self.mexc_has_open_interest and 'mexc' in self.exchanges:
+            try:
+                exchange_instance = self.exchanges['mexc']
 
-            async def fetch():
-                return await exchange_instance.fetch_open_interest(symbol)
+                async def fetch():
+                    return await exchange_instance.fetch_open_interest(symbol)
 
-            oi_data = await self._fetch_with_retry(fetch)
+                oi_data = await self._fetch_with_retry(fetch)
+            except Exception as e:
+                logger.debug(f"MEXC ccxt open interest failed for {symbol}: {e}")
+                oi_data = None
 
-            if oi_data:
-                self.data_cache[cache_key] = oi_data
-                self.last_update[cache_key] = datetime.now()
-                self.cache_ttl[cache_key] = ttl_seconds
-                logger.debug(f"Successfully fetched open interest for {symbol} from MEXC")
+        # Fallback: gọi thẳng REST API công khai MEXC (không cần key)
+        if not oi_data:
+            oi_data = await self._fetch_mexc_oi_raw(symbol)
 
-            return oi_data
-        except Exception as e:
-            logger.debug(f"MEXC open interest failed for {symbol}: {e}")
-            return None
+        if oi_data:
+            self.data_cache[cache_key] = oi_data
+            self.last_update[cache_key] = datetime.now()
+            self.cache_ttl[cache_key] = ttl_seconds
+            logger.debug(f"Successfully fetched open interest for {symbol}")
+
+        return oi_data
     
     async def get_funding_rate(self, symbol: str) -> Optional[Dict]:
         """Lấy Funding Rate từ MEXC với caching (returns None if not supported)"""
