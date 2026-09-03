@@ -18,6 +18,7 @@ class SignalTracker:
     def __init__(self):
         self.active_signals = {}
         self.check_interval = 60  # Check every 60 seconds
+        self.telegram_bot = None  # Lưu reference để tự phục hồi tracking sau khi bot restart
     
     async def start_tracking(self, signal_id: int, symbol: str, signal_type: str,
                             entry_price: float, tp1: float, tp2: float, tp3: float,
@@ -118,10 +119,10 @@ class SignalTracker:
                     signal['sl_hit'] = True
                     await db.update_signal_tracking_async(tracking_id, sl_hit=True)
             
-            # Nếu hit SL hoặc TP3, đóng tín hiệu
-            if status in ['SL', 'TP3']:
-                await self.close_signal(tracking_id, current_price, status)
-            
+            # Nếu hit SL hoặc TP3, coi như tín hiệu đã hoàn tất (đóng position hoàn toàn).
+            # LƯU Ý: việc đóng (close_signal) được thực hiện ở monitoring_loop, SAU KHI gửi
+            # thông báo - không đóng ở đây, vì đóng trước sẽ xoá dữ liệu khỏi self.active_signals
+            # khiến send_notification() không tìm thấy signal để gửi (bug đã fix).
             return status
         except Exception as e:
             logger.error(f"Error checking signal status: {e}")
@@ -197,7 +198,17 @@ class SignalTracker:
             
             # Cập nhật database (use async version)
             await db.close_signal_tracking_async(tracking_id, final_pnl=pnl)
-            
+
+            # QUAN TRỌNG: mở khoá bảng signals chính ngay khi tín hiệu chốt (TP3/SL),
+            # để bot có thể tạo tín hiệu mới cho coin này ngay, thay vì phải chờ giá
+            # trôi dạt hơn 1% mới tự hết hạn (check_entry_validity).
+            original_signal_id = signal.get('signal_id')
+            if original_signal_id:
+                try:
+                    await db.update_signal_status_async(original_signal_id, 'closed')
+                except Exception as e:
+                    logger.error(f"Error updating signals table status for signal_id={original_signal_id}: {e}")
+
             # Xóa khỏi active signals
             del self.active_signals[tracking_id]
             
@@ -218,17 +229,40 @@ class SignalTracker:
                 for signal_data in active_signals:
                     tracking_id = signal_data['id']
 
-                    # Nếu chưa trong memory, thêm vào
+                    # Nếu chưa có trong bộ nhớ (ví dụ bot vừa restart) -> phục hồi từ DB
+                    # thay vì bỏ qua vĩnh viễn (bug cũ khiến tín hiệu "mồ côi" không bao giờ
+                    # được chốt TP/SL, dẫn đến bảng signals bị khoá sai và có thể gây
+                    # tín hiệu chồng chéo).
                     if tracking_id not in self.active_signals:
-                        # Cần telegram_bot reference - sẽ được set từ main
-                        continue
+                        if not self.telegram_bot:
+                            # Chưa có telegram_bot reference (mới khởi động) - thử lại chu kỳ sau
+                            continue
+                        self.active_signals[tracking_id] = {
+                            'signal_id': signal_data.get('signal_id'),
+                            'symbol': signal_data['symbol'],
+                            'signal_type': signal_data['signal_type'],
+                            'entry_price': signal_data['entry_price'],
+                            'tp1': signal_data['tp1'],
+                            'tp2': signal_data['tp2'],
+                            'tp3': signal_data['tp3'],
+                            'stop_loss': signal_data['stop_loss'],
+                            'telegram_bot': self.telegram_bot,
+                            'tp1_hit': bool(signal_data.get('tp1_hit')),
+                            'tp2_hit': bool(signal_data.get('tp2_hit')),
+                            'tp3_hit': bool(signal_data.get('tp3_hit')),
+                            'sl_hit': bool(signal_data.get('sl_hit'))
+                        }
+                        logger.info(f"[SIGNAL TRACKER] Restored tracking {tracking_id} ({signal_data['symbol']}) from database after restart")
 
                     # Kiểm tra trạng thái
                     status = await self.check_signal_status(tracking_id)
 
                     if status:
                         current_price = await self.get_current_price(signal_data['symbol'])
+                        # Gửi thông báo TRƯỚC khi đóng, để send_notification còn tìm thấy signal
                         await self.send_notification(tracking_id, status, current_price)
+                        if status in ('SL', 'TP3'):
+                            await self.close_signal(tracking_id, current_price, status)
 
                 await asyncio.sleep(self.check_interval)
 
@@ -247,6 +281,7 @@ class SignalTracker:
     
     def set_telegram_bot(self, telegram_bot):
         """Set telegram bot reference"""
+        self.telegram_bot = telegram_bot
         for tracking_id in self.active_signals:
             self.active_signals[tracking_id]['telegram_bot'] = telegram_bot
 

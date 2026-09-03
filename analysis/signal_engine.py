@@ -507,7 +507,13 @@ class SignalEngine:
                 'symbol': symbol,
                 'action': action,
                 'ai_score': ai_score,
-                'chart_path': chart_path
+                'chart_path': chart_path,
+                # Giá trị số thực (không phải chuỗi) để signal_tracker theo dõi TP/SL chính xác
+                'entry_price': price,
+                'tp1': take_profits['TP1'],
+                'tp2': take_profits['TP2'],
+                'tp3': take_profits['TP3'],
+                'stop_loss': stop_loss
             }
         except Exception as e:
             logger.error(f"Error creating signal: {e}")

@@ -82,6 +82,10 @@ class DatabaseManager:
         """Async wrapper for get_active_signals to prevent event loop blocking"""
         return await asyncio.to_thread(self.get_active_signals)
 
+    async def update_signal_status_async(self, signal_id: int, status: str) -> bool:
+        """Async wrapper for update_signal_status to prevent event loop blocking"""
+        return await asyncio.to_thread(self.update_signal_status, signal_id, status)
+
     async def save_statistics_async(self, report_type: str, period: str, stats: Dict) -> Optional[int]:
         """Async wrapper for save_statistics to prevent event loop blocking"""
         return await asyncio.to_thread(self.save_statistics, report_type, period, stats)

@@ -410,6 +410,25 @@ class TradingBotApp:
                             await telegram_bot.send_signal(signal['message'], chart_path)
                             logger.info(f"Best signal of cycle sent for {symbol} (out of {len(candidates)} candidates)")
                             signals_generated_this_cycle += 1
+
+                            # QUAN TRỌNG: bắt đầu theo dõi TP/SL cho tín hiệu này.
+                            # Nếu không có bước này, bot sẽ không biết tín hiệu cũ đã "xong" hay chưa,
+                            # dẫn đến nguy cơ báo tín hiệu mới đè lên tín hiệu cũ chưa chốt.
+                            if signal.get('signal_id'):
+                                try:
+                                    await signal_tracker.start_tracking(
+                                        signal_id=signal['signal_id'],
+                                        symbol=symbol,
+                                        signal_type=signal['action'],
+                                        entry_price=signal['entry_price'],
+                                        tp1=signal['tp1'],
+                                        tp2=signal['tp2'],
+                                        tp3=signal['tp3'],
+                                        stop_loss=signal['stop_loss'],
+                                        telegram_bot=telegram_bot
+                                    )
+                                except Exception as e:
+                                    logger.error(f"Error starting signal tracking for {symbol}: {e}")
                         else:
                             logger.warning(f"Signal creation failed for best candidate {symbol}")
 

@@ -181,6 +181,7 @@ class MarketDataEngine:
 
             ohlcv = await self._fetch_with_retry(fetch)
 
+            df = None
             if ohlcv:
                 # Chuyển thành DataFrame - run in thread pool to avoid blocking
                 df = await asyncio.to_thread(self._ohlcv_to_dataframe, ohlcv)
@@ -188,6 +189,8 @@ class MarketDataEngine:
                 self.data_cache[cache_key] = df
                 self.last_update[cache_key] = datetime.now()
                 self.cache_ttl[cache_key] = ttl_seconds
+            else:
+                logger.warning(f"Empty OHLCV data returned for {symbol} {timeframe}")
 
             return df
         except Exception as e:
@@ -545,7 +548,8 @@ class MarketDataEngine:
         import time
         start_time = time.time()
         try:
-            df = await self.get_ohlcv(symbol, timeframe, limit=100)
+            # 300 nến để EMA200 đủ dữ liệu hội tụ đúng (xem ghi chú ở get_symbol_data)
+            df = await self.get_ohlcv(symbol, timeframe, limit=300)
             if df is None:
                 return None
 
@@ -787,7 +791,10 @@ class MarketDataEngine:
             }
 
             # Fetch OHLCV for all requested timeframes
-            ohlcv_tasks = {tf: self.get_ohlcv(symbol, tf, limit=100) for tf in timeframes}
+            # Lấy 300 nến thay vì 100 để EMA200 (bộ lọc xu hướng vĩ mô quan trọng nhất trong
+            # pipeline lọc tín hiệu) có đủ dữ liệu "khởi động" và hội tụ đúng giá trị thực tế.
+            # Với 100 nến, EMA200 sẽ bị lệch vì công thức EMA cần đủ lịch sử để ổn định.
+            ohlcv_tasks = {tf: self.get_ohlcv(symbol, tf, limit=300) for tf in timeframes}
             ohlcv_results = await asyncio.gather(*ohlcv_tasks.values(), return_exceptions=True)
             ohlcv_dfs = {tf: result for tf, result in zip(timeframes, ohlcv_results) if not isinstance(result, Exception) and result is not None}
 
