@@ -105,36 +105,39 @@ class GannEngine:
             return {}
 
     def determine_gann_trend(self, df: pd.DataFrame, levels: Dict) -> str:
-        """Xác định xu hướng theo Gann"""
+        """Xác định xu hướng dựa trên động lượng giá thực tế (10 nến gần nhất).
+
+        (Đã bỏ logic cũ "gần support thì bullish / gần resistance thì bearish":
+        đó là tư duy hồi quy về trung bình (mean-reversion), MÂU THUẪN với triết lý
+        theo xu hướng (trend-following) của toàn bộ bot - trong 1 xu hướng tăng mạnh,
+        giá luôn nằm gần đỉnh vùng resistance của chính nó, logic cũ sẽ chấm nhầm
+        thành 'bearish' dù xu hướng đang tăng rất tốt. Logic cũ còn có bug: vì
+        nearest_support luôn < giá và nearest_resistance luôn > giá theo cách
+        identify_gann_levels() định nghĩa (tính từ chính giá hiện tại, không phải
+        từ 1 điểm pivot cố định trong quá khứ như Gann angle thật), nên 1 nhánh
+        kiểm tra không bao giờ chạy được (dead code).
+        Vùng support/resistance Gann vẫn được dùng để tính điểm vào lệnh và TP/SL
+        ở nơi khác trong pipeline, chỉ không dùng để xác định HƯỚNG xu hướng nữa.)"""
         try:
-            if not levels:
+            if not levels or len(df) < 2:
                 return 'neutral'
 
-            latest = df.iloc[-1]
-            price = latest['close']
-            nearest_support = levels.get('nearest_support', 0)
-            nearest_resistance = levels.get('nearest_resistance', 0)
-
-            if nearest_support == 0 or nearest_resistance == 0:
+            lookback = min(10, len(df) - 1)
+            if lookback <= 0:
                 return 'neutral'
 
-            # Khoảng cách đến support/resistance
-            dist_to_support = (price - nearest_support) / price
-            dist_to_resistance = (nearest_resistance - price) / price
+            price = df.iloc[-1]['close']
+            past_price = df.iloc[-1 - lookback]['close']
+            if not past_price:
+                return 'neutral'
 
-            # Nếu gần support hơn → bullish bias
-            if dist_to_support < dist_to_resistance:
-                # Kiểm tra xem giá có đang trên 1x1 line không
-                if price > nearest_support:
-                    return 'bullish'
-                else:
-                    return 'bearish'
-            else:
-                # Nếu gần resistance hơn → bearish bias
-                if price < nearest_resistance:
-                    return 'bearish'
-                else:
-                    return 'bullish'
+            momentum = (price - past_price) / past_price
+
+            if momentum > 0.001:  # tăng > 0.1% trong 10 nến gần nhất
+                return 'bullish'
+            elif momentum < -0.001:
+                return 'bearish'
+            return 'neutral'  # đi ngang, không đủ động lượng để xác nhận xu hướng
 
         except Exception as e:
             logger.error(f"Error determining Gann trend: {e}")
@@ -183,8 +186,9 @@ class GannEngine:
         try:
             logger.info(f"Starting Gann analysis for {symbol}")
 
-            # Lấy dữ liệu OHLCV
-            df = await market_data_engine.get_ohlcv(symbol, timeframe='1h', limit=100)
+            # Lấy dữ liệu OHLCV - 200 nến (~8 ngày trên khung 1H) để vùng hỗ trợ/kháng cự
+            # phản ánh đúng cấu trúc thị trường hơn, thay vì chỉ 100 nến (~4 ngày, quá ngắn)
+            df = await market_data_engine.get_ohlcv(symbol, timeframe='1h', limit=200)
             if df is None or len(df) < 50:
                 logger.warning(f"Insufficient data for Gann analysis: {symbol}")
                 return {
