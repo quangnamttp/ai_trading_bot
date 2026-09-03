@@ -18,6 +18,8 @@ class SmartMoneyTracker:
         self.whale_alerts = []
         self.large_trades = []
         self.smart_money_indicators = {}
+        # Lịch sử Open Interest thực tế để tính % thay đổi thật (thay cho số liệu giả trước đây)
+        self.oi_history = {}  # {symbol: [(timestamp, oi_value), ...]}
     
     async def track_whale_activity(self, symbol: str) -> List[Dict]:
         """Theo dõi hoạt động cá voi"""
@@ -129,7 +131,8 @@ class SmartMoneyTracker:
             return {'sentiment': 'neutral', 'rate': 0}
     
     async def analyze_open_interest(self, symbol: str, market_data) -> Dict:
-        """Phân tích Open Interest"""
+        """Phân tích Open Interest - so sánh với lịch sử thực tế đã ghi nhận
+        (trước đây dùng số liệu giả cố định 5.2%, đã fix để tính % thay đổi thật)"""
         try:
             oi_data = await market_data.get_open_interest(symbol)
 
@@ -143,9 +146,35 @@ class SmartMoneyTracker:
                 logger.debug(f"Open interest is string for {symbol}: {open_interest}")
                 return {'trend': 'neutral', 'change': 0}
 
-            # Trong thực tế, cần so sánh với giá trị trước đó
-            # Đây là mô phỏng
-            change_percent = 5.2  # +5.2%
+            if not open_interest or open_interest <= 0:
+                return {'trend': 'neutral', 'change': 0}
+
+            now = datetime.now()
+            history = self.oi_history.setdefault(symbol, [])
+            history.append((now, open_interest))
+
+            # Chỉ giữ lịch sử trong 6 giờ gần nhất để so sánh
+            cutoff = now - timedelta(hours=6)
+            history[:] = [(t, v) for (t, v) in history if t > cutoff]
+
+            # Cần ít nhất 1 điểm dữ liệu cũ (~1h trước) để so sánh có ý nghĩa
+            reference = None
+            for t, v in history:
+                if t <= now - timedelta(minutes=45):
+                    reference = v
+                    break  # điểm cũ nhất còn trong cửa sổ 6h, gần mốc 1h nhất
+
+            if reference is None or reference == 0:
+                # Chưa đủ lịch sử để so sánh (mới khởi động bot) -> trung lập, không suy diễn
+                return {
+                    'trend': 'neutral',
+                    'change': 0,
+                    'open_interest': open_interest,
+                    'note': 'Chưa đủ dữ liệu lịch sử để so sánh (cần chạy thêm ~45-60 phút)',
+                    'timestamp': now.isoformat()
+                }
+
+            change_percent = ((open_interest - reference) / reference) * 100
 
             if change_percent > 10:
                 trend = 'strongly_increasing'
@@ -160,9 +189,9 @@ class SmartMoneyTracker:
 
             return {
                 'trend': trend,
-                'change': change_percent,
+                'change': round(change_percent, 2),
                 'open_interest': open_interest,
-                'timestamp': datetime.now().isoformat()
+                'timestamp': now.isoformat()
             }
         except Exception as e:
             logger.error(f"Error analyzing open interest for {symbol}: {e}")
@@ -328,6 +357,71 @@ class SmartMoneyTracker:
         except Exception as e:
             logger.error(f"Error getting smart money summary for {symbol}: {e}")
             return "❌ Không thể lấy tóm tắt Smart Money"
+
+    async def get_cashflow_verdict(self, symbol: str, market_data) -> Dict:
+        """Đánh giá 'Dòng tiền' cho 1 coin: kết hợp Funding Rate (tâm lý phe Long/Short)
+        + Open Interest thật (tiền mới vào/ra thị trường futures) + biến động giá gần nhất,
+        theo logic OI+Price kinh điển dùng trong phân tích futures crypto:
+
+        - OI tăng + Giá tăng  -> Long mới mở vị thế (dòng tiền MỚI đang bơm vào, xu hướng tăng có lực)
+        - OI tăng + Giá giảm  -> Short mới mở vị thế (dòng tiền MỚI đang bơm vào, xu hướng giảm có lực)
+        - OI giảm + Giá tăng  -> Short đóng vị thế / short covering (tiền rút khỏi phe Short)
+        - OI giảm + Giá giảm  -> Long đóng vị thế / chốt lời-cắt lỗ (tiền rút khỏi phe Long)
+        """
+        try:
+            funding = await self.analyze_funding_rate(symbol, market_data)
+            oi = await self.analyze_open_interest(symbol, market_data)
+            ticker = await market_data.get_ticker(symbol)
+
+            price_change_percent = 0
+            if ticker:
+                price_change_percent = ticker.get('percentage', 0) or 0
+
+            oi_trend = oi.get('trend', 'neutral')
+            oi_increasing = oi_trend in ('increasing', 'strongly_increasing')
+            oi_decreasing = oi_trend in ('decreasing', 'strongly_decreasing')
+
+            if oi.get('note'):
+                verdict = 'Chưa đủ dữ liệu'
+                detail = oi['note']
+            elif oi_increasing and price_change_percent > 0:
+                verdict = '🟢 Dòng tiền MỚI đang bơm vào (Long)'
+                detail = 'Open Interest tăng cùng chiều giá tăng - lực mua thực sự, không phải hồi kỹ thuật.'
+            elif oi_increasing and price_change_percent < 0:
+                verdict = '🔴 Dòng tiền MỚI đang bơm vào (Short)'
+                detail = 'Open Interest tăng trong khi giá giảm - phe Short đang vào mạnh, xu hướng giảm có lực đẩy.'
+            elif oi_decreasing and price_change_percent > 0:
+                verdict = '🟡 Dòng tiền đang RÚT (Short đóng lệnh)'
+                detail = 'Open Interest giảm trong khi giá tăng - nhiều khả năng là short covering, cần thận trọng vì có thể chỉ là hồi kỹ thuật ngắn hạn.'
+            elif oi_decreasing and price_change_percent < 0:
+                verdict = '🟡 Dòng tiền đang RÚT (Long đóng lệnh)'
+                detail = 'Open Interest giảm cùng chiều giá giảm - long đang chốt lời/cắt lỗ, áp lực bán có thể hạ nhiệt dần.'
+            else:
+                verdict = '⚪ Dòng tiền ổn định / chưa rõ xu hướng'
+                detail = 'Open Interest chưa biến động đáng kể.'
+
+            return {
+                'symbol': symbol,
+                'verdict': verdict,
+                'detail': detail,
+                'funding_rate': funding.get('rate', 0),
+                'funding_sentiment': funding.get('sentiment', 'neutral'),
+                'oi_change_percent': oi.get('change', 0),
+                'oi_trend': oi_trend,
+                'price_change_percent': price_change_percent
+            }
+        except Exception as e:
+            logger.error(f"Error getting cashflow verdict for {symbol}: {e}")
+            return {
+                'symbol': symbol,
+                'verdict': '⚪ Không lấy được dữ liệu',
+                'detail': str(e),
+                'funding_rate': 0,
+                'funding_sentiment': 'neutral',
+                'oi_change_percent': 0,
+                'oi_trend': 'neutral',
+                'price_change_percent': 0
+            }
 
 
 # Singleton instance

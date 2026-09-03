@@ -32,6 +32,7 @@ class TelegramBot:
         self.running = False
         self.queue_timestamps = None  # Safe timing tracking dictionary
         self.bot_app = None  # Reference to TradingBotApp for watchlist sync
+        self.active_cashflow_refreshers = {}  # {(chat_id, message_id): asyncio.Task} cho nút Dòng tiền tự làm mới
 
     def set_dependencies(self, signal_engine, market_data):
         """Set dependencies cho bot"""
@@ -227,7 +228,7 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
 
             if news_summary:
                 logger.info(f"[NEWS COMMAND SENDING RESPONSE] user_id={user_id}, timestamp={datetime.now().isoformat()}")
-                await update.message.reply_text(news_summary, parse_mode='Markdown')
+                await update.message.reply_text(news_summary, parse_mode='HTML')
                 logger.info(f"[NEWS COMMAND RESPONSE SENT] user_id={user_id}, timestamp={datetime.now().isoformat()}")
             else:
                 logger.error("[NEWS COMMAND ERROR] News summary not available")
@@ -470,6 +471,7 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
                 [InlineKeyboardButton("⚙️ Cài đặt", callback_data="menu_settings")],
                 [InlineKeyboardButton("📈 Thị trường", callback_data="menu_market")],
                 [InlineKeyboardButton("📰 Tin tức", callback_data="menu_news")],
+                [InlineKeyboardButton("💰 Dòng tiền", callback_data="menu_cashflow")],
                 [InlineKeyboardButton("📋 Danh sách lệnh", callback_data="menu_commands")],
                 [InlineKeyboardButton("❓ Trợ giúp", callback_data="menu_help")]
             ]
@@ -481,6 +483,7 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
                 [InlineKeyboardButton("👤 Tài khoản", callback_data="menu_account")],
                 [InlineKeyboardButton("📈 Thị trường", callback_data="menu_market")],
                 [InlineKeyboardButton("📰 Tin tức", callback_data="menu_news")],
+                [InlineKeyboardButton("💰 Dòng tiền", callback_data="menu_cashflow")],
                 [InlineKeyboardButton("📋 Danh sách lệnh", callback_data="menu_commands")],
                 [InlineKeyboardButton("❓ Trợ giúp", callback_data="menu_help")]
             ]
@@ -690,6 +693,91 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
         """Hiển thị tin tức"""
         await self.news_command(update, None)
 
+    async def render_cashflow_message(self, is_admin: bool, autorefresh_on: bool = False) -> tuple:
+        """Xây dựng nội dung + bàn phím cho màn hình Dòng tiền.
+        Trả về (text, reply_markup)."""
+        try:
+            from data.smart_money import smart_money_tracker
+            from core.economic_calendar import get_upcoming_macro_events
+            from core.config import clean_symbol
+
+            watchlist = await db.get_watchlist_async()
+            now_str = datetime.now().strftime('%H:%M:%S')
+
+            message = "💰 <b>DÒNG TIỀN THỊ TRƯỜNG</b>\n"
+            message += f"<i>Cập nhật lúc {now_str} (giờ VN)</i>\n\n"
+
+            if not watchlist:
+                message += "Chưa có coin nào trong watchlist để theo dõi dòng tiền.\n"
+            elif not self.market_data:
+                message += "❌ Market data engine chưa sẵn sàng.\n"
+            else:
+                message += "<b>📊 Theo từng coin (Funding Rate + Open Interest):</b>\n\n"
+                for symbol in watchlist:
+                    display_symbol = clean_symbol(symbol)
+                    try:
+                        cf = await smart_money_tracker.get_cashflow_verdict(symbol, self.market_data)
+                        message += f"<b>{display_symbol}</b>: {cf['verdict']}\n"
+                        message += f"  Funding: {cf['funding_rate']*100:.4f}% | OI: {cf['oi_change_percent']:+.2f}% | Giá 24h: {cf['price_change_percent']:+.2f}%\n"
+                        message += f"  <i>{cf['detail']}</i>\n\n"
+                    except Exception as e:
+                        logger.error(f"[CASHFLOW] error for {symbol}: {e}")
+                        message += f"<b>{display_symbol}</b>: ❌ Không lấy được dữ liệu\n\n"
+
+            # Lịch vĩ mô sắp tới (FOMC/CPI/NFP) - các mốc thường gây bơm/rút dòng tiền lớn
+            events = get_upcoming_macro_events(limit=3)
+            if events:
+                message += "<b>📅 Sự kiện sắp gây biến động dòng tiền:</b>\n"
+                for e in events:
+                    tag = " (ước tính)" if e.get('is_estimate') else ""
+                    message += f"• <b>{e['event']}</b>{tag} - còn {e['days_left']} ngày ({e['date_display']})\n"
+
+            message += f"\n{'🔴 Đang tự làm mới mỗi 60 giây' if autorefresh_on else '⚪ Tự làm mới: đang tắt'}"
+
+            keyboard = [
+                [InlineKeyboardButton("🔄 Làm mới ngay", callback_data="cashflow_refresh")],
+            ]
+            if autorefresh_on:
+                keyboard.append([InlineKeyboardButton("⏸ Dừng tự làm mới", callback_data="cashflow_autorefresh_stop")])
+            else:
+                keyboard.append([InlineKeyboardButton("▶️ Tự làm mới mỗi phút", callback_data="cashflow_autorefresh_start")])
+            keyboard.append([InlineKeyboardButton("⬅️ Quay lại", callback_data="menu_back")])
+
+            return message, InlineKeyboardMarkup(keyboard)
+        except Exception as e:
+            logger.error(f"Error rendering cashflow message: {e}", exc_info=True)
+            return "❌ Có lỗi khi lấy dữ liệu dòng tiền.", InlineKeyboardMarkup(
+                [[InlineKeyboardButton("⬅️ Quay lại", callback_data="menu_back")]]
+            )
+
+    async def show_cashflow(self, update: Update, is_admin: bool):
+        """Hiển thị màn hình Dòng tiền (message context, ví dụ /menu -> Dòng tiền lần đầu)"""
+        message, reply_markup = await self.render_cashflow_message(is_admin, autorefresh_on=False)
+        await update.message.reply_text(message, reply_markup=reply_markup, parse_mode='HTML')
+
+    async def _cashflow_autorefresh_loop(self, chat_id: int, message_id: int, is_admin: bool):
+        """Vòng lặp tự động sửa (edit) tin nhắn Dòng tiền mỗi 60 giây.
+        Tự dừng sau 30 lần lặp (~30 phút) để tránh chạy vô hạn nếu người dùng quên tắt."""
+        import asyncio
+        max_iterations = 30
+        try:
+            for _ in range(max_iterations):
+                await asyncio.sleep(60)
+                message, reply_markup = await self.render_cashflow_message(is_admin, autorefresh_on=True)
+                try:
+                    await self.application.bot.edit_message_text(
+                        chat_id=chat_id, message_id=message_id,
+                        text=message, reply_markup=reply_markup, parse_mode='HTML'
+                    )
+                except Exception as e:
+                    # Tin nhắn có thể đã bị xoá hoặc nội dung không đổi - bỏ qua và tiếp tục
+                    logger.debug(f"[CASHFLOW AUTOREFRESH] edit skipped: {e}")
+        except asyncio.CancelledError:
+            logger.info(f"[CASHFLOW AUTOREFRESH] cancelled for chat_id={chat_id}, message_id={message_id}")
+            raise
+        finally:
+            self.active_cashflow_refreshers.pop((chat_id, message_id), None)
+
     async def show_account(self, update: Update, is_admin: bool):
         """Hiển thị tài khoản"""
         user = update.effective_user
@@ -708,11 +796,14 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
     async def render_watchlist_message(self, update: Update, is_admin: bool, is_callback: bool = False):
         """Render watchlist message - supports both message and callback contexts"""
         try:
+            from core.config import MAX_WATCHLIST_COINS
             watchlist = await db.get_watchlist_async()
+            is_full = len(watchlist) >= MAX_WATCHLIST_COINS
 
             if not watchlist:
                 message = "🪙 <b>DANH SÁCH COIN</b>\n\n"
-                message += "Chưa có coin nào trong watchlist.\n\n"
+                message += "Chưa có coin nào trong watchlist.\n"
+                message += f"Tối đa: {MAX_WATCHLIST_COINS} coin.\n\n"
                 if is_admin:
                     keyboard = [
                         [InlineKeyboardButton("➕ Thêm coin", callback_data="watchlist_add")],
@@ -727,15 +818,18 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
                 message += "<b>Danh sách ACTIVE:</b>\n\n"
                 for symbol in watchlist:
                     message += f"• {symbol}\n"
-                message += f"\nTổng: {len(watchlist)} coin\n\n"
+                message += f"\nTổng: {len(watchlist)}/{MAX_WATCHLIST_COINS} coin"
+                if is_full:
+                    message += " (đã đầy)"
+                message += "\n\n"
 
                 if is_admin:
-                    keyboard = [
-                        [InlineKeyboardButton("➕ Thêm coin", callback_data="watchlist_add")],
-                        [InlineKeyboardButton("➖ Xóa coin", callback_data="watchlist_remove")],
-                        [InlineKeyboardButton("🔄 Làm mới", callback_data="watchlist_refresh")],
-                        [InlineKeyboardButton("⬅️ Quay lại", callback_data="menu_back")]
-                    ]
+                    keyboard = []
+                    if not is_full:
+                        keyboard.append([InlineKeyboardButton("➕ Thêm coin", callback_data="watchlist_add")])
+                    keyboard.append([InlineKeyboardButton("➖ Xóa coin", callback_data="watchlist_remove")])
+                    keyboard.append([InlineKeyboardButton("🔄 Làm mới", callback_data="watchlist_refresh")])
+                    keyboard.append([InlineKeyboardButton("⬅️ Quay lại", callback_data="menu_back")])
                 else:
                     keyboard = [
                         [InlineKeyboardButton("🔄 Làm mới", callback_data="watchlist_refresh")],
@@ -758,6 +852,54 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
     async def show_watchlist_manager(self, update: Update, is_admin: bool):
         """Hiển thị Watchlist Manager (message context)"""
         await self.render_watchlist_message(update, is_admin, is_callback=False)
+
+    async def handle_cashflow_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Xử lý callback từ màn hình Dòng tiền (làm mới / bật-tắt tự làm mới mỗi phút)"""
+        import asyncio
+        query = update.callback_query
+        callback_data = query.data
+        user_id = query.from_user.id
+        chat_id = query.message.chat_id
+        message_id = query.message.message_id
+
+        try:
+            await query.answer()
+        except Exception:
+            pass
+
+        is_admin = await db.is_admin_async(user_id)
+        key = (chat_id, message_id)
+
+        try:
+            if callback_data == "cashflow_refresh":
+                is_running = key in self.active_cashflow_refreshers
+                message, reply_markup = await self.render_cashflow_message(is_admin, autorefresh_on=is_running)
+                await query.edit_message_text(message, reply_markup=reply_markup, parse_mode='HTML')
+
+            elif callback_data == "cashflow_autorefresh_start":
+                # Huỷ task cũ nếu có, tránh chạy trùng
+                old_task = self.active_cashflow_refreshers.pop(key, None)
+                if old_task:
+                    old_task.cancel()
+
+                task = asyncio.create_task(self._cashflow_autorefresh_loop(chat_id, message_id, is_admin))
+                self.active_cashflow_refreshers[key] = task
+
+                message, reply_markup = await self.render_cashflow_message(is_admin, autorefresh_on=True)
+                await query.edit_message_text(message, reply_markup=reply_markup, parse_mode='HTML')
+                logger.info(f"[CASHFLOW AUTOREFRESH] started for chat_id={chat_id}, message_id={message_id}")
+
+            elif callback_data == "cashflow_autorefresh_stop":
+                task = self.active_cashflow_refreshers.pop(key, None)
+                if task:
+                    task.cancel()
+
+                message, reply_markup = await self.render_cashflow_message(is_admin, autorefresh_on=False)
+                await query.edit_message_text(message, reply_markup=reply_markup, parse_mode='HTML')
+                logger.info(f"[CASHFLOW AUTOREFRESH] stopped for chat_id={chat_id}, message_id={message_id}")
+
+        except Exception as e:
+            logger.error(f"[CASHFLOW CALLBACK ERROR] callback_data={callback_data}: {e}", exc_info=True)
 
     async def handle_watchlist_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Xử lý callback từ Watchlist Manager"""
@@ -786,6 +928,14 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
                 if not is_admin:
                     await query.edit_message_text("⛔ Chỉ Admin mới có thể thêm coin.")
                     logger.warning(f"[WATCHLIST ADD] denied for non-admin user_id={user_id}")
+                    return
+                from core.config import MAX_WATCHLIST_COINS
+                current_watchlist = await db.get_watchlist_async()
+                if len(current_watchlist) >= MAX_WATCHLIST_COINS:
+                    await query.edit_message_text(
+                        f"⚠️ Watchlist đã đạt tối đa {MAX_WATCHLIST_COINS} coin.\n"
+                        f"Vui lòng xoá bớt coin cũ trước khi thêm coin mới."
+                    )
                     return
                 try:
                     await query.edit_message_text("➕ <b>Thêm coin</b>\n\nNhập symbol muốn thêm.\nVí dụ: BTC ETH SUI DOGE XRP", parse_mode='HTML')
@@ -908,6 +1058,16 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
         if symbol_normalized in watchlist:
             logger.info(f"[WATCHLIST DUPLICATE] symbol={symbol_normalized} already in watchlist")
             await update.message.reply_text(f"⚠️ {symbol_normalized} đã có trong watchlist.")
+            return
+
+        # Giới hạn tối đa số coin trong watchlist
+        from core.config import MAX_WATCHLIST_COINS
+        if len(watchlist) >= MAX_WATCHLIST_COINS:
+            logger.info(f"[WATCHLIST LIMIT] symbol={symbol_normalized} rejected, watchlist full ({len(watchlist)}/{MAX_WATCHLIST_COINS})")
+            await update.message.reply_text(
+                f"⚠️ Watchlist đã đạt tối đa {MAX_WATCHLIST_COINS} coin.\n"
+                f"Vui lòng xoá bớt coin cũ (➖ Xoá coin) trước khi thêm coin mới."
+            )
             return
 
         # Add to watchlist
@@ -1137,7 +1297,7 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
                 from data.news_engine import news_engine
                 news_summary = await news_engine.get_news_summary()
                 if news_summary:
-                    await query.edit_message_text(news_summary, reply_markup=reply_markup, parse_mode='Markdown')
+                    await query.edit_message_text(news_summary, reply_markup=reply_markup, parse_mode='HTML')
                 else:
                     await query.edit_message_text(
                         "📰 <b>Tin tức</b>\n\n❌ Tin tức không khả dụng lúc này.",
@@ -1149,6 +1309,20 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
                 await query.edit_message_text(
                     "📰 <b>Tin tức</b>\n\n❌ Lỗi khi tải tin tức.",
                     reply_markup=reply_markup,
+                    parse_mode='HTML'
+                )
+
+        # Menu Dòng tiền
+        elif query.data == "menu_cashflow":
+            try:
+                message, reply_markup = await self.render_cashflow_message(is_admin, autorefresh_on=False)
+                await query.edit_message_text(message, reply_markup=reply_markup, parse_mode='HTML')
+            except Exception as e:
+                logger.error(f"Error in menu_cashflow: {e}", exc_info=True)
+                keyboard = self.get_navigation_keyboard("menu_main")
+                await query.edit_message_text(
+                    "💰 <b>Dòng tiền</b>\n\n❌ Lỗi khi tải dữ liệu dòng tiền.",
+                    reply_markup=InlineKeyboardMarkup(keyboard),
                     parse_mode='HTML'
                 )
 
@@ -1348,6 +1522,7 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
             self.application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
             # Register watchlist callback BEFORE general button_callback to ensure it's processed first
             self.application.add_handler(CallbackQueryHandler(self.handle_watchlist_callback, pattern='^watchlist_'))
+            self.application.add_handler(CallbackQueryHandler(self.handle_cashflow_callback, pattern='^cashflow_'))
             self.application.add_handler(CallbackQueryHandler(self.button_callback))
             handlers_added_timestamp = datetime.now().isoformat()
             print(f"[TELEGRAM APPLICATION HANDLERS ADDED] timestamp={handlers_added_timestamp}, event_loop_id={event_loop_id}")

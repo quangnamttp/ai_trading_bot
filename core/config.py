@@ -66,6 +66,9 @@ FUNDING_RATE_MAX = float(os.getenv("FUNDING_RATE_MAX", "0.0005"))  # 0.05% as de
 ATR_REGIME_MIN = float(os.getenv("ATR_REGIME_MIN", "0.7"))
 ATR_REGIME_MAX = float(os.getenv("ATR_REGIME_MAX", "2.5"))
 
+# Watchlist Configuration
+MAX_WATCHLIST_COINS = int(os.getenv("MAX_WATCHLIST_COINS", "10"))
+
 def clean_symbol(symbol: str) -> str:
     """Clean symbol for user-facing display (remove exchange suffix)"""
     if ":USDT" in symbol:
