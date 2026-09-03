@@ -541,14 +541,12 @@ class SignalEngine:
                 logger.info(f"[SIGNAL FILTER] reason=DAILY_LIMIT_REACHED")
                 return {'action': 'WAIT', 'reason': 'DAILY_LIMIT_REACHED'}
             
-            # 2. Check cooldown
-            if symbol in self.last_signal_time:
-                cooldown_elapsed = (datetime.now() - self.last_signal_time[symbol]).total_seconds()
-                if cooldown_elapsed < SIGNAL_COOLDOWN_MINUTES * 60:
-                    logger.info(f"[SIGNAL FILTER] symbol={symbol}")
-                    logger.info(f"[SIGNAL FILTER] decision=WAIT")
-                    logger.info(f"[SIGNAL FILTER] reason=COOLDOWN_ACTIVE")
-                    return {'action': 'WAIT', 'reason': 'COOLDOWN_ACTIVE'}
+            # 2. Check cooldown (DB-backed, per symbol - fixes previous dead in-memory check)
+            if not await self.check_cooldown(symbol):
+                logger.info(f"[SIGNAL FILTER] symbol={symbol}")
+                logger.info(f"[SIGNAL FILTER] decision=WAIT")
+                logger.info(f"[SIGNAL FILTER] reason=COOLDOWN_ACTIVE")
+                return {'action': 'WAIT', 'reason': 'COOLDOWN_ACTIVE'}
             
             # 3. Get multi-timeframe market data (4H, 1H, 15M)
             symbol_data = await market_data_engine.get_symbol_data(symbol, timeframes=['4h', '1h', '15m'])
@@ -816,6 +814,8 @@ class SignalEngine:
                     logger.info(f"[SIGNAL FILTER] decision=WAIT")
                     logger.info(f"[SIGNAL FILTER] reason=RR_TOO_LOW")
                     return {'action': 'WAIT', 'reason': 'RR_TOO_LOW'}
+            else:
+                calculated_rr = RR_MIN
             
             # 16. All filters passed - return signal
             logger.info(f"[SIGNAL FILTER] symbol={symbol}")
@@ -836,12 +836,56 @@ class SignalEngine:
                 'action': ai_action,
                 'reason': 'ALL_FILTERS_PASSED',
                 'symbol_data': symbol_data,
-                'gann_analysis': gann_analysis
+                'gann_analysis': gann_analysis,
+                # Extra fields used only for cross-symbol ranking (best-of-cycle selection)
+                'ai_score': ai_score,
+                'calculated_rr': calculated_rr,
+                'gann_confidence': gann_confidence
             }
             
         except Exception as e:
             logger.error(f"Error in signal filter: {e}")
             return {'action': 'WAIT', 'reason': 'FILTER_ERROR'}
+
+    def score_candidate(self, ai_score: float, calculated_rr: float, gann_confidence: float) -> float:
+        """Chấm điểm 1 candidate đã pass hết filter, dùng để so sánh & chọn tín hiệu tốt nhất
+        trong nhiều coin ở cùng 1 chu kỳ quét. Điểm càng cao càng ưu tiên gửi.
+
+        Trọng số: AI Score là chính (0-95), cộng thêm điểm thưởng cho R:R tốt và Gann confidence cao,
+        để ưu tiên coin vừa có xác suất đúng cao (AI) vừa có setup rủi ro/lợi nhuận tốt hơn.
+        """
+        rr_bonus = min(calculated_rr, 3.0) * 5       # tối đa +15 điểm nếu R:R >= 3
+        gann_bonus = gann_confidence * 10             # tối đa +10 điểm nếu Gann confidence = 1.0
+        return ai_score + rr_bonus + gann_bonus
+
+    def rank_and_pick_best(self, candidates: list) -> Optional[Dict]:
+        """Nhận danh sách candidate (mỗi candidate đã pass full filter cho 1 symbol trong cùng
+        1 chu kỳ quét) và trả về candidate tốt nhất duy nhất để gửi tín hiệu.
+
+        candidates: List[Dict] với keys: symbol, analysis, filter_result
+        """
+        if not candidates:
+            return None
+
+        scored = []
+        for c in candidates:
+            fr = c['filter_result']
+            score = self.score_candidate(
+                fr.get('ai_score', 0),
+                fr.get('calculated_rr', 0),
+                fr.get('gann_confidence', 0)
+            )
+            scored.append((score, c))
+
+        scored.sort(key=lambda x: x[0], reverse=True)
+
+        best_score, best_candidate = scored[0]
+
+        if len(scored) > 1:
+            summary = ", ".join(f"{c['symbol']}={s:.1f}" for s, c in scored)
+            logger.info(f"[SIGNAL RANKING] candidates_this_cycle=[{summary}] -> chosen={best_candidate['symbol']} (score={best_score:.1f})")
+
+        return best_candidate
     
     async def analyze_symbol(self, symbol: str) -> Optional[str]:
         """Phân tích symbol với chiến lược Gann + EMA Trend + ATR"""

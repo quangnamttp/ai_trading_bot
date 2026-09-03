@@ -334,6 +334,9 @@ class TradingBotApp:
                     await self.load_watchlist()
                     logger.info(f"[ANALYSIS LOOP] reloaded watchlist at cycle {cycle_count}")
 
+                # PASS 1: Quét toàn bộ watchlist, thu thập MỌI coin đã pass full filter
+                # (không gửi ngay) để có thể so sánh và chọn ra tín hiệu tốt nhất trong chu kỳ này.
+                candidates = []
                 for symbol in self.active_symbols:
                     try:
                         symbol_start = time.time()
@@ -371,25 +374,15 @@ class TradingBotApp:
                             filtered_action = filter_result.get('action')
                             filter_reason = filter_result.get('reason')
 
-                            # Chỉ tạo signal nếu filter cho phép LONG hoặc SHORT
+                            # Coin nào pass hết filter thì đưa vào danh sách ứng viên, CHƯA gửi vội
                             if filtered_action in ['LONG', 'SHORT']:
-                                # Update analysis with filtered action
                                 analysis['action'] = filtered_action
                                 analysis['reasons'] = analysis.get('reasons', []) + [f'Filter: {filter_reason}']
-
-                                # Pass pre-fetched data to avoid duplicate fetches
-                                symbol_data = filter_result.get('symbol_data')
-                                gann_analysis = filter_result.get('gann_analysis')
-                                signal = await signal_engine.create_signal(analysis, symbol_data, gann_analysis)
-
-                                if signal and signal.get('message'):
-                                    # Gửi tín hiệu qua Telegram với chart
-                                    chart_path = signal.get('chart_path')
-                                    await telegram_bot.send_signal(signal['message'], chart_path)
-                                    logger.info(f"Signal sent for {symbol}")
-                                    signals_generated_this_cycle += 1
-                                else:
-                                    logger.warning(f"Signal creation failed for {symbol} despite valid filter")
+                                candidates.append({
+                                    'symbol': symbol,
+                                    'analysis': analysis,
+                                    'filter_result': filter_result
+                                })
                             else:
                                 logger.info(f"Signal filtered for {symbol}: {filter_reason}")
 
@@ -398,6 +391,27 @@ class TradingBotApp:
                         logger.debug(f"AI analysis completed for {symbol}")
                     except Exception as e:
                         logger.error(f"Error analyzing {symbol}: {e}")
+
+                # PASS 2: Trong số các coin đạt chuẩn ở chu kỳ này, chỉ chọn 1 tín hiệu TỐT NHẤT để gửi.
+                # Việc này tránh spam nhiều tín hiệu cùng lúc và đảm bảo chất lượng > số lượng.
+                if candidates:
+                    best = signal_engine.rank_and_pick_best(candidates)
+                    if best:
+                        symbol = best['symbol']
+                        analysis = best['analysis']
+                        filter_result = best['filter_result']
+                        symbol_data = filter_result.get('symbol_data')
+                        gann_analysis = filter_result.get('gann_analysis')
+
+                        signal = await signal_engine.create_signal(analysis, symbol_data, gann_analysis)
+
+                        if signal and signal.get('message'):
+                            chart_path = signal.get('chart_path')
+                            await telegram_bot.send_signal(signal['message'], chart_path)
+                            logger.info(f"Best signal of cycle sent for {symbol} (out of {len(candidates)} candidates)")
+                            signals_generated_this_cycle += 1
+                        else:
+                            logger.warning(f"Signal creation failed for best candidate {symbol}")
 
                 # Log if no signals were generated in this cycle
                 if signals_generated_this_cycle == 0:
