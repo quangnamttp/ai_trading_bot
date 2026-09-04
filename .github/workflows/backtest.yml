@@ -1,0 +1,102 @@
+name: Backtest chiến lược (dữ liệu MEXC thật)
+
+# Cách xem kết quả (KHÔNG cần biết lập trình):
+# 1. Vào tab "Actions" trên trang GitHub của repo này
+# 2. Bấm vào lần chạy mới nhất của workflow "Backtest chiến lược (dữ liệu MEXC thật)"
+# 3. Kết quả tóm tắt hiện ngay trên trang (mục "Summary"), không cần tải file gì cả
+# 4. Muốn xem chi tiết từng lệnh: tải file trong mục "Artifacts" ở cuối trang, mở bằng Excel
+
+on:
+  workflow_dispatch:
+    inputs:
+      symbols:
+        description: 'Danh sách coin cần backtest (cách nhau bởi dấu phẩy)'
+        required: false
+        default: 'BTC/USDT:USDT,ETH/USDT:USDT,SOL/USDT:USDT,XRP/USDT:USDT'
+      days:
+        description: 'Số ngày lịch sử cần test'
+        required: false
+        default: '150'
+  push:
+    branches: [main]
+    paths:
+      - 'analysis/gann_engine.py'
+      - 'analysis/signal_engine.py'
+      - 'analysis/ai_engine.py'
+      - 'data/market_data.py'
+      - 'core/config.py'
+      - 'tools/backtest.py'
+
+jobs:
+  backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Cài đặt thư viện
+        run: pip install -r requirements.txt
+
+      - name: Chạy backtest
+        run: |
+          python tools/backtest.py \
+            --symbols "${{ github.event.inputs.symbols || 'BTC/USDT:USDT,ETH/USDT:USDT,SOL/USDT:USDT,XRP/USDT:USDT' }}" \
+            --days "${{ github.event.inputs.days || '150' }}"
+
+      - name: Ghi tóm tắt kết quả (hiện ngay trên trang Actions)
+        if: always()
+        run: |
+          python3 - << 'EOF'
+          import json, os
+
+          summary_path = os.environ.get('GITHUB_STEP_SUMMARY')
+          report_path = 'tools/backtest_report.json'
+
+          if not os.path.exists(report_path):
+              with open(summary_path, 'a') as f:
+                  f.write("# ❌ Backtest lỗi\n\nKhông tạo được file báo cáo. Xem log ở bước 'Chạy backtest' phía trên để biết chi tiết lỗi.\n")
+              exit(0)
+
+          with open(report_path, encoding='utf-8') as f:
+              data = json.load(f)
+
+          lines = []
+          lines.append(f"# 📊 Kết quả Backtest\n")
+          lines.append(f"Thời gian test: **{data['days']} ngày** | Chạy lúc: {data['run_at']}\n")
+          lines.append(f"**Tổng tín hiệu toàn watchlist: {data['total_signals_all_symbols']}** "
+                        f"(~{data['signals_per_day_all_symbols']} tín hiệu/ngày)\n")
+          lines.append("\n| Coin | Số tín hiệu | Tín hiệu/tuần | Win rate (đạt TP1+) | Full TP3 | Chỉ dính SL | PnL TB/lệnh |")
+          lines.append("|---|---|---|---|---|---|---|")
+          for r in data['results']:
+              if 'error' in r:
+                  lines.append(f"| {r['symbol']} | ⚠️ lỗi: {r['error']} | - | - | - | - | - |")
+                  continue
+              lines.append(
+                  f"| {r['symbol']} | {r['total_signals']} | {r['signals_per_week']} | "
+                  f"{r['win_rate_pct']}% | {r['full_tp3_count']} | {r['sl_only_count']} | {r['avg_pnl_pct']:+.2f}% |"
+              )
+
+          lines.append("\n---")
+          lines.append("\n⚠️ **Lưu ý quan trọng:** Đây là backtest với các giới hạn đã ghi rõ ở đầu file "
+                        "`tools/backtest.py` (dùng khung 1H thay 15M, không mô phỏng funding/OI/news lịch sử, "
+                        "không tính phí giao dịch/trượt giá). Kết quả quá khứ KHÔNG đảm bảo kết quả tương lai. "
+                        "Dùng để phát hiện vấn đề rõ ràng (quá ít tín hiệu, hoặc win rate bất thường thấp), "
+                        "không phải lời hứa lợi nhuận.")
+
+          with open(summary_path, 'a') as f:
+              f.write("\n".join(lines))
+          EOF
+
+      - name: Lưu báo cáo chi tiết (Artifacts)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backtest-report
+          path: |
+            tools/backtest_report.json
+            tools/backtest_report.csv
+          retention-days: 90
