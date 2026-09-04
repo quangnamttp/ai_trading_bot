@@ -75,6 +75,47 @@ class TradingBotApp:
             stack.extend(stack_trace)
         return ''.join(stack)
 
+    async def sync_watchlist_from_env(self):
+        """Đồng bộ watchlist từ biến môi trường WATCHLIST_SYMBOLS (nếu có cấu hình).
+
+        Lý do cần bước này: Render gói Free có filesystem tạm (ephemeral) - toàn bộ dữ liệu
+        trong SQLite (bao gồm watchlist) bị xoá mỗi khi server "ngủ" sau 15 phút không có traffic
+        rồi khởi động lại. Biến môi trường trên Render KHÔNG bị mất qua các lần restart này, nên
+        dùng nó làm nguồn cấu hình bền vững, miễn phí, không cần nâng cấp gói trả phí hay đổi
+        sang database khác.
+
+        Cách dùng: đặt biến WATCHLIST_SYMBOLS trên Render Dashboard (Environment), vd "BTC,ETH,SOL,XRP".
+        Mỗi lần bot khởi động (kể cả sau khi Render tự ngủ/thức dậy), watchlist sẽ được ghi đè lại
+        đúng theo danh sách này. Nếu để trống, bot giữ nguyên watchlist đang có trong DB (hành vi cũ,
+        thêm/xoá qua nút Telegram - nhưng sẽ vẫn bị mất khi Render restart do giới hạn gói Free).
+        """
+        try:
+            from core.config import WATCHLIST_SYMBOLS_ENV, normalize_symbol, MAX_WATCHLIST_COINS
+
+            if not WATCHLIST_SYMBOLS_ENV.strip():
+                logger.info("[WATCHLIST ENV SYNC] WATCHLIST_SYMBOLS không được cấu hình - bỏ qua, dùng watchlist hiện có trong DB")
+                return
+
+            raw_symbols = [s.strip() for s in WATCHLIST_SYMBOLS_ENV.split(',') if s.strip()]
+            target_symbols = [normalize_symbol(s) for s in raw_symbols][:MAX_WATCHLIST_COINS]
+
+            current_symbols = await db.get_watchlist_async()
+
+            if set(current_symbols) == set(target_symbols):
+                logger.info(f"[WATCHLIST ENV SYNC] Đã khớp với WATCHLIST_SYMBOLS, không cần đổi: {target_symbols}")
+                return
+
+            logger.info(f"[WATCHLIST ENV SYNC] Đồng bộ lại watchlist theo WATCHLIST_SYMBOLS: {target_symbols} (trước đó: {current_symbols})")
+
+            for symbol in current_symbols:
+                await db.remove_from_watchlist_async(symbol)
+            for symbol in target_symbols:
+                await db.add_to_watchlist_async(symbol)
+
+            logger.info(f"[WATCHLIST ENV SYNC] Hoàn tất, watchlist hiện tại: {target_symbols}")
+        except Exception as e:
+            logger.error(f"[WATCHLIST ENV SYNC] Lỗi khi đồng bộ từ biến môi trường: {e}", exc_info=True)
+
     async def load_watchlist(self):
         """Load watchlist from database"""
         try:
@@ -161,6 +202,11 @@ class TradingBotApp:
                 logger.info(f"Admin {TELEGRAM_ADMIN_ID} added to database")
             except Exception as e:
                 logger.error(f"Failed to add admin to database: {e}")
+
+            # Đồng bộ watchlist từ WATCHLIST_SYMBOLS (nếu có cấu hình) - CHỈ 1 LẦN lúc khởi động,
+            # để làm mới lại đúng baseline mong muốn sau mỗi lần Render restart/ngủ-dậy.
+            # Sau bước này, thêm/xoá qua Telegram trong phiên vẫn hoạt động bình thường.
+            await self.sync_watchlist_from_env()
 
             # Load watchlist from database
             await self.load_watchlist()

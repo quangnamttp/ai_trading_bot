@@ -19,6 +19,8 @@ services:
         value: "https://ai-trading-bot-8wqe.onrender.com/webhook"
       - key: DATABASE_PATH
         value: "database/trading_bot.db"
+      - key: WATCHLIST_SYMBOLS
+        value: "BTC,ETH,SOL,XRP"
       - key: BINANCE_API_KEY
         value: ""
         sync: false

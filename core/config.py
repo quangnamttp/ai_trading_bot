@@ -69,6 +69,24 @@ ATR_REGIME_MAX = float(os.getenv("ATR_REGIME_MAX", "2.5"))
 # Watchlist Configuration
 MAX_WATCHLIST_COINS = int(os.getenv("MAX_WATCHLIST_COINS", "10"))
 
+# Danh sách coin cấu hình qua biến môi trường (bền vững qua mỗi lần Render restart/deploy,
+# khác với watchlist lưu trong SQLite - vốn bị xoá mỗi khi Render free tier "ngủ" sau 15 phút
+# không có traffic, vì filesystem của gói free là ephemeral, không giữ được qua restart).
+# Cách dùng: vào Render Dashboard -> Environment -> sửa biến WATCHLIST_SYMBOLS,
+# ví dụ "BTC,ETH,SOL,XRP" -> Render tự động deploy lại, danh sách coin được đồng bộ lại
+# đúng như env var mỗi khi bot khởi động (kể cả sau khi ngủ/thức dậy).
+WATCHLIST_SYMBOLS_ENV = os.getenv("WATCHLIST_SYMBOLS", "")
+
+
+def normalize_symbol(raw: str) -> str:
+    """Chuẩn hoá 1 mã coin về format dùng cho MEXC futures qua ccxt, vd: 'BTC' -> 'BTC/USDT:USDT'.
+    Dùng chung giữa nút Telegram và việc đồng bộ từ biến môi trường WATCHLIST_SYMBOLS."""
+    s = raw.strip().upper()
+    if '/' not in s:
+        s = f"{s}/USDT:USDT"
+    return s
+
+
 def clean_symbol(symbol: str) -> str:
     """Clean symbol for user-facing display (remove exchange suffix)"""
     if ":USDT" in symbol:

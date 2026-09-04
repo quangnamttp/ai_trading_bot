@@ -1025,11 +1025,8 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
         logger.info(f"[WATCHLIST SYMBOL INPUT] state cleared for user_id={user_id}")
 
         # Normalize symbol
-        if not '/' in symbol_input:
-            # Add exchange suffix
-            symbol_normalized = f"{symbol_input}/USDT:USDT"
-        else:
-            symbol_normalized = symbol_input
+        from core.config import normalize_symbol
+        symbol_normalized = normalize_symbol(symbol_input)
 
         logger.info(f"[WATCHLIST NORMALIZED] input={symbol_input}, normalized={symbol_normalized}")
 
