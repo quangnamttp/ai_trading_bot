@@ -76,36 +76,36 @@ class TradingBotApp:
         return ''.join(stack)
 
     async def sync_watchlist_from_env(self):
-        """Đồng bộ watchlist từ biến môi trường WATCHLIST_SYMBOLS (nếu có cấu hình).
+        """Đồng bộ watchlist từ biến môi trường TRADING_SYMBOLS (nếu có cấu hình).
 
         Lý do cần bước này: Render gói Free có filesystem tạm (ephemeral) - toàn bộ dữ liệu
         trong SQLite (bao gồm watchlist) bị xoá mỗi khi server "ngủ" sau 15 phút không có traffic
         rồi khởi động lại. Biến môi trường trên Render KHÔNG bị mất qua các lần restart này, nên
-        dùng nó làm nguồn cấu hình bền vững, miễn phí, không cần nâng cấp gói trả phí hay đổi
-        sang database khác.
+        dùng nó làm nguồn cấu hình bền vững DUY NHẤT, miễn phí, không cần nâng cấp gói trả phí
+        hay đổi sang database khác. Không còn nút thêm/xoá coin trên Telegram nữa - toàn bộ
+        quản lý watchlist thực hiện qua biến môi trường này.
 
-        Cách dùng: đặt biến WATCHLIST_SYMBOLS trên Render Dashboard (Environment), vd "BTC,ETH,SOL,XRP".
-        Mỗi lần bot khởi động (kể cả sau khi Render tự ngủ/thức dậy), watchlist sẽ được ghi đè lại
-        đúng theo danh sách này. Nếu để trống, bot giữ nguyên watchlist đang có trong DB (hành vi cũ,
-        thêm/xoá qua nút Telegram - nhưng sẽ vẫn bị mất khi Render restart do giới hạn gói Free).
+        Cách dùng: đặt biến TRADING_SYMBOLS trên Render Dashboard (Environment), vd
+        "BTC/USDT:USDT,ETH/USDT:USDT,XAU/USDT:USDT". Mỗi lần bot khởi động (kể cả sau khi
+        Render tự ngủ/thức dậy), watchlist sẽ được ghi đè lại đúng theo danh sách này.
         """
         try:
-            from core.config import WATCHLIST_SYMBOLS_ENV, normalize_symbol, MAX_WATCHLIST_COINS
+            from core.config import TRADING_SYMBOLS_ENV, normalize_symbol, MAX_WATCHLIST_COINS
 
-            if not WATCHLIST_SYMBOLS_ENV.strip():
-                logger.info("[WATCHLIST ENV SYNC] WATCHLIST_SYMBOLS không được cấu hình - bỏ qua, dùng watchlist hiện có trong DB")
+            if not TRADING_SYMBOLS_ENV.strip():
+                logger.warning("[WATCHLIST ENV SYNC] TRADING_SYMBOLS không được cấu hình - watchlist sẽ trống, bot sẽ không phân tích coin nào")
                 return
 
-            raw_symbols = [s.strip() for s in WATCHLIST_SYMBOLS_ENV.split(',') if s.strip()]
+            raw_symbols = [s.strip() for s in TRADING_SYMBOLS_ENV.split(',') if s.strip()]
             target_symbols = [normalize_symbol(s) for s in raw_symbols][:MAX_WATCHLIST_COINS]
 
             current_symbols = await db.get_watchlist_async()
 
             if set(current_symbols) == set(target_symbols):
-                logger.info(f"[WATCHLIST ENV SYNC] Đã khớp với WATCHLIST_SYMBOLS, không cần đổi: {target_symbols}")
+                logger.info(f"[WATCHLIST ENV SYNC] Đã khớp với TRADING_SYMBOLS, không cần đổi: {target_symbols}")
                 return
 
-            logger.info(f"[WATCHLIST ENV SYNC] Đồng bộ lại watchlist theo WATCHLIST_SYMBOLS: {target_symbols} (trước đó: {current_symbols})")
+            logger.info(f"[WATCHLIST ENV SYNC] Đồng bộ lại watchlist theo TRADING_SYMBOLS: {target_symbols} (trước đó: {current_symbols})")
 
             for symbol in current_symbols:
                 await db.remove_from_watchlist_async(symbol)
@@ -374,11 +374,10 @@ class TradingBotApp:
                 # Log cycle start with active symbols
                 logger.info(f"[ANALYSIS LOOP] cycle_start, active_symbols={self.active_symbols}")
 
-                # Reload watchlist every 10 cycles (30 minutes) to pick up Telegram changes
+                # Không còn cần reload watchlist định kỳ nữa: watchlist giờ chỉ đổi qua biến
+                # môi trường TRADING_SYMBOLS (đọc 1 lần lúc khởi động), không còn nút Telegram
+                # ghi thay đổi vào DB trong lúc bot đang chạy.
                 cycle_count += 1
-                if cycle_count % 10 == 0:
-                    await self.load_watchlist()
-                    logger.info(f"[ANALYSIS LOOP] reloaded watchlist at cycle {cycle_count}")
 
                 # PASS 1: Quét toàn bộ watchlist, thu thập MỌI coin đã pass full filter
                 # (không gửi ngay) để có thể so sánh và chọn ra tín hiệu tốt nhất trong chu kỳ này.

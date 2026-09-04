@@ -567,11 +567,6 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
         print(f"[HANDLER AUTH] timestamp={datetime.now().isoformat()}, user_id={user.id}, is_admin={is_admin}, event_loop_id={event_loop_id}")
         logger.info(f"[HANDLER AUTH] user_id={user.id}, is_admin={is_admin}")
 
-        # Check if waiting for symbol input
-        if context.user_data.get('waiting_for_symbol'):
-            await self.handle_symbol_input(update, context)
-            return
-
         # Xử lý các nút menu - gọi trực tiếp các command handlers
         try:
             if text == "📰 Tin tức":
@@ -653,6 +648,8 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
 
     async def show_analysis(self, update: Update, is_admin: bool):
         """Hiển thị phân tích"""
+        watchlist = await db.get_watchlist_async()
+        pairs_text = "\n".join(f"• {s}" for s in watchlist) if watchlist else "• Chưa cấu hình (xem biến TRADING_SYMBOLS trên Render)"
         await update.message.reply_text(
             "📊 <b>Phân tích</b>\n\n"
             "Bot phân tích thị trường 24/7 sử dụng AI để phát hiện tín hiệu giao dịch.\n\n"
@@ -660,9 +657,8 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
             "• Phân tích xu hướng thị trường\n"
             "• Phát hiện vùng vào lệnh tối ưu\n"
             "• Tính toán điểm tin cậy\n\n"
-            "📈 <b>Cặp tiền giao dịch:</b>\n"
-            "• BTC/USDT\n"
-            "• XAU/USD (Vàng)",
+            "📈 <b>Cặp tiền đang theo dõi:</b>\n"
+            f"{pairs_text}",
             parse_mode='HTML'
         )
 
@@ -794,48 +790,32 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
         await update.message.reply_text(account_message, parse_mode='HTML')
 
     async def render_watchlist_message(self, update: Update, is_admin: bool, is_callback: bool = False):
-        """Render watchlist message - supports both message and callback contexts"""
+        """Render watchlist message - CHỈ HIỂN THỊ (read-only).
+        Watchlist giờ được quản lý hoàn toàn qua biến môi trường TRADING_SYMBOLS trên Render
+        (không quản lý qua nút Telegram nữa), vì Render gói Free xoá dữ liệu SQLite mỗi khi
+        server ngủ/khởi động lại - chỉ biến môi trường mới bền vững qua các lần restart đó."""
         try:
             from core.config import MAX_WATCHLIST_COINS
             watchlist = await db.get_watchlist_async()
-            is_full = len(watchlist) >= MAX_WATCHLIST_COINS
 
+            message = "🪙 <b>DANH SÁCH COIN ĐANG THEO DÕI</b>\n\n"
             if not watchlist:
-                message = "🪙 <b>DANH SÁCH COIN</b>\n\n"
-                message += "Chưa có coin nào trong watchlist.\n"
-                message += f"Tối đa: {MAX_WATCHLIST_COINS} coin.\n\n"
-                if is_admin:
-                    keyboard = [
-                        [InlineKeyboardButton("➕ Thêm coin", callback_data="watchlist_add")],
-                        [InlineKeyboardButton("⬅️ Quay lại", callback_data="menu_back")]
-                    ]
-                else:
-                    keyboard = [
-                        [InlineKeyboardButton("⬅️ Quay lại", callback_data="menu_back")]
-                    ]
+                message += "Chưa có coin nào (chưa cấu hình TRADING_SYMBOLS).\n\n"
             else:
-                message = "🪙 <b>DANH SÁCH COIN</b>\n\n"
-                message += "<b>Danh sách ACTIVE:</b>\n\n"
                 for symbol in watchlist:
                     message += f"• {symbol}\n"
-                message += f"\nTổng: {len(watchlist)}/{MAX_WATCHLIST_COINS} coin"
-                if is_full:
-                    message += " (đã đầy)"
-                message += "\n\n"
+                message += f"\nTổng: {len(watchlist)}/{MAX_WATCHLIST_COINS} coin\n\n"
 
-                if is_admin:
-                    keyboard = []
-                    if not is_full:
-                        keyboard.append([InlineKeyboardButton("➕ Thêm coin", callback_data="watchlist_add")])
-                    keyboard.append([InlineKeyboardButton("➖ Xóa coin", callback_data="watchlist_remove")])
-                    keyboard.append([InlineKeyboardButton("🔄 Làm mới", callback_data="watchlist_refresh")])
-                    keyboard.append([InlineKeyboardButton("⬅️ Quay lại", callback_data="menu_back")])
-                else:
-                    keyboard = [
-                        [InlineKeyboardButton("🔄 Làm mới", callback_data="watchlist_refresh")],
-                        [InlineKeyboardButton("⬅️ Quay lại", callback_data="menu_back")]
-                    ]
+            message += (
+                "ℹ️ Danh sách này lấy từ biến môi trường <b>TRADING_SYMBOLS</b> trên Render.\n"
+                "Muốn thêm/bớt coin: vào Render Dashboard → service → tab <b>Environment</b> → "
+                "sửa giá trị TRADING_SYMBOLS (vd: <code>BTC/USDT:USDT,ETH/USDT:USDT</code>) → Render tự deploy lại."
+            )
 
+            keyboard = [
+                [InlineKeyboardButton("🔄 Làm mới", callback_data="watchlist_refresh")],
+                [InlineKeyboardButton("⬅️ Quay lại", callback_data="menu_back")]
+            ]
             reply_markup = InlineKeyboardMarkup(keyboard)
 
             if is_callback and update.callback_query:
@@ -923,71 +903,7 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
             is_admin = await db.is_admin_async(user_id)
             logger.info(f"[WATCHLIST CALLBACK ADMIN CHECK] user_id={user_id}, is_admin={is_admin}")
 
-            if callback_data == "watchlist_add":
-                logger.info(f"[WATCHLIST ADD] clicked by user_id={user_id}, is_admin={is_admin}")
-                if not is_admin:
-                    await query.edit_message_text("⛔ Chỉ Admin mới có thể thêm coin.")
-                    logger.warning(f"[WATCHLIST ADD] denied for non-admin user_id={user_id}")
-                    return
-                from core.config import MAX_WATCHLIST_COINS
-                current_watchlist = await db.get_watchlist_async()
-                if len(current_watchlist) >= MAX_WATCHLIST_COINS:
-                    await query.edit_message_text(
-                        f"⚠️ Watchlist đã đạt tối đa {MAX_WATCHLIST_COINS} coin.\n"
-                        f"Vui lòng xoá bớt coin cũ trước khi thêm coin mới."
-                    )
-                    return
-                try:
-                    await query.edit_message_text("➕ <b>Thêm coin</b>\n\nNhập symbol muốn thêm.\nVí dụ: BTC ETH SUI DOGE XRP", parse_mode='HTML')
-                    # Set state to wait for symbol input
-                    context.user_data['waiting_for_symbol'] = True
-                    logger.info(f"[WATCHLIST ADD] state set waiting_for_symbol=True for user_id={user_id}")
-                except Exception as e:
-                    logger.error(f"[WATCHLIST ADD ERROR] user_id={user_id}: {e}", exc_info=True)
-                    await query.edit_message_text("❌ Có lỗi xảy ra. Vui lòng thử lại.")
-
-            elif callback_data == "watchlist_remove":
-                if not is_admin:
-                    await query.edit_message_text("⛔ Chỉ Admin mới có thể xóa coin.")
-                    return
-                watchlist = await db.get_watchlist_async()
-                if not watchlist:
-                    await query.edit_message_text("❌ Chưa có coin nào trong watchlist.")
-                    return
-
-                keyboard = []
-                for symbol in watchlist:
-                    keyboard.append([InlineKeyboardButton(symbol, callback_data=f"watchlist_remove_{symbol}")])
-                keyboard.append([InlineKeyboardButton("⬅️ Quay lại", callback_data="watchlist_back")])
-
-                reply_markup = InlineKeyboardMarkup(keyboard)
-                await query.edit_message_text("➖ <b>Xóa coin</b>\n\nChọn coin để xóa:", reply_markup=reply_markup, parse_mode='HTML')
-
-            elif callback_data.startswith("watchlist_remove_"):
-                if not is_admin:
-                    await query.edit_message_text("⛔ Chỉ Admin mới có thể xóa coin.")
-                    return
-                symbol = callback_data.replace("watchlist_remove_", "")
-                success = await db.remove_from_watchlist_async(symbol)
-                if success:
-                    logger.info(f"[WATCHLIST] Removed symbol={symbol}")
-                    # Log database state after remove
-                    watchlist_after = await db.get_watchlist_async()
-                    logger.info(f"[WATCHLIST DB] symbols={watchlist_after}")
-                    await query.edit_message_text(f"✅ Đã xóa {symbol} khỏi watchlist.")
-                    # Reload watchlist in main app immediately
-                    if self.bot_app:
-                        await self.bot_app.reload_watchlist()
-                        logger.info(f"[WATCHLIST] Active symbols updated={self.bot_app.active_symbols}")
-                    else:
-                        logger.warning("[WATCHLIST] bot_app reference not available for immediate sync")
-                else:
-                    await query.edit_message_text(f"❌ Không thể xóa {symbol}.")
-
-            elif callback_data == "watchlist_refresh":
-                await self.render_watchlist_message(update, is_admin, is_callback=True)
-
-            elif callback_data == "watchlist_back":
+            if callback_data == "watchlist_refresh":
                 await self.render_watchlist_message(update, is_admin, is_callback=True)
 
             elif callback_data == "menu_back":
@@ -1002,94 +918,6 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
                 await query.edit_message_text("❌ Có lỗi xảy ra. Vui lòng thử lại.")
             except:
                 pass
-
-    async def handle_symbol_input(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Xử lý input symbol từ admin"""
-        user_id = update.effective_user.id
-        symbol_input = update.message.text.strip().upper()
-
-        logger.info(f"[WATCHLIST SYMBOL INPUT] user_id={user_id}, symbol={symbol_input}, waiting_state={context.user_data.get('waiting_for_symbol')}")
-
-        is_admin = await db.is_admin_async(user_id)
-
-        if not is_admin:
-            logger.warning(f"[WATCHLIST SYMBOL INPUT] denied for non-admin user_id={user_id}")
-            await update.message.reply_text("⛔ Chỉ Admin mới có thể thêm coin.")
-            return
-
-        if not context.user_data.get('waiting_for_symbol'):
-            logger.warning(f"[WATCHLIST SYMBOL INPUT] user_id={user_id} not in waiting state")
-            return
-
-        context.user_data['waiting_for_symbol'] = False
-        logger.info(f"[WATCHLIST SYMBOL INPUT] state cleared for user_id={user_id}")
-
-        # Normalize symbol
-        from core.config import normalize_symbol
-        symbol_normalized = normalize_symbol(symbol_input)
-
-        logger.info(f"[WATCHLIST NORMALIZED] input={symbol_input}, normalized={symbol_normalized}")
-
-        # Validate symbol exists on exchange
-        try:
-            if self.market_data:
-                # Check if symbol exists by fetching ticker
-                logger.info(f"[WATCHLIST VALIDATING] symbol={symbol_normalized}")
-                ticker = await self.market_data.get_ticker(symbol_normalized)
-                if not ticker:
-                    logger.warning(f"[WATCHLIST VALIDATION FAILED] symbol={symbol_normalized} not found on exchange")
-                    await update.message.reply_text(f"❌ Symbol {symbol_normalized} không tồn tại trên exchange.")
-                    return
-                logger.info(f"[WATCHLIST VALIDATED] symbol={symbol_normalized}")
-            else:
-                logger.error(f"[WATCHLIST VALIDATION ERROR] market_data engine not available")
-                await update.message.reply_text("❌ Market data engine không khả dụng.")
-                return
-        except Exception as e:
-            logger.error(f"[WATCHLIST VALIDATION ERROR] symbol={symbol_normalized}: {e}", exc_info=True)
-            await update.message.reply_text(f"❌ Không thể kiểm tra symbol {symbol_normalized}.")
-            return
-
-        # Check if already in watchlist
-        watchlist = await db.get_watchlist_async()
-        if symbol_normalized in watchlist:
-            logger.info(f"[WATCHLIST DUPLICATE] symbol={symbol_normalized} already in watchlist")
-            await update.message.reply_text(f"⚠️ {symbol_normalized} đã có trong watchlist.")
-            return
-
-        # Giới hạn tối đa số coin trong watchlist
-        from core.config import MAX_WATCHLIST_COINS
-        if len(watchlist) >= MAX_WATCHLIST_COINS:
-            logger.info(f"[WATCHLIST LIMIT] symbol={symbol_normalized} rejected, watchlist full ({len(watchlist)}/{MAX_WATCHLIST_COINS})")
-            await update.message.reply_text(
-                f"⚠️ Watchlist đã đạt tối đa {MAX_WATCHLIST_COINS} coin.\n"
-                f"Vui lòng xoá bớt coin cũ (➖ Xoá coin) trước khi thêm coin mới."
-            )
-            return
-
-        # Add to watchlist
-        try:
-            logger.info(f"[WATCHLIST DB WRITE START] symbol={symbol_normalized}, user_id={user_id}")
-            success = await db.add_to_watchlist_async(symbol_normalized, added_by=user_id)
-            if success:
-                logger.info(f"[WATCHLIST DB WRITE SUCCESS] symbol={symbol_normalized}")
-                # Log database state after add
-                watchlist_after = await db.get_watchlist_async()
-                logger.info(f"[WATCHLIST DB STATE] symbols={watchlist_after}")
-                await update.message.reply_text(f"✅ Đã thêm {symbol_normalized} vào watchlist.")
-                # Reload watchlist in main app immediately
-                if self.bot_app:
-                    logger.info(f"[WATCHLIST RELOAD START] symbol={symbol_normalized}")
-                    await self.bot_app.reload_watchlist()
-                    logger.info(f"[WATCHLIST ACTIVE SYMBOLS UPDATED] symbols={self.bot_app.active_symbols}")
-                else:
-                    logger.error("[WATCHLIST SYNC ERROR] reason=bot_app_none")
-            else:
-                logger.error(f"[WATCHLIST DB WRITE FAILED] symbol={symbol_normalized}")
-                await update.message.reply_text(f"❌ Không thể thêm {symbol_normalized} vào watchlist.")
-        except Exception as e:
-            logger.error(f"[WATCHLIST DB WRITE ERROR] symbol={symbol_normalized}: {e}", exc_info=True)
-            await update.message.reply_text(f"❌ Không thể thêm {symbol_normalized} vào watchlist.")
 
     async def show_settings(self, update: Update, is_admin: bool):
         """Hiển thị cài đặt (Admin only)"""
@@ -1196,6 +1024,8 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
         elif query.data == "menu_analysis":
             keyboard = self.get_navigation_keyboard("menu_main")
             reply_markup = InlineKeyboardMarkup(keyboard)
+            watchlist = await db.get_watchlist_async()
+            pairs_text = "\n".join(f"• {s}" for s in watchlist) if watchlist else "• Chưa cấu hình (xem biến TRADING_SYMBOLS trên Render)"
             await query.edit_message_text(
                 "📊 <b>Phân tích</b>\n\n"
                 "Bot phân tích thị trường 24/7 sử dụng AI để phát hiện tín hiệu giao dịch.\n\n"
@@ -1203,9 +1033,8 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
                 "• Phân tích xu hướng thị trường\n"
                 "• Phát hiện vùng vào lệnh tối ưu\n"
                 "• Tính toán điểm tin cậy\n\n"
-                "📈 <b>Cặp tiền giao dịch:</b>\n"
-                "• BTC/USDT\n"
-                "• XAU/USD (Vàng)",
+                "📈 <b>Cặp tiền đang theo dõi:</b>\n"
+                f"{pairs_text}",
                 reply_markup=reply_markup,
                 parse_mode='HTML'
             )
