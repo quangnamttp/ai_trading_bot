@@ -20,7 +20,7 @@ services:
       - key: DATABASE_PATH
         value: "database/trading_bot.db"
       - key: TRADING_SYMBOLS
-        value: "BTC/USDT:USDT,XAU/USDT:USDT"
+        value: "BTC/USDT:USDT,GOLD/USDT:USDT"
       - key: BINANCE_API_KEY
         value: ""
         sync: false

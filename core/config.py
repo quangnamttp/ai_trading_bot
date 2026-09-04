@@ -79,12 +79,26 @@ MAX_WATCHLIST_COINS = int(os.getenv("MAX_WATCHLIST_COINS", "10"))
 TRADING_SYMBOLS_ENV = os.getenv("TRADING_SYMBOLS", "")
 
 
+# Bảng ánh xạ tên gọi thông thường -> mã thật trên MEXC, tránh nhầm lẫn (vd: người dùng hay
+# gõ "XAU" cho Vàng theo chuẩn forex quốc tế, nhưng MEXC dùng mã "GOLD", không phải "XAU")
+SYMBOL_ALIASES = {
+    'XAU': 'GOLD',
+}
+
+
 def normalize_symbol(raw: str) -> str:
     """Chuẩn hoá 1 mã coin về format dùng cho MEXC futures qua ccxt, vd: 'BTC' -> 'BTC/USDT:USDT'.
-    Dùng chung giữa nút Telegram và việc đồng bộ từ biến môi trường WATCHLIST_SYMBOLS."""
+    Tự động ánh xạ các tên gọi thông thường không khớp mã thật trên MEXC (xem SYMBOL_ALIASES).
+    Dùng chung giữa nút Telegram (đã bỏ) và việc đồng bộ từ biến môi trường TRADING_SYMBOLS."""
     s = raw.strip().upper()
     if '/' not in s:
+        s = SYMBOL_ALIASES.get(s, s)
         s = f"{s}/USDT:USDT"
+    else:
+        # Trường hợp người dùng đã nhập sẵn dạng đầy đủ, vd "XAU/USDT:USDT" -> vẫn ánh xạ phần base
+        base, _, rest = s.partition('/')
+        base = SYMBOL_ALIASES.get(base, base)
+        s = f"{base}/{rest}"
     return s
 
 
