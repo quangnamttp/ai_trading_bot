@@ -56,7 +56,7 @@ SYMBOLS = []  # Empty by default, loaded from database
 EXCHANGE = "MEXC"
 AI_SCORE_THRESHOLD = float(os.getenv("AI_SCORE_THRESHOLD", "80"))
 MIN_CONFIDENCE = float(os.getenv("MIN_CONFIDENCE", "0.80"))
-GANN_MIN_CONFIDENCE = float(os.getenv("GANN_MIN_CONFIDENCE", "0.70"))
+GANN_MIN_CONFIDENCE = float(os.getenv("GANN_MIN_CONFIDENCE", "0.60"))  # đã hiệu chỉnh qua backtest thực tế (xem tools/backtest.py) - 0.70 loại hơn 50% setup hợp lệ vì nằm sát trung vị phân phối điểm, không phải vì chất lượng kém
 
 # Multi-timeframe Signal Pipeline Configuration
 MAX_SIGNALS_PER_DAY = int(os.getenv("MAX_SIGNALS_PER_DAY", "5"))

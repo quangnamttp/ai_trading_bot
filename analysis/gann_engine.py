@@ -144,7 +144,11 @@ class GannEngine:
             return 'neutral'
 
     def calculate_gann_confidence(self, df: pd.DataFrame, trend: str) -> float:
-        """Tính độ tin cậy của Gann analysis"""
+        """Tính độ tin cậy của Gann analysis - thang điểm LIÊN TỤC theo cường độ thực tế
+        (trước đây dùng ngưỡng nhị phân thô 0.1/0.3, khiến kết quả hay dừng đúng ở 0.60,
+        hụt sát nút so với GANN_MIN_CONFIDENCE=0.70 - đã kiểm chứng bằng backtest: hơn 50%
+        candidate hợp lệ bị loại chỉ vì thiếu đúng 0.10 điểm do bậc thang quá thô, không
+        phải vì xu hướng thực sự yếu)"""
         try:
             if trend == 'neutral':
                 return 0.0
@@ -152,30 +156,29 @@ class GannEngine:
             latest = df.iloc[-1]
             price = latest['close']
 
-            # Kiểm tra volume confirmation
-            avg_volume = df['volume'].mean()
+            # Volume confidence: liên tục theo tỷ lệ volume hiện tại / TB 20 nến gần nhất
+            recent_window = df.tail(20) if len(df) >= 20 else df
+            avg_volume = recent_window['volume'].mean()
             current_volume = latest['volume']
+            volume_ratio = (current_volume / avg_volume) if avg_volume else 1.0
+            # ratio 0.5x -> 0.05 điểm, ratio 1.0x -> 0.15 điểm, ratio >=1.83x -> trần 0.3 điểm
+            volume_confidence = min(0.3, max(0.05, (volume_ratio - 0.5) * 0.3))
 
-            if current_volume > avg_volume:
-                volume_confidence = 0.3
-            else:
-                volume_confidence = 0.1
+            # Momentum confidence: liên tục theo % biến động trong 10 nến gần nhất
+            # (dùng cùng lookback với determine_gann_trend() để nhất quán, thay vì 5 nến cũ)
+            lookback = min(10, len(df) - 1)
+            momentum_confidence = 0.1
+            if lookback > 0:
+                past_price = df.iloc[-1 - lookback]['close']
+                if past_price:
+                    change_pct = abs((price - past_price) / past_price) * 100
+                    # 0% -> 0.1 điểm, mỗi 1% biến động +0.05 điểm, trần 0.3 điểm (đạt tại 4%)
+                    momentum_confidence = min(0.3, 0.1 + change_pct * 0.05)
 
-            # Kiểm tra momentum
-            if len(df) >= 5:
-                recent_change = (price - df.iloc[-5]['close']) / df.iloc[-5]['close']
-                if abs(recent_change) > 0.01:  # 1% change
-                    momentum_confidence = 0.3
-                else:
-                    momentum_confidence = 0.1
-            else:
-                momentum_confidence = 0.1
-
-            # Base confidence
             base_confidence = 0.4
 
             total_confidence = base_confidence + volume_confidence + momentum_confidence
-            return min(0.9, total_confidence)
+            return round(min(0.9, total_confidence), 3)
 
         except Exception as e:
             logger.error(f"Error calculating Gann confidence: {e}")

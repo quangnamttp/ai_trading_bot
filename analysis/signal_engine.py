@@ -701,6 +701,15 @@ class SignalEngine:
                 entry_trend = 'bearish'
                 ema_cross_detected = ema_cross_bearish_recent
             
+            # Cú cắt EMA trong 5 nến gần nhất: KHÔNG còn là điều kiện chặn cứng nữa.
+            # Lý do (đã kiểm chứng bằng backtest thực tế qua tools/backtest.py): 1 cú cắt
+            # EMA20/50 là sự kiện HIẾM - thường chỉ xảy ra 1 lần khi bắt đầu 1 xu hướng mới.
+            # Bắt buộc nó phải trùng khớp đúng lúc với ~10 điều kiện khác khiến bot gần như
+            # không bao giờ đủ điều kiện gửi tín hiệu trong thực tế (đã gây ra tình trạng
+            # bot im lặng nhiều tuần liền). Giờ đây tín hiệu vẫn được chấp nhận miễn là xu
+            # hướng entry (EMA20 vs EMA50) khớp với macro trend; cú cắt gần đây chỉ được
+            # dùng làm điểm cộng khi xếp hạng so sánh giữa nhiều coin (xem score_candidate).
+            # Điều kiện BẮT BUỘC duy nhất còn giữ ở bước này: entry_trend phải khớp macro_trend.
             if entry_trend != macro_trend:
                 logger.info(f"[SIGNAL FILTER] symbol={symbol}")
                 logger.info(f"[SIGNAL FILTER] macro_4h={macro_trend}")
@@ -708,16 +717,8 @@ class SignalEngine:
                 logger.info(f"[SIGNAL FILTER] decision=WAIT")
                 logger.info(f"[SIGNAL FILTER] reason=EMA_NEUTRAL")
                 return {'action': 'WAIT', 'reason': 'EMA_NEUTRAL'}
-            
-            # Check for EMA cross trong 5 nến gần nhất (trước đây chỉ 1 nến - quá hẹp,
-            # gần như không bao giờ khớp cùng lúc với các điều kiện khác)
-            if not ema_cross_detected:
-                logger.info(f"[SIGNAL FILTER] symbol={symbol}")
-                logger.info(f"[SIGNAL FILTER] entry_15m={entry_trend}")
-                logger.info(f"[SIGNAL FILTER] ema_cross_detected={ema_cross_detected}")
-                logger.info(f"[SIGNAL FILTER] decision=WAIT")
-                logger.info(f"[SIGNAL FILTER] reason=EMA_NO_CROSS")
-                return {'action': 'WAIT', 'reason': 'EMA_NO_CROSS'}
+
+            logger.info(f"[SIGNAL FILTER] symbol={symbol}, entry_15m={entry_trend}, ema_cross_recent={ema_cross_detected} (chỉ tham khảo, không chặn)")
             
             # 9. Gann proximity check: price must be within 0.3 * ATR(15m) of Gann level
             atr_15m_for_gann = indicators_15m.get('atr', 0)
@@ -845,23 +846,28 @@ class SignalEngine:
                 # Extra fields used only for cross-symbol ranking (best-of-cycle selection)
                 'ai_score': ai_score,
                 'calculated_rr': calculated_rr,
-                'gann_confidence': gann_confidence
+                'gann_confidence': gann_confidence,
+                'ema_cross_detected': ema_cross_detected
             }
             
         except Exception as e:
             logger.error(f"Error in signal filter: {e}")
             return {'action': 'WAIT', 'reason': 'FILTER_ERROR'}
 
-    def score_candidate(self, ai_score: float, calculated_rr: float, gann_confidence: float) -> float:
+    def score_candidate(self, ai_score: float, calculated_rr: float, gann_confidence: float,
+                         ema_cross_detected: bool = False) -> float:
         """Chấm điểm 1 candidate đã pass hết filter, dùng để so sánh & chọn tín hiệu tốt nhất
         trong nhiều coin ở cùng 1 chu kỳ quét. Điểm càng cao càng ưu tiên gửi.
 
         Trọng số: AI Score là chính (0-95), cộng thêm điểm thưởng cho R:R tốt và Gann confidence cao,
         để ưu tiên coin vừa có xác suất đúng cao (AI) vừa có setup rủi ro/lợi nhuận tốt hơn.
+        ema_cross_detected: cú cắt EMA gần đây không còn là điều kiện bắt buộc (xem filter_signal),
+        nhưng vẫn được cộng điểm ưu tiên vì phản ánh 1 setup "mới bắt đầu" thay vì đã đi được nửa đường.
         """
         rr_bonus = min(calculated_rr, 3.0) * 5       # tối đa +15 điểm nếu R:R >= 3
         gann_bonus = gann_confidence * 10             # tối đa +10 điểm nếu Gann confidence = 1.0
-        return ai_score + rr_bonus + gann_bonus
+        cross_bonus = 5 if ema_cross_detected else 0  # +5 điểm nếu vừa có cú cắt EMA gần đây
+        return ai_score + rr_bonus + gann_bonus + cross_bonus
 
     def rank_and_pick_best(self, candidates: list) -> Optional[Dict]:
         """Nhận danh sách candidate (mỗi candidate đã pass full filter cho 1 symbol trong cùng
@@ -878,7 +884,8 @@ class SignalEngine:
             score = self.score_candidate(
                 fr.get('ai_score', 0),
                 fr.get('calculated_rr', 0),
-                fr.get('gann_confidence', 0)
+                fr.get('gann_confidence', 0),
+                fr.get('ema_cross_detected', False)
             )
             scored.append((score, c))
 
