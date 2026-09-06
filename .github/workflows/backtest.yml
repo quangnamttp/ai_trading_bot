@@ -17,6 +17,26 @@ on:
         description: 'Số ngày lịch sử cần test'
         required: false
         default: '150'
+      sl_mult:
+        description: 'Hệ số ATR cho Stop Loss (mặc định 1.8)'
+        required: false
+        default: '1.8'
+      tp1_mult:
+        description: 'Hệ số ATR cho TP1 (mặc định 3.0)'
+        required: false
+        default: '3.0'
+      tp2_mult:
+        description: 'Hệ số ATR cho TP2 (mặc định 5.25)'
+        required: false
+        default: '5.25'
+      tp3_mult:
+        description: 'Hệ số ATR cho TP3 (mặc định 7.5)'
+        required: false
+        default: '7.5'
+      ai_threshold:
+        description: 'Ngưỡng AI Score tối thiểu (để trống = dùng mặc định trong core/config.py)'
+        required: false
+        default: ''
   push:
     branches: [main]
     paths:
@@ -43,12 +63,27 @@ jobs:
 
       - name: Chạy backtest
         run: |
+          AI_THRESHOLD_ARG=""
+          if [ -n "${{ github.event.inputs.ai_threshold }}" ]; then
+            AI_THRESHOLD_ARG="--ai-threshold ${{ github.event.inputs.ai_threshold }}"
+          fi
           python tools/backtest.py \
             --symbols "${{ github.event.inputs.symbols || 'BTC/USDT:USDT,ETH/USDT:USDT,SOL/USDT:USDT,XRP/USDT:USDT' }}" \
-            --days "${{ github.event.inputs.days || '150' }}"
+            --days "${{ github.event.inputs.days || '150' }}" \
+            --sl-mult "${{ github.event.inputs.sl_mult || '1.8' }}" \
+            --tp1-mult "${{ github.event.inputs.tp1_mult || '3.0' }}" \
+            --tp2-mult "${{ github.event.inputs.tp2_mult || '5.25' }}" \
+            --tp3-mult "${{ github.event.inputs.tp3_mult || '7.5' }}" \
+            $AI_THRESHOLD_ARG
 
       - name: Ghi tóm tắt kết quả (hiện ngay trên trang Actions)
         if: always()
+        env:
+          SL_MULT: ${{ github.event.inputs.sl_mult || '1.8' }}
+          TP1_MULT: ${{ github.event.inputs.tp1_mult || '3.0' }}
+          TP2_MULT: ${{ github.event.inputs.tp2_mult || '5.25' }}
+          TP3_MULT: ${{ github.event.inputs.tp3_mult || '7.5' }}
+          AI_THRESH: ${{ github.event.inputs.ai_threshold || 'mặc định core.config' }}
         run: |
           python3 - << 'EOF'
           import json, os
@@ -67,6 +102,9 @@ jobs:
           lines = []
           lines.append(f"# 📊 Kết quả Backtest\n")
           lines.append(f"Thời gian test: **{data['days']} ngày** | Chạy lúc: {data['run_at']}\n")
+          lines.append(f"**Cấu hình đã test:** SL={os.environ['SL_MULT']}x | TP1={os.environ['TP1_MULT']}x | "
+                        f"TP2={os.environ['TP2_MULT']}x | TP3={os.environ['TP3_MULT']}x | "
+                        f"Ngưỡng AI Score={os.environ['AI_THRESH']}\n")
           lines.append(f"**Tổng tín hiệu toàn watchlist: {data['total_signals_all_symbols']}** "
                         f"(~{data['signals_per_day_all_symbols']} tín hiệu/ngày)\n")
           lines.append("\n| Coin | Số tín hiệu | Tín hiệu/tuần | Win rate (đạt TP1+) | Full TP3 | Chỉ dính SL | PnL TB/lệnh |")

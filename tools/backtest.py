@@ -127,7 +127,7 @@ def macro_trend_from_indicators(ind: dict) -> str:
 
 
 async def backtest_symbol(symbol: str, days: int, mde: MarketDataEngine, gann: GannEngine,
-                           ai: AIEngine, se: SignalEngine, exchange) -> dict:
+                           ai: AIEngine, se: SignalEngine, exchange, **sim_kwargs) -> dict:
     print(f"\n=== Đang tải dữ liệu lịch sử cho {symbol} ({days} ngày, khung 1H) ===")
     df_1h_raw = await fetch_full_history(exchange, symbol, '1h', days)
     if df_1h_raw.empty or len(df_1h_raw) < 350:
@@ -135,14 +135,22 @@ async def backtest_symbol(symbol: str, days: int, mde: MarketDataEngine, gann: G
         return {'symbol': symbol, 'error': 'insufficient_data', 'candles': len(df_1h_raw)}
 
     print(f"[{symbol}] Tải được {len(df_1h_raw)} nến 1H. Bắt đầu mô phỏng...")
-    trades = run_simulation(df_1h_raw, mde, gann, ai, se)
+    trades = run_simulation(df_1h_raw, mde, gann, ai, se, **sim_kwargs)
     return summarize(symbol, trades, days)
 
 
 def run_simulation(df_1h_raw: pd.DataFrame, mde: MarketDataEngine, gann: GannEngine,
-                    ai: AIEngine, se: SignalEngine) -> list:
+                    ai: AIEngine, se: SignalEngine, sl_mult: float = 1.8, tp1_mult: float = 3.0,
+                    tp2_mult: float = 5.25, tp3_mult: float = 7.5, ai_threshold: float = None) -> list:
     """Chạy mô phỏng walk-forward trên dữ liệu 1H đã có sẵn (không gọi mạng).
-    Tách riêng khỏi backtest_symbol() để có thể unit-test bằng dữ liệu giả lập."""
+    Tách riêng khỏi backtest_symbol() để có thể unit-test bằng dữ liệu giả lập.
+
+    sl_mult/tp1_mult/tp2_mult/tp3_mult: hệ số nhân ATR cho SL/TP - cho phép thử nhiều cấu hình
+    khác nhau mà KHÔNG cần sửa code sản xuất (analysis/signal_engine.py). Mặc định khớp với
+    cấu hình đang chạy thật (SL=1.8x, TP1=3.0x, TP2=5.25x, TP3=7.5x).
+    ai_threshold: ngưỡng AI Score tối thiểu để vào lệnh - mặc định lấy từ core.config nếu để None."""
+    if ai_threshold is None:
+        ai_threshold = AI_SCORE_THRESHOLD
 
     trades = []
     active_trade = None  # {'action','entry','tp1','tp2','tp3','sl','entry_idx','tp1_hit','tp2_hit'}
@@ -267,13 +275,23 @@ def run_simulation(df_1h_raw: pd.DataFrame, mde: MarketDataEngine, gann: GannEng
         risk_level = ai.calculate_risk_level(trend_analysis, neutral_smart_money)
         decision = ai.generate_ai_decision(probabilities, risk_level, trend_analysis)
 
-        if decision['ai_score'] < AI_SCORE_THRESHOLD:
+        if decision['ai_score'] < ai_threshold:
             continue
         action = 'LONG' if macro_trend == 'bullish' else 'SHORT'
 
-        # Vào lệnh - dùng đúng công thức TP/SL thật (ATR-based)
-        tps = se.calculate_take_profit(price, action, atr, resistance if action == 'LONG' else support)
-        sl = se.calculate_stop_loss(price, action, atr)
+        # Vào lệnh - dùng công thức TP/SL theo hệ số truyền vào (mặc định khớp production)
+        if action == 'LONG':
+            tp1_price = price + atr * tp1_mult
+            tp2_price = price + atr * tp2_mult
+            tp3_price = resistance if (resistance and resistance > price + atr * tp2_mult) else price + atr * tp3_mult
+            sl_price = price - atr * sl_mult
+        else:
+            tp1_price = price - atr * tp1_mult
+            tp2_price = price - atr * tp2_mult
+            tp3_price = support if (support and support < price - atr * tp2_mult) else price - atr * tp3_mult
+            sl_price = price + atr * sl_mult
+        tps = {'TP1': tp1_price, 'TP2': tp2_price, 'TP3': tp3_price}
+        sl = sl_price
 
         active_trade = {
             'action': action, 'entry': price,
@@ -334,7 +352,20 @@ async def main():
     parser = argparse.ArgumentParser(description="Backtest chiến lược giao dịch bằng dữ liệu MEXC thật")
     parser.add_argument('--symbols', type=str, default="BTC/USDT:USDT,ETH/USDT:USDT,SOL/USDT:USDT,XRP/USDT:USDT")
     parser.add_argument('--days', type=int, default=150)
+    parser.add_argument('--sl-mult', type=float, default=1.8, help="Hệ số ATR cho Stop Loss")
+    parser.add_argument('--tp1-mult', type=float, default=3.0, help="Hệ số ATR cho TP1")
+    parser.add_argument('--tp2-mult', type=float, default=5.25, help="Hệ số ATR cho TP2")
+    parser.add_argument('--tp3-mult', type=float, default=7.5, help="Hệ số ATR cho TP3")
+    parser.add_argument('--ai-threshold', type=float, default=None, help="Ngưỡng AI Score tối thiểu (mặc định lấy từ core.config)")
     args = parser.parse_args()
+
+    sim_kwargs = {
+        'sl_mult': args.sl_mult, 'tp1_mult': args.tp1_mult,
+        'tp2_mult': args.tp2_mult, 'tp3_mult': args.tp3_mult,
+        'ai_threshold': args.ai_threshold
+    }
+    print(f"Cấu hình test: SL={args.sl_mult}x TP1={args.tp1_mult}x TP2={args.tp2_mult}x TP3={args.tp3_mult}x "
+          f"AI_threshold={args.ai_threshold if args.ai_threshold is not None else 'mặc định core.config'}")
 
     symbols = [s.strip() for s in args.symbols.split(',') if s.strip()]
 
@@ -349,7 +380,7 @@ async def main():
         await exchange.load_markets()
         for symbol in symbols:
             try:
-                result = await backtest_symbol(symbol, args.days, mde, gann, ai, se, exchange)
+                result = await backtest_symbol(symbol, args.days, mde, gann, ai, se, exchange, **sim_kwargs)
                 results.append(result)
             except Exception as e:
                 print(f"[{symbol}] Lỗi khi backtest: {e}")
