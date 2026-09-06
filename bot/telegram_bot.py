@@ -798,7 +798,8 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
             from core.config import MAX_WATCHLIST_COINS
             watchlist = await db.get_watchlist_async()
 
-            message = "🪙 <b>DANH SÁCH COIN ĐANG THEO DÕI</b>\n\n"
+            message = "🪙 <b>DANH SÁCH COIN ĐANG THEO DÕI</b>\n"
+            message += f"<i>Cập nhật lúc {datetime.now().strftime('%H:%M:%S')}</i>\n\n"
             if not watchlist:
                 message += "Chưa có coin nào (chưa cấu hình TRADING_SYMBOLS).\n\n"
             else:
@@ -819,7 +820,14 @@ Bot phân tích thị trường 24/7 và gửi tín hiệu giao dịch với đ�
             reply_markup = InlineKeyboardMarkup(keyboard)
 
             if is_callback and update.callback_query:
-                await update.callback_query.edit_message_text(message, reply_markup=reply_markup, parse_mode='HTML')
+                try:
+                    await update.callback_query.edit_message_text(message, reply_markup=reply_markup, parse_mode='HTML')
+                except Exception as edit_error:
+                    # Telegram báo lỗi "Message is not modified" nếu nội dung y hệt tin nhắn cũ
+                    # (vd bấm Làm mới liên tục trong cùng 1 giây, dòng timestamp cũng trùng) -
+                    # đây không phải lỗi thật, chỉ cần bỏ qua thay vì hiện "Có lỗi xảy ra"
+                    if "not modified" not in str(edit_error).lower():
+                        raise
             else:
                 await update.message.reply_text(message, reply_markup=reply_markup, parse_mode='HTML')
         except Exception as e:
