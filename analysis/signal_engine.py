@@ -98,7 +98,7 @@ class SignalEngine:
     
     def calculate_take_profit(self, price: float, action: str, atr: float = None, gann_level: float = None) -> Dict:
         """Tính Take Profit levels dựa trên 15m ATR
-        
+
         Args:
             price: Current price
             action: LONG or SHORT
@@ -107,23 +107,26 @@ class SignalEngine:
         """
         try:
             if atr and atr > 0:
-                # Use 15m ATR-based TP: TP1=2.0x, TP2=3.5x, TP3=Gann or 5.0x
+                # Nới rộng 1.5x so với trước (TP1=2.0x->3.0x, TP2=3.5x->5.25x, TP3=5.0x->7.5x),
+                # giữ nguyên tỷ lệ R:R như cũ. Lý do: backtest thật trên dữ liệu MEXC 150 ngày
+                # (BTC/ETH/SOL/XRP) cho thấy 50-67% lệnh chỉ dính SL (không chạm TP nào) - dấu
+                # hiệu điển hình của việc đặt SL quá sát, bị nhiễu giá quét trước khi xu hướng
+                # kịp phát triển. Cần chạy lại backtest để xác nhận nới SL có cải thiện PnL
+                # trung bình/lệnh hay không trước khi xem đây là cấu hình cuối cùng.
                 if action == 'LONG':
-                    tp1 = price + (atr * 2.0)  # 2.0x ATR
-                    tp2 = price + (atr * 3.5)  # 3.5x ATR
-                    # TP3: Use Gann resistance if available and above TP2, else 5.0x ATR
+                    tp1 = price + (atr * 3.0)
+                    tp2 = price + (atr * 5.25)
                     if gann_level and gann_level > tp2:
                         tp3 = gann_level
                     else:
-                        tp3 = price + (atr * 5.0)  # 5.0x ATR
+                        tp3 = price + (atr * 7.5)
                 else:  # SHORT
-                    tp1 = price - (atr * 2.0)  # 2.0x ATR
-                    tp2 = price - (atr * 3.5)  # 3.5x ATR
-                    # TP3: Use Gann support if available and below TP2, else 5.0x ATR
+                    tp1 = price - (atr * 3.0)
+                    tp2 = price - (atr * 5.25)
                     if gann_level and gann_level < tp2:
                         tp3 = gann_level
                     else:
-                        tp3 = price - (atr * 5.0)  # 5.0x ATR
+                        tp3 = price - (atr * 7.5)
             else:
                 # Fallback to percentage-based if ATR not available
                 if action == 'LONG':
@@ -145,14 +148,14 @@ class SignalEngine:
             return {'TP1': price, 'TP2': price, 'TP3': price}
     
     def calculate_stop_loss(self, price: float, action: str, atr: float = None) -> float:
-        """Tính Stop Loss dựa trên 15m ATR (1.2x ATR)"""
+        """Tính Stop Loss dựa trên 15m ATR (1.8x ATR - đã nới từ 1.2x, xem ghi chú ở
+        calculate_take_profit để biết lý do và bằng chứng backtest)"""
         try:
             if atr and atr > 0:
-                # Use 15m ATR-based SL: 1.2x ATR
                 if action == 'LONG':
-                    sl = price - (atr * 1.2)  # 1.2x ATR below price
+                    sl = price - (atr * 1.8)
                 else:  # SHORT
-                    sl = price + (atr * 1.2)  # 1.2x ATR above price
+                    sl = price + (atr * 1.8)
             else:
                 # Fallback to percentage-based if ATR not available
                 if action == 'LONG':
