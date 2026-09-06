@@ -33,6 +33,7 @@ from analysis.ai_engine import ai_engine
 from analysis.signal_engine import signal_engine
 from analysis.risk_manager import risk_manager
 from analysis.chart_generator import chart_generator
+from analysis.breakout_engine import breakout_engine, format_breakout_message
 from utils.utils import setup_logging, async_sleep
 from utils.message_queue import message_queue
 from utils.anti_duplicate import anti_duplicate
@@ -385,6 +386,20 @@ class TradingBotApp:
                 for symbol in self.active_symbols:
                     try:
                         symbol_start = time.time()
+
+                        # Kiểm tra Breakout/Momentum - ĐỘC LẬP với hệ thống trend-following bên dưới.
+                        # Gửi ngay khi phát hiện (không xếp hạng so sánh giữa các coin như tín hiệu
+                        # trend-following), vì mục tiêu là bắt được càng nhiều cơ hội bùng nổ càng tốt,
+                        # người dùng tự quản lý TP/SL thủ công cho loại cảnh báo này.
+                        try:
+                            breakout = await breakout_engine.detect_breakout(symbol, market_data_engine, news_engine)
+                            if breakout:
+                                breakout_msg = format_breakout_message(breakout)
+                                await telegram_bot.send_signal(breakout_msg)
+                                logger.info(f"[BREAKOUT ALERT] Đã gửi cảnh báo bùng nổ cho {symbol}: {breakout['action']}, lý do: {breakout['reasons']}")
+                        except Exception as e:
+                            logger.error(f"[BREAKOUT ALERT ERROR] symbol={symbol}: {e}")
+
                         # Phân tích AI
                         analysis = await ai_engine.analyze(
                             symbol,
