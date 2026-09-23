@@ -1,59 +1,30 @@
-# Render Deployment Configuration for AI Trading Signal Bot
+# Render Blueprint — bot tín hiệu swing crypto
+# QUAN TRỌNG: region phải ở ngoài Mỹ vì Binance chặn IP Mỹ (HTTP 451).
 services:
   - type: web
-    name: ai_trading_bot
-    env: python
+    name: ai-signal-bot-v3
+    runtime: python
     plan: free
+    region: frankfurt
     buildCommand: pip install -r requirements.txt
     startCommand: python main.py
+    healthCheckPath: /health
     envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.7"
       - key: TELEGRAM_BOT_TOKEN
-        sync: false
-      - key: TELEGRAM_ADMIN_ID
         sync: false
       - key: ADMIN_IDS
         sync: false
-      - key: SIGNAL_RECEIVER_IDS
+      - key: DATABASE_URL        # Postgres miễn phí của Neon (neon.tech) — ổ đĩa Render bị xóa khi khởi động lại
         sync: false
-      - key: TELEGRAM_WEBHOOK_URL
-        value: "https://ai-trading-bot-8wqe.onrender.com/webhook"
-      - key: DATABASE_PATH
-        value: "database/trading_bot.db"
-      - key: BINANCE_API_KEY
-        value: ""
+      - key: WEBHOOK_SECRET
+        generateValue: true
+      - key: CRYPTOPANIC_TOKEN   # tùy chọn, miễn phí tại cryptopanic.com/developers/api
         sync: false
-      - key: BINANCE_API_SECRET
-        value: ""
-        sync: false
-      - key: COINAPI_KEY
-        value: ""
-        sync: false
-      - key: NEWS_API_KEY
-        value: ""
-        sync: false
-      - key: AI_SCORE_THRESHOLD
-        value: "80"
-      - key: MIN_CONFIDENCE
-        value: "0.80"
-      - key: MAX_RISK_PER_TRADE
-        value: "0.02"
-      - key: MAX_POSITIONS
-        value: "3"
-      - key: SIGNAL_COOLDOWN_MINUTES
+      - key: TOP_N
         value: "30"
-      - key: MAX_SIGNALS_PER_HOUR
-        value: "2"
-      - key: LOG_LEVEL
-        value: "INFO"
-      - key: MARKET_DATA_INTERVAL
-        value: "60"
-      - key: NEWS_CHECK_INTERVAL
-        value: "300"
-      - key: AI_UPDATE_INTERVAL
-        value: "120"
-      - key: AI_MODEL
-        value: "rule_based"
-      - key: DEPLOYMENT_ENV
-        value: "production"
-      - key: PORT
-        value: "8080"
+      - key: MAX_SIGNALS_PER_DAY
+        value: "5"
+      - key: DEFAULT_RISK_PCT
+        value: "0.5"

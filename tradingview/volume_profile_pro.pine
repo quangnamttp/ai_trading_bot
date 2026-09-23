@@ -1,0 +1,421 @@
+//@version=5
+indicator("Volume Profile Pro - POC + Value Area + Phiên + Naked POC", overlay=true, max_boxes_count=250, max_lines_count=100, max_labels_count=100)
+
+// ============ NHÓM: CHẾ ĐỘ HIỂN THỊ ============
+grpMode = "Chế độ hiển thị"
+showRolling = input.bool(true, "Hiện Volume Profile Cuộn (Rolling)", group=grpMode)
+showSession = input.bool(true, "Hiện Volume Profile Theo Phiên", group=grpMode)
+
+// ============ NHÓM: PROFILE CUỘN (ROLLING) ============
+grpRoll = "Volume Profile Cuộn"
+rollLookback = input.int(150, "Số nến nhìn lại", minval=20, maxval=400, group=grpRoll)
+rollBins     = input.int(24, "Số mức giá (bins)", minval=10, maxval=50, group=grpRoll)
+
+// ============ NHÓM: PROFILE THEO PHIÊN ============
+grpSess = "Volume Profile Theo Phiên"
+sessionChoice   = input.string("Á (Asia)", "Chọn phiên", options=["Á (Asia)", "Âu (London)", "Mỹ (New York)", "Tùy chỉnh"], group=grpSess)
+customSession   = input.session("0000-0800", "Giờ phiên tùy chỉnh (UTC, nếu chọn Tùy chỉnh)", group=grpSess)
+sessionDaysBack = input.int(1, "Xem lại bao nhiêu phiên gần nhất", minval=1, maxval=5, group=grpSess)
+sessBins        = input.int(24, "Số mức giá (bins) cho phiên", minval=10, maxval=50, group=grpSess)
+
+// ============ NHÓM: VALUE AREA & ĐIỂM VÀO LỆNH ============
+grpVA = "Value Area & Điểm vào lệnh"
+vaPercent      = input.float(70, "Value Area (%)", minval=50, maxval=90, group=grpVA)
+showEntry      = input.bool(true, "Đánh dấu vùng xác suất phản ứng cao", group=grpVA)
+touchPct       = input.float(0.3, "Khoảng cách coi là 'chạm' vùng (%)", minval=0.05, step=0.05, group=grpVA)
+volMALenVP     = input.int(20, "Chu kỳ MA khối lượng", group=grpVA)
+volSpikeMultVP = input.float(1.3, "Hệ số volume xác nhận tại vùng", minval=1.0, step=0.1, group=grpVA)
+
+// ============ NHÓM: BỘ LỌC XU HƯỚNG ============
+grpTrendVP = "Bộ lọc xu hướng"
+useTrendFilterVP = input.bool(true, "Chỉ vào lệnh thuận xu hướng (khuyên dùng)", group=grpTrendVP)
+trendEmaLenVP    = input.int(50, "Độ dài EMA xu hướng (chỉnh lại khi đổi khung giờ)", minval=5, maxval=200, group=grpTrendVP)
+showTrendEmaVP   = input.bool(true, "Hiện đường EMA xu hướng trên biểu đồ", group=grpTrendVP)
+
+// ============ NHÓM: QUẢN LÝ LỆNH (SL/TP GỢI Ý) ============
+grpRiskVP = "Quản lý lệnh (SL/TP gợi ý)"
+showSLTP_VP  = input.bool(true, "Hiện SL/TP gợi ý khi có tín hiệu VP★", group=grpRiskVP)
+atrLenVP     = input.int(14, "Chu kỳ ATR", group=grpRiskVP)
+atrMultSLVP  = input.float(1.2, "ATR x Stop Loss", minval=0.3, step=0.1, group=grpRiskVP)
+atrMultTPVP  = input.float(2.0, "ATR x Take Profit", minval=0.3, step=0.1, group=grpRiskVP)
+
+// ============ NHÓM: TRỌNG SỐ THEO THỜI GIAN ============
+grpDecay = "Trọng số theo thời gian"
+timeDecayStrength = input.float(0.0, "Ưu tiên nến gần đây (0 = tắt, 0.8 = ưu tiên mạnh)", minval=0.0, maxval=0.9, step=0.1, group=grpDecay)
+
+// ============ NHÓM: KHOẢNG TRỐNG THANH KHOẢN - LVN ============
+grpLVN = "Khoảng trống thanh khoản (LVN)"
+showLVN     = input.bool(true, "Đánh dấu khoảng trống thanh khoản", group=grpLVN)
+lvnThreshPct = input.float(15, "Ngưỡng volume yếu (%)", minval=5, maxval=30, group=grpLVN)
+
+// ============ NHÓM: POC TRINH - NAKED POC ============
+grpNaked = "POC Trinh (Naked POC)"
+showNaked     = input.bool(true, "Hiện các POC Trinh (chưa bị giá quay lại kiểm định)", group=grpNaked)
+maxNakedTrack = input.int(10, "Số lượng POC Trinh tối đa theo dõi", minval=3, maxval=20, group=grpNaked)
+
+// ============ MÀU SẮC ============
+grpColor = "Màu sắc"
+poc_color   = input.color(#FF1744, "Màu đường POC", group=grpColor)
+vup_color   = input.color(color.new(color.blue, 30), "Vùng MUA - trong Value Area", group=grpColor)
+vdown_color = input.color(color.new(color.orange, 30), "Vùng BÁN - trong Value Area", group=grpColor)
+up_color    = input.color(color.new(color.blue, 75), "Vùng MUA - ngoài Value Area", group=grpColor)
+down_color  = input.color(color.new(color.orange, 75), "Vùng BÁN - ngoài Value Area", group=grpColor)
+
+
+
+// ============ HÀM ĐỊNH DẠNG GIÁ THÔNG MINH ============
+f_fmt(x) =>
+    absX = math.abs(x)
+    string fmtStr = absX >= 1000 ? "#,##0.00" : absX >= 1 ? "#.####" : absX >= 0.01 ? "#.######" : "#.##########"
+    str.tostring(x, fmtStr)
+
+// ============ HÀM TÍNH OVERLAP VOLUME (theo thân + bóng nến, học từ script chuẩn) ============
+get_vol(y11, y12, y21, y22, height, vol) =>
+    nz(math.max(math.min(math.max(y11, y12), math.max(y21, y22)) - math.max(math.min(y11, y12), math.min(y21, y22)), 0) * vol / height)
+
+// ============ HÀM DỰNG PROFILE (tách thân/bóng nến, tách MUA/BÁN, có offset + trọng số thời gian) ============
+f_buildProfile(offset, N, bins, decayStrength) =>
+    float hi = high[offset]
+    float lo = low[offset]
+    for i = 0 to N - 1
+        hi := math.max(hi, high[offset + i])
+        lo := math.min(lo, low[offset + i])
+    step = (hi - lo) / bins
+    levels = array.new_float(bins + 1)
+    for x = 0 to bins
+        array.set(levels, x, lo + step * x)
+    volBinsBuy  = array.new_float(bins, 0.0)
+    volBinsSell = array.new_float(bins, 0.0)
+    denom = N > 1 ? N - 1 : 1
+    if step > 0
+        for i = 0 to N - 1
+            idx = offset + i
+            body_top = math.max(close[idx], open[idx])
+            body_bot = math.min(close[idx], open[idx])
+            itsgreen = close[idx] >= open[idx]
+            topwick = high[idx] - body_top
+            bottomwick = body_bot - low[idx]
+            body = body_top - body_bot
+            totalRange = 2 * topwick + 2 * bottomwick + body
+            weight = 1.0 - decayStrength * (i / denom)
+            wVol = volume[idx] * weight
+            bodyvol = totalRange > 0 ? body * wVol / totalRange : 0.0
+            topwickvol = totalRange > 0 ? 2 * topwick * wVol / totalRange : 0.0
+            bottomwickvol = totalRange > 0 ? 2 * bottomwick * wVol / totalRange : 0.0
+            for x = 0 to bins - 1
+                lx = array.get(levels, x)
+                lx1 = array.get(levels, x + 1)
+                upAdd = (itsgreen ? get_vol(lx, lx1, body_bot, body_top, body, bodyvol) : 0.0) + get_vol(lx, lx1, body_top, high[idx], topwick, topwickvol) / 2 + get_vol(lx, lx1, body_bot, low[idx], bottomwick, bottomwickvol) / 2
+                downAdd = (itsgreen ? 0.0 : get_vol(lx, lx1, body_bot, body_top, body, bodyvol)) + get_vol(lx, lx1, body_top, high[idx], topwick, topwickvol) / 2 + get_vol(lx, lx1, body_bot, low[idx], bottomwick, bottomwickvol) / 2
+                array.set(volBinsBuy, x, array.get(volBinsBuy, x) + upAdd)
+                array.set(volBinsSell, x, array.get(volBinsSell, x) + downAdd)
+    [volBinsBuy, volBinsSell, hi, lo, step]
+
+f_combineArr(a, b) =>
+    n = array.size(a)
+    result = array.new_float(n, 0.0)
+    for i = 0 to n - 1
+        array.set(result, i, array.get(a, i) + array.get(b, i))
+    result
+
+// ============ HÀM DỰNG PROFILE (THEO PHIÊN) - cùng phương pháp thân/bóng nến ============
+sessionMap(choice) =>
+    choice == "Á (Asia)" ? "0000-0800" : choice == "Âu (London)" ? "0700-1600" : choice == "Mỹ (New York)" ? "1300-2100" : customSession
+
+sessStr = sessionMap(sessionChoice)
+sessTime = time(timeframe.period, sessStr, "UTC")
+
+f_buildSessionProfile(bins, maxDaysBack, capBars) =>
+    float hi = high
+    float lo = low
+    sessionsFound = 0
+    wasIn = false
+    for i = 0 to capBars - 1
+        isIn = not na(sessTime[i])
+        if isIn
+            hi := math.max(hi, high[i])
+            lo := math.min(lo, low[i])
+            if not wasIn
+                sessionsFound += 1
+        wasIn := isIn
+        if sessionsFound > maxDaysBack
+            break
+    step = (hi - lo) / bins
+    levels = array.new_float(bins + 1)
+    for x = 0 to bins
+        array.set(levels, x, lo + step * x)
+    volBinsBuy  = array.new_float(bins, 0.0)
+    volBinsSell = array.new_float(bins, 0.0)
+    sessionsFound2 = 0
+    wasIn2 = false
+    if step > 0
+        for i = 0 to capBars - 1
+            isIn = not na(sessTime[i])
+            if isIn
+                body_top = math.max(close[i], open[i])
+                body_bot = math.min(close[i], open[i])
+                itsgreen = close[i] >= open[i]
+                topwick = high[i] - body_top
+                bottomwick = body_bot - low[i]
+                body = body_top - body_bot
+                totalRange = 2 * topwick + 2 * bottomwick + body
+                bodyvol = totalRange > 0 ? body * volume[i] / totalRange : 0.0
+                topwickvol = totalRange > 0 ? 2 * topwick * volume[i] / totalRange : 0.0
+                bottomwickvol = totalRange > 0 ? 2 * bottomwick * volume[i] / totalRange : 0.0
+                for x = 0 to bins - 1
+                    lx = array.get(levels, x)
+                    lx1 = array.get(levels, x + 1)
+                    upAdd = (itsgreen ? get_vol(lx, lx1, body_bot, body_top, body, bodyvol) : 0.0) + get_vol(lx, lx1, body_top, high[i], topwick, topwickvol) / 2 + get_vol(lx, lx1, body_bot, low[i], bottomwick, bottomwickvol) / 2
+                    downAdd = (itsgreen ? 0.0 : get_vol(lx, lx1, body_bot, body_top, body, bodyvol)) + get_vol(lx, lx1, body_top, high[i], topwick, topwickvol) / 2 + get_vol(lx, lx1, body_bot, low[i], bottomwick, bottomwickvol) / 2
+                    array.set(volBinsBuy, x, array.get(volBinsBuy, x) + upAdd)
+                    array.set(volBinsSell, x, array.get(volBinsSell, x) + downAdd)
+                if not wasIn2
+                    sessionsFound2 += 1
+            wasIn2 := isIn
+            if sessionsFound2 > maxDaysBack
+                break
+    [volBinsBuy, volBinsSell, hi, lo, step]
+
+// ============ HÀM TÍNH POC + VALUE AREA (trả về cả chỉ số vùng để tô màu đậm/nhạt) ============
+f_pocVA(volBins, lo, binSize, vaPct) =>
+    bins = array.size(volBins)
+    totalVol = array.sum(volBins)
+    maxVol = -1.0
+    pocIdx = 0
+    for i = 0 to bins - 1
+        v = array.get(volBins, i)
+        if v > maxVol
+            maxVol := v
+            pocIdx := i
+    vaVol = array.get(volBins, pocIdx)
+    lowIdx = pocIdx
+    highIdx = pocIdx
+    targetVol = totalVol * vaPct / 100
+    while vaVol < targetVol and (lowIdx > 0 or highIdx < bins - 1)
+        volBelow = lowIdx > 0 ? array.get(volBins, lowIdx - 1) : -1.0
+        volAbove = highIdx < bins - 1 ? array.get(volBins, highIdx + 1) : -1.0
+        if volAbove >= volBelow
+            highIdx += 1
+            vaVol += array.get(volBins, highIdx)
+        else
+            lowIdx -= 1
+            vaVol += array.get(volBins, lowIdx)
+    pocPrice = lo + (pocIdx + 0.5) * binSize
+    vahPrice = lo + (highIdx + 1) * binSize
+    valPrice = lo + lowIdx * binSize
+    [pocPrice, vahPrice, valPrice, maxVol, totalVol, pocIdx, lowIdx, highIdx]
+
+// ============ VẼ HISTOGRAM PROFILE ============
+var box[] rollBoxes = array.new_box(0)
+var line[] rollLines = array.new_line(0)
+var label[] rollLbls = array.new_label(0)
+var box[] sessBoxes = array.new_box(0)
+var line[] sessLines = array.new_line(0)
+var label[] sessLbls = array.new_label(0)
+var line[] nakedLines = array.new_line(0)
+var label[] nakedLbls = array.new_label(0)
+
+f_clearArr(boxArr, lineArr, lblArr) =>
+    for b in boxArr
+        box.delete(b)
+    for l in lineArr
+        line.delete(l)
+    for lb in lblArr
+        label.delete(lb)
+    array.clear(boxArr)
+    array.clear(lineArr)
+    array.clear(lblArr)
+
+var float rollPOC = na
+var float rollVAH = na
+var float rollVAL = na
+var float sessPOC = na
+var float sessVAH = na
+var float sessVAL = na
+
+// ============ THEO DÕI POC TRINH (NAKED POC) - chạy mỗi bar ============
+newDay = ta.change(time("D")) != 0
+var int barsSinceDayStart = 0
+barsSinceDayStart := newDay ? 0 : barsSinceDayStart + 1
+
+var float[] nakedPOCs = array.new_float(0)
+
+if newDay and barsSinceDayStart[1] >= 5
+    dayBars = barsSinceDayStart[1] + 1
+    [dayBuyBins, daySellBins, dayHi, dayLo, dayBinSize] = f_buildProfile(1, dayBars, rollBins, 0.0)
+    dayCombined = f_combineArr(dayBuyBins, daySellBins)
+    [dayPOC, dayVAH_, dayVAL_, dayMax_, dayTot_, dayPocIdx_, dayLow_, dayHigh_] = f_pocVA(dayCombined, dayLo, dayBinSize, vaPercent)
+    array.push(nakedPOCs, dayPOC)
+    if array.size(nakedPOCs) > maxNakedTrack
+        array.shift(nakedPOCs)
+
+if array.size(nakedPOCs) > 0
+    chkIdx = array.size(nakedPOCs) - 1
+    while chkIdx >= 0
+        lvl = array.get(nakedPOCs, chkIdx)
+        if low <= lvl and high >= lvl
+            array.remove(nakedPOCs, chkIdx)
+        chkIdx -= 1
+
+// ============ VẼ CHÍNH - NEO CỐ ĐỊNH VÀO ĐẦU VÙNG NHÌN LẠI (giống chuẩn tham khảo, đơn giản, ổn định) ============
+if barstate.islast
+    f_clearArr(rollBoxes, rollLines, rollLbls)
+    f_clearArr(sessBoxes, sessLines, sessLbls)
+    for l in nakedLines
+        line.delete(l)
+    for lb in nakedLbls
+        label.delete(lb)
+    array.clear(nakedLines)
+    array.clear(nakedLbls)
+
+    // ---- ROLLING ----
+    if showRolling
+        [buyBinsR, sellBinsR, hiR, loR, binSizeR] = f_buildProfile(0, rollLookback, rollBins, timeDecayStrength)
+        combinedR = f_combineArr(buyBinsR, sellBinsR)
+        [pocR, vahR, valR, maxVolR, totalVolR, pocIdxR, lowIdxR, highIdxR] = f_pocVA(combinedR, loR, binSizeR, vaPercent)
+        rollPOC := pocR
+        rollVAH := vahR
+        rollVAL := valR
+        rollAnchor = bar_index - rollLookback + 1
+        maxExtend = rollLookback / 3
+        for x = 0 to rollBins - 1
+            buyV = array.get(buyBinsR, x)
+            sellV = array.get(sellBinsR, x)
+            inVA = x >= lowIdxR and x <= highIdxR
+            buyLen = maxVolR > 0 ? math.round(buyV * maxExtend / maxVolR) : 0
+            sellLen = maxVolR > 0 ? math.round(sellV * maxExtend / maxVolR) : 0
+            topLvl = loR + (x + 1) * binSizeR
+            botLvl = loR + x * binSizeR
+            bxBuy = box.new(rollAnchor, topLvl, rollAnchor + int(buyLen), botLvl, border_width=1, border_color=color.new(color.black, 10), bgcolor=inVA ? vup_color : up_color)
+            bxSell = box.new(rollAnchor + int(buyLen), topLvl, rollAnchor + int(buyLen) + int(sellLen), botLvl, border_width=1, border_color=color.new(color.black, 10), bgcolor=inVA ? vdown_color : down_color)
+            array.push(rollBoxes, bxBuy)
+            array.push(rollBoxes, bxSell)
+        pocLine = line.new(rollAnchor, rollPOC, rollAnchor + 1, rollPOC, extend=extend.right, color=poc_color, width=2)
+        array.push(rollLines, pocLine)
+        pocLbl = label.new(bar_index + 8, rollPOC, "POC: " + f_fmt(rollPOC), style=close >= rollPOC ? label.style_label_up : label.style_label_down, color=poc_color, textcolor=color.white, size=size.normal)
+        array.push(rollLbls, pocLbl)
+
+        // ---- KHOẢNG TRỐNG THANH KHOẢN (LVN) ----
+        if showLVN and maxVolR > 0
+            int gapStart = -1
+            for x = 0 to rollBins - 1
+                v2 = array.get(combinedR, x)
+                ratioG = v2 / maxVolR
+                isWeak = ratioG < lvnThreshPct / 100
+                if isWeak and gapStart == -1
+                    gapStart := x
+                if (not isWeak or x == rollBins - 1) and gapStart != -1
+                    gapEnd = isWeak ? x : x - 1
+                    gapLen = gapEnd - gapStart + 1
+                    if gapLen >= 2 and gapStart > 0 and gapEnd < rollBins - 1
+                        topG = loR + (gapEnd + 1) * binSizeR
+                        botG = loR + gapStart * binSizeR
+                        midG = (topG + botG) / 2
+                        lvnLbl = label.new(rollAnchor - 5, midG, "⚠", style=label.style_label_right, color=color.new(color.red, 40), textcolor=color.white, size=size.small)
+                        array.push(rollLbls, lvnLbl)
+                    gapStart := -1
+
+    // ---- THEO PHIÊN (đặt ngay bên trái nhóm Cuộn, cùng phong cách) ----
+    if showSession
+        capBars = int(math.max(1, math.min(2000, bar_index)))
+        [buyBinsS, sellBinsS, hiS, loS, binSizeS] = f_buildSessionProfile(sessBins, sessionDaysBack, capBars)
+        combinedS = f_combineArr(buyBinsS, sellBinsS)
+        [pocS, vahS, valS, maxVolS, totalVolS, pocIdxS, lowIdxS, highIdxS] = f_pocVA(combinedS, loS, binSizeS, vaPercent)
+        sessPOC := pocS
+        sessVAH := vahS
+        sessVAL := valS
+        maxExtendS = rollLookback / 4
+        sessAnchor = (bar_index - rollLookback + 1) - int(maxExtendS) - 6
+        for x = 0 to sessBins - 1
+            buyV = array.get(buyBinsS, x)
+            sellV = array.get(sellBinsS, x)
+            inVA = x >= lowIdxS and x <= highIdxS
+            buyLen = maxVolS > 0 ? math.round(buyV * maxExtendS / maxVolS) : 0
+            sellLen = maxVolS > 0 ? math.round(sellV * maxExtendS / maxVolS) : 0
+            topLvl = loS + (x + 1) * binSizeS
+            botLvl = loS + x * binSizeS
+            bxBuy2 = box.new(sessAnchor, topLvl, sessAnchor + int(buyLen), botLvl, border_width=1, border_color=color.new(color.black, 10), bgcolor=inVA ? color.new(#00BFA5, 30) : color.new(#00BFA5, 75))
+            bxSell2 = box.new(sessAnchor + int(buyLen), topLvl, sessAnchor + int(buyLen) + int(sellLen), botLvl, border_width=1, border_color=color.new(color.black, 10), bgcolor=inVA ? color.new(#D500F9, 30) : color.new(#D500F9, 75))
+            array.push(sessBoxes, bxBuy2)
+            array.push(sessBoxes, bxSell2)
+        pocLine2 = line.new(sessAnchor, sessPOC, sessAnchor + 1, sessPOC, extend=extend.right, color=color.new(#FFD600, 0), width=1)
+        array.push(sessLines, pocLine2)
+        pocLbl2 = label.new(sessAnchor - 2, sessPOC, "POC Phiên: " + f_fmt(sessPOC), style=label.style_label_left, color=color.new(#FFD600, 15), textcolor=color.black, size=size.small)
+        array.push(sessLbls, pocLbl2)
+
+    // ---- VẼ CÁC POC TRINH CÒN LẠI (CHƯA BỊ CHẠM) ----
+    if showNaked and array.size(nakedPOCs) > 0
+        for i = 0 to array.size(nakedPOCs) - 1
+            lvl = array.get(nakedPOCs, i)
+            nl = line.new(bar_index - 15, lvl, bar_index + 2, lvl, color=color.new(#FF1744, 30), width=1)
+            nlb = label.new(bar_index - 15, lvl, "POC trinh " + f_fmt(lvl), style=label.style_label_right, color=color.new(#FF1744, 30), textcolor=color.white, size=size.tiny)
+            array.push(nakedLines, nl)
+            array.push(nakedLbls, nlb)
+
+// ============ ĐIỂM CẢNH BÁO VÙNG XÁC SUẤT PHẢN ỨNG CAO ============
+volMAvp   = ta.sma(volume, volMALenVP)
+volSpikeVP = volume > volMAvp * volSpikeMultVP
+
+// Bộ lọc xu hướng
+trendEmaVP = ta.ema(close, trendEmaLenVP)
+bullTrendVP = close > trendEmaVP
+bearTrendVP = close < trendEmaVP
+plot(showTrendEmaVP ? trendEmaVP : na, title="EMA xu hướng (Volume Profile)", color=color.new(#FFFFFF, 40), linewidth=2)
+
+bullEngulfVP = close > open and close[1] < open[1] and close >= open[1] and open <= close[1]
+bearEngulfVP = close < open and close[1] > open[1] and close <= open[1] and open >= close[1]
+bodySizeVP   = math.abs(close - open)
+rangeVP      = high - low
+hammerVP     = rangeVP > 0 and (high - math.max(close, open)) < bodySizeVP * 0.4 and (math.min(close, open) - low) > bodySizeVP * 1.8
+shootStarVP  = rangeVP > 0 and (math.min(close, open) - low) < bodySizeVP * 0.4 and (high - math.max(close, open)) > bodySizeVP * 1.8
+bullCandleVP = bullEngulfVP or hammerVP
+bearCandleVP = bearEngulfVP or shootStarVP
+
+nearLevel(lvl) => not na(lvl) and math.abs(close - lvl) / close * 100 <= touchPct
+
+nearRollPOC = nearLevel(rollPOC)
+nearRollVAL = nearLevel(rollVAL)
+nearRollVAH = nearLevel(rollVAH)
+nearSessPOC = nearLevel(sessPOC)
+nearSessVAL = nearLevel(sessVAL)
+nearSessVAH = nearLevel(sessVAH)
+
+bullZoneRaw = (nearRollVAL or nearRollPOC or nearSessVAL or nearSessPOC) and bullCandleVP and volSpikeVP and (not useTrendFilterVP or bullTrendVP)
+bearZoneRaw = (nearRollVAH or nearRollPOC or nearSessVAH or nearSessPOC) and bearCandleVP and volSpikeVP and (not useTrendFilterVP or bearTrendVP)
+
+// Chỉ bắn tín hiệu 1 lần khi điều kiện vừa đúng, tránh lặp lại liên tiếp nhiều nến
+bullZone = bullZoneRaw and not bullZoneRaw[1]
+bearZone = bearZoneRaw and not bearZoneRaw[1]
+
+atrVP = ta.atr(atrLenVP)
+
+plotshape(showEntry and bullZone, title="Vùng phản ứng cao - MUA", style=shape.triangleup, location=location.belowbar, size=size.small, color=color.new(color.lime, 0), text="VP★")
+plotshape(showEntry and bearZone, title="Vùng phản ứng cao - BÁN", style=shape.triangledown, location=location.abovebar, size=size.small, color=color.new(color.red, 0), text="VP★")
+
+if showSLTP_VP and bullZone
+    slB = close - atrVP * atrMultSLVP
+    tpB = close + atrVP * atrMultTPVP
+    label.new(bar_index, low, "SL " + f_fmt(slB) + "\nTP " + f_fmt(tpB), style=label.style_label_up, color=color.new(color.green, 60), textcolor=color.white, size=size.small)
+
+if showSLTP_VP and bearZone
+    slS = close + atrVP * atrMultSLVP
+    tpS = close - atrVP * atrMultTPVP
+    label.new(bar_index, high, "SL " + f_fmt(slS) + "\nTP " + f_fmt(tpS), style=label.style_label_down, color=color.new(color.red, 60), textcolor=color.white, size=size.small)
+
+// ============ BẢNG THÔNG TIN ============
+var table vpInfo = table.new(position.bottom_right, 2, 5, border_width=1)
+if barstate.islast
+    table.cell(vpInfo, 0, 0, "POC (Cuộn)", bgcolor=color.gray, text_color=color.white)
+    table.cell(vpInfo, 1, 0, na(rollPOC) ? "—" : f_fmt(rollPOC), bgcolor=color.new(color.gray, 20), text_color=color.white)
+    table.cell(vpInfo, 0, 1, "Value Area (Cuộn)", bgcolor=color.gray, text_color=color.white)
+    table.cell(vpInfo, 1, 1, (na(rollVAL) ? "—" : f_fmt(rollVAL)) + " - " + (na(rollVAH) ? "—" : f_fmt(rollVAH)), bgcolor=color.new(color.purple, 50), text_color=color.white)
+    table.cell(vpInfo, 0, 2, "POC (Phiên)", bgcolor=color.gray, text_color=color.white)
+    table.cell(vpInfo, 1, 2, na(sessPOC) ? "—" : f_fmt(sessPOC), bgcolor=color.new(color.yellow, 40), text_color=color.black)
+    table.cell(vpInfo, 0, 3, "Value Area (Phiên)", bgcolor=color.gray, text_color=color.white)
+    table.cell(vpInfo, 1, 3, (na(sessVAL) ? "—" : f_fmt(sessVAL)) + " - " + (na(sessVAH) ? "—" : f_fmt(sessVAH)), bgcolor=color.new(color.fuchsia, 50), text_color=color.white)
+    table.cell(vpInfo, 0, 4, "Số POC Trinh còn lại", bgcolor=color.gray, text_color=color.white)
+    table.cell(vpInfo, 1, 4, str.tostring(array.size(nakedPOCs)), bgcolor=color.new(#FF1744, 40), text_color=color.white)
+
+// ============ ALERT ============
+alertcondition(bullZone, "Vùng Volume Profile - MUA", "Giá chạm vùng volume mạnh (POC/VAL) + nến đảo chiều + volume xác nhận")
+alertcondition(bearZone, "Vùng Volume Profile - BÁN", "Giá chạm vùng volume mạnh (POC/VAH) + nến đảo chiều + volume xác nhận")

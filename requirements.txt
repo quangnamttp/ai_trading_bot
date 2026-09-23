@@ -1,40 +1,11 @@
-# Telegram Bot
-python-telegram-bot==22.0
-python-dotenv==1.0.0
-
-# Build Dependencies
-wheel==0.42.0
-setuptools==69.0.3
-Cython==3.0.5
-
-# API & Data
-requests==2.31.0
-pandas>=2.0.0
-numpy
-
-# Trading & Market Data
-ccxt==4.1.90
-yfinance==0.2.32
-
-# AI & Analysis
-scikit-learn>=1.4.0
-
-# Chart Generation
-matplotlib
-seaborn
-
-# System Monitoring
-psutil==5.9.6
-
-# Utilities
-schedule==1.2.0
-python-dateutil==2.8.2
-
-# Logging
-loguru==0.7.2
-
-# Async
-aiohttp
-
-# Web Server (for health check endpoint)
-flask==3.0.0
+python-telegram-bot[job-queue]>=22.0,<23
+aiohttp>=3.9
+httpx>=0.27
+pandas>=2.2
+numpy>=1.26
+matplotlib>=3.8
+SQLAlchemy[asyncio]>=2.0
+aiosqlite>=0.20
+asyncpg>=0.29
+feedparser>=6.0
+python-dotenv>=1.0
