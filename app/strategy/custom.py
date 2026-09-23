@@ -18,6 +18,11 @@ WEIGHTS = {
 }
 
 
+def enabled() -> bool:
+    """Chỉ tính các chỉ báo khi có trọng số > 0 (tiết kiệm CPU trên Render free)."""
+    return any(w for w in WEIGHTS.values())
+
+
 def score(f: pd.DataFrame, side: int) -> pd.Series:
     if "tv_votes_bull" not in f:
         return pd.Series(0.0, index=f.index)

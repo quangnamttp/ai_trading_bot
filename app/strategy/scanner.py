@@ -55,8 +55,9 @@ async def _analyze(coin: binance.Coin, btc_h4: pd.DataFrame | None, fng: pd.Seri
         binance.klines(coin.symbol, "1h", 400), binance.klines(coin.symbol, "4h", 300),
         binance.klines(coin.symbol, "1d", 200), binance.funding_history(coin.symbol, start),
     )
-    f = build_features(h1, h4, d1, btc_h4=btc_h4, fng=fng, funding=funding)
-    scores = score_frame(f)
+    # tính toán nặng (pandas) chạy ở luồng riêng để bot vẫn trả lời tin nhắn / health check trong lúc quét
+    scores = await asyncio.to_thread(
+        lambda: score_frame(build_features(h1, h4, d1, btc_h4=btc_h4, fng=fng, funding=funding)))
     return best_candidate(coin.symbol, scores), h1, scores
 
 

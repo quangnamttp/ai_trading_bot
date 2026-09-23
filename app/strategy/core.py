@@ -114,7 +114,7 @@ def build_features(h1: pd.DataFrame, h4: pd.DataFrame, d1: pd.DataFrame, *, btc_
     f["fng"] = f["fng"].fillna(50)
     f["funding"] = f["funding"].fillna(0.0)
     f = f.set_index("open_time").reindex(idx)
-    return f.join(tv_features(h1, h4, d1))
+    return f.join(tv_features(h1, h4, d1)) if custom.enabled() else f
 
 
 # ---------------------------------------------------------------- scoring
