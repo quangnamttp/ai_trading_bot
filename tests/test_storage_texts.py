@@ -69,3 +69,12 @@ def test_signal_message_spot_divides_multiplier():
     fut = texts.signal_message(sig, mode="futures", risk_pct=0.5, stats=None)
     assert "0.00001" in spot and "đòn bẩy" not in spot
     assert "0.012" in fut and "đòn bẩy" in fut
+
+
+def test_webhook_secret_is_telegram_safe(monkeypatch):
+    import re
+    from dataclasses import replace as _replace
+
+    import app.main as m
+    monkeypatch.setattr(m, "settings", _replace(m.settings, webhook_secret="a+b/c=d!@#", telegram_token="1:x"))
+    assert re.fullmatch(r"[A-Za-z0-9_-]{1,256}", m.webhook_secret())

@@ -60,7 +60,10 @@ def schedule(app: Application) -> None:
 
 # ---------------------------------------------------------------- web
 def webhook_secret() -> str:
-    return settings.webhook_secret or hashlib.sha256(settings.telegram_token.encode()).hexdigest()[:32]
+    """Telegram chỉ nhận A-Z a-z 0-9 _ - (tối đa 256 ký tự); secret do Render sinh ra có thể chứa ký tự khác
+    -> luôn băm về chuỗi hex hợp lệ."""
+    seed = settings.webhook_secret or settings.telegram_token
+    return hashlib.sha256(seed.encode()).hexdigest()[:48]
 
 
 def make_web(app: Application) -> web.Application:
@@ -101,43 +104,50 @@ async def run() -> None:
 
     async with app:
         await app.start()
-        if settings.public_url:
-            await app.bot.set_webhook(f"{settings.public_url}/telegram", secret_token=webhook_secret(),
-                                      allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
-            log.info("Webhook: %s/telegram", settings.public_url)
-        else:
-            await app.bot.delete_webhook()
-            await app.updater.start_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
-            log.info("Chạy chế độ polling (local)")
-        status = f"✅ Bot đã khởi động lúc {STARTED:%H:%M %d/%m}"
         try:
-            await binance.last_price("BTCUSDT")
-        except Exception as exc:  # noqa: BLE001
-            # thường gặp: HTTP 451 khi server đặt ở vùng Binance chặn (Mỹ...)
-            log.error("Không gọi được Binance: %s", exc)
-            status += (f"\n⚠️ KHÔNG lấy được dữ liệu Binance ({exc}).\n"
-                       "Nếu lỗi 451: vùng server bị Binance chặn — tạo lại service Render ở region Frankfurt.")
-        for admin in settings.admin_ids:
-            try:
-                await app.bot.send_message(admin, status)
-            except Exception:  # noqa: BLE001
-                log.warning("Không gửi được tin khởi động cho admin %s", admin)
-
-        stop = asyncio.Event()
-        loop = asyncio.get_running_loop()
-        for sig in (signal.SIGINT, signal.SIGTERM):
-            try:
-                loop.add_signal_handler(sig, stop.set)
-            except NotImplementedError:  # Windows
-                signal.signal(sig, lambda *_: stop.set())
-        await stop.wait()
-
-        log.info("Đang tắt...")
-        if app.updater and app.updater.running:
-            await app.updater.stop()
-        await app.stop()
+            await _serve(app)
+        finally:
+            if app.updater and app.updater.running:
+                await app.updater.stop()
+            if app.running:
+                await app.stop()
     await runner.cleanup()
     await http.close()
+
+
+async def _serve(app: Application) -> None:
+    """Đặt webhook/polling, báo admin, rồi chờ tới khi nhận tín hiệu tắt."""
+    if settings.public_url:
+        await app.bot.set_webhook(f"{settings.public_url}/telegram", secret_token=webhook_secret(),
+                                  allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
+        log.info("Webhook: %s/telegram", settings.public_url)
+    else:
+        await app.bot.delete_webhook()
+        await app.updater.start_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
+        log.info("Chạy chế độ polling (local)")
+    status = f"✅ Bot đã khởi động lúc {STARTED:%H:%M %d/%m}"
+    try:
+        await binance.last_price("BTCUSDT")
+    except Exception as exc:  # noqa: BLE001
+        # thường gặp: HTTP 451 khi server đặt ở vùng Binance chặn (Mỹ...)
+        log.error("Không gọi được Binance: %s", exc)
+        status += (f"\n⚠️ KHÔNG lấy được dữ liệu Binance ({exc}).\n"
+                   "Nếu lỗi 451: vùng server bị Binance chặn — tạo lại service Render ở region Frankfurt.")
+    for admin in settings.admin_ids:
+        try:
+            await app.bot.send_message(admin, status)
+        except Exception:  # noqa: BLE001
+            log.warning("Không gửi được tin khởi động cho admin %s", admin)
+
+    stop = asyncio.Event()
+    loop = asyncio.get_running_loop()
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        try:
+            loop.add_signal_handler(sig, stop.set)
+        except NotImplementedError:  # Windows
+            signal.signal(sig, lambda *_: stop.set())
+    await stop.wait()
+    log.info("Đang tắt...")
 
 
 def main() -> None:
