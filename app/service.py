@@ -29,20 +29,30 @@ def tv_url(sig: dict, mode: str) -> str:
     return f"https://www.tradingview.com/chart/?symbol={sym}&interval=60"
 
 
-def receives(user: dict, sig: dict) -> bool:
-    """Spot chỉ nhận lệnh MUA của coin có trên spot; mỗi người chỉ nhận kiểu swing đã chọn.
-    Spot không nhận Swing dài: backtest 2 năm cho kết quả lỗ ở nửa dữ liệu gần đây."""
+def receives(user: dict, sig: dict, my_coins: set[str] | None = None) -> bool:
+    """Ai nhận tín hiệu nào — mỗi người theo cài đặt riêng, không ảnh hưởng người khác:
+    - kiểu swing đã chọn; Spot chỉ nhận lệnh MUA của coin có trên spot, không nhận Swing dài (backtest yếu);
+    - coin: 'top' = Top 20 · 'mine' = chỉ coin tự chọn · 'both' = cả hai."""
     style = sig.get("style", "short")
     if user.get("style", "both") not in ("both", style):
         return False
     if user["mode"] == "spot" and style == "long":
         return False
-    return user["mode"] == "futures" or (sig["side"] > 0 and bool(sig.get("spot_symbol")))
+    if not (user["mode"] == "futures" or (sig["side"] > 0 and bool(sig.get("spot_symbol")))):
+        return False
+    mine = sig["symbol"] in (my_coins or set())
+    top = sig.get("source", "top") == "top"
+    return {"top": top, "mine": mine, "both": top or mine}.get(user.get("coin_mode", "top"), top)
 
 
 async def _send(bot: Bot, chat_id: int, text: str, *, photo: bytes | None = None, url: str | None = None,
-                reply_to: int | None = None, silent: bool = False) -> int | None:
-    markup = InlineKeyboardMarkup([[InlineKeyboardButton("📈 Mở chart TradingView", url=url)]]) if url else None
+                reply_to: int | None = None, silent: bool = False, why_id: int | None = None) -> int | None:
+    rows = []
+    if url:
+        rows.append([InlineKeyboardButton("📈 Mở chart TradingView", url=url)])
+    if why_id:
+        rows.append([InlineKeyboardButton("🧠 Vì sao có tín hiệu này?", callback_data=f"why:{why_id}")])
+    markup = InlineKeyboardMarkup(rows) if rows else None
     try:
         if photo is not None and len(text) <= CAPTION_LIMIT:
             m = await bot.send_photo(chat_id, photo, caption=text, parse_mode=ParseMode.HTML, reply_markup=markup,
@@ -87,6 +97,7 @@ async def publish(bot: Bot, found: Found) -> int:
     setup_text = reasons[0]
     values = dict(symbol=coin.symbol, display=coin.display, side=c.side, spot_symbol=coin.spot_symbol,
                   multiplier=coin.multiplier, score=c.score, setup=row["setup_type"], style=style.key, tier=found.tier,
+                  source=found.source,
                   entry=row["entry"], sl=row["sl"], tp1=row["tp1"], tp2=row["tp2"], zone_lo=row["zone_lo"],
                   zone_hi=row["zone_hi"], reasons=storage.dumps(reasons[1:]), status="ACTIVE", created_at=created,
                   state=storage.dumps({"trade": trade.to_dict(), "last_ts": created, "notified_stop": row["sl"]}))
@@ -96,17 +107,27 @@ async def publish(bot: Bot, found: Found) -> int:
     stats = bucket_stats(c.score, style.key)
 
     photos: dict[int, bytes] = {}
+    coins_by_user: dict[int, set[str]] = {}
+    for r in await storage.all_user_coins():
+        coins_by_user.setdefault(r["chat_id"], set()).add(r["symbol"])
+    today = datetime.now(VN_TZ).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
     for user in await storage.subscribers():
-        if not receives(user, sig):
+        if not receives(user, sig, coins_by_user.get(user["chat_id"])):
             continue
+        if style.key == "short":  # mỗi người tối đa N tín hiệu swing ngắn/ngày (kể cả coin tự chọn)
+            got = [m for m in await storage.messages_since(user["chat_id"], today) if m["style"] == "short"]
+            if len(got) >= settings.max_signals_per_day:
+                continue
         mult = coin.multiplier if user["mode"] == "spot" else 1
         if mult not in photos:
             photos[mult] = await asyncio.to_thread(_chart, found.h1, sig, mult)
         text = texts.signal_message(sig, mode=user["mode"], risk_pct=user["risk_pct"], stats=stats)
+        if found.source == "user":
+            text = "🪙 <i>Coin bạn tự chọn — chưa backtest riêng, dùng cùng chiến lược với Top 20.</i>\n" + text
         if found.silent:
             text = "🌙 <i>Tín hiệu ban đêm (gửi không chuông) — sáng ra kiểm tra giá chưa vượt mức \"Không vào\" rồi hãy vào.</i>\n" + text
         mid = await _send(bot, user["chat_id"], text, photo=photos[mult], url=tv_url(sig, user["mode"]),
-                          silent=found.silent)
+                          silent=found.silent, why_id=sig_id)
         if mid:
             await storage.add_message(sig_id, user["chat_id"], mid)
         await asyncio.sleep(0.05)

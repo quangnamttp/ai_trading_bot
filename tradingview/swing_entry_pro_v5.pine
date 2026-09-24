@@ -1,36 +1,38 @@
 //@version=5
-// Swing Entry Pro v5 — cùng chiến lược đã backtest 2 năm / 40 coin với bot Telegram.
+// Swing Entry Pro v5.1 — cùng chiến lược đã backtest 2 năm / 40 coin với bot Telegram.
 // • Tín hiệu chỉ xuất hiện khi nến khung tín hiệu ĐÃ ĐÓNG, dữ liệu khung lớn chỉ dùng nến đã đóng -> KHÔNG repaint.
 // • Điểm vào = giá đóng cửa nến tín hiệu. SL theo đáy/đỉnh 24 nến (giới hạn 0.8–2.2 ATR khung xu hướng).
 // • Chốt 50% tại 2R; Trailing Stop (như lệnh sàn) kích hoạt ở +1R, callback = 3 x ATR khung xu hướng (tối đa 10%).
 // • Lọc Open Interest: chỉ vào lệnh khi OI biến động mạnh (dữ liệu OI của TradingView cho hợp đồng Binance).
-indicator("Swing Entry Pro v5 — Điểm vào + SL/TP + Trailing (không repaint)", shorttitle="Swing Pro v5", overlay=true,
+indicator("Swing Entry Pro v5.1 — Điểm vào + SL/TP + Trailing (không repaint)", shorttitle="Swing Pro v5.1", overlay=true,
      max_lines_count=300, max_labels_count=300, max_boxes_count=150)
 
 // ============ CÀI ĐẶT ============
 grpSig = "Tín hiệu"
 sigTfIn    = input.timeframe("", "Khung tín hiệu (để trống = tự động)", group=grpSig,
-     tooltip="Tự động = khung biểu đồ. Nếu biểu đồ nhỏ hơn 1H (vd 15m) thì lấy tín hiệu từ 1H: backtest cho thấy tín hiệu 15m độc lập bị lỗ.")
-threshold  = input.int(75, "Ngưỡng điểm", minval=50, maxval=100, group=grpSig)
-useOI      = input.bool(true, "Lọc theo Open Interest (khuyên dùng)", group=grpSig)
-oiMin      = input.float(5.0, "OI biến động tối thiểu (%)", minval=0, step=0.5, group=grpSig)
-allowShort = input.bool(true, "Cho phép tín hiệu BÁN/SHORT (tắt nếu chỉ giao dịch Spot)", group=grpSig)
-showPrep   = input.bool(true, "Hiện cảnh báo 'Chuẩn bị' (tham khảo, chưa phải tín hiệu)", group=grpSig)
-btcSym     = input.symbol("BINANCE:BTCUSDT.P", "Mã BTC tham chiếu xu hướng", group=grpSig)
+     tooltip="Tự động = khung biểu đồ. Nếu biểu đồ nhỏ hơn 1H (vd 15m) thì lấy tín hiệu từ 1H: backtest cho thấy tín hiệu 15m độc lập bị lỗ.", display=display.none)
+threshold  = input.int(75, "Ngưỡng điểm", minval=50, maxval=100, group=grpSig, display=display.none)
+useOI      = input.bool(true, "Lọc theo Open Interest (khuyên dùng)", group=grpSig, display=display.none)
+oiMin      = input.float(5.0, "OI biến động tối thiểu (%)", minval=0, step=0.5, group=grpSig, display=display.none)
+allowShort = input.bool(true, "Cho phép tín hiệu BÁN/SHORT (tắt nếu chỉ giao dịch Spot)", group=grpSig, display=display.none)
+showPrep   = input.bool(true, "Hiện cảnh báo 'Chuẩn bị' (tham khảo, chưa phải tín hiệu)", group=grpSig, display=display.none)
+btcSym     = input.symbol("BINANCE:BTCUSDT.P", "Mã BTC tham chiếu xu hướng", group=grpSig, display=display.none)
 
 grpRisk = "Quản lý lệnh"
-tpR        = input.float(2.0, "Chốt 50% tại (R)", minval=0.5, step=0.5, group=grpRisk)
-actR       = input.float(1.0, "Kích hoạt trailing tại (R)", minval=0.5, step=0.5, group=grpRisk)
-cbMult     = input.float(3.0, "Callback trailing = x ATR khung xu hướng", minval=0.5, step=0.5, group=grpRisk)
-cbMaxPct   = input.float(10.0, "Callback tối đa (%) — giới hạn của sàn", minval=0.5, step=0.5, group=grpRisk)
-maxHold    = input.int(168, "Giữ lệnh tối đa (số nến khung tín hiệu)", minval=10, group=grpRisk)
-feePct     = input.float(0.1, "Phí khứ hồi (%) để tính thống kê", minval=0, step=0.01, group=grpRisk)
+tpR        = input.float(2.0, "Chốt 50% tại (R)", minval=0.5, step=0.5, group=grpRisk, display=display.none)
+actR       = input.float(1.0, "Kích hoạt trailing tại (R)", minval=0.5, step=0.5, group=grpRisk, display=display.none)
+cbMult     = input.float(3.0, "Callback trailing = x ATR khung xu hướng", minval=0.5, step=0.5, group=grpRisk, display=display.none)
+cbMaxPct   = input.float(10.0, "Callback tối đa (%) — giới hạn của sàn", minval=0.5, step=0.5, group=grpRisk, display=display.none)
+maxHold    = input.int(168, "Giữ lệnh tối đa (số nến khung tín hiệu)", minval=10, group=grpRisk, display=display.none)
+feePct     = input.float(0.1, "Phí khứ hồi (%) để tính thống kê", minval=0, step=0.01, group=grpRisk, display=display.none)
 
 grpShow = "Hiển thị"
-showTable  = input.bool(true, "Hiện bảng thống kê", group=grpShow)
-showBoxes  = input.bool(true, "Vẽ hộp vị thế (vùng lời / vùng lỗ)", group=grpShow)
-vpLookback = input.int(150, "Số nến tính POC/VAH/VAL cho TP2 (khớp Volume Profile Pro v3)", minval=50, maxval=400, group=grpShow)
-vpBins     = input.int(24, "Số mức giá Volume Profile", minval=10, maxval=50, group=grpShow)
+showTable  = input.bool(true, "Hiện bảng thống kê", group=grpShow, display=display.none)
+showBoxes  = input.bool(true, "Vẽ hộp vị thế (vùng lời / vùng lỗ)", group=grpShow, display=display.none)
+vpLookback = input.int(150, "Số nến tính POC/VAH/VAL cho TP2 (khớp Volume Profile Pro v3)", minval=50, maxval=400, group=grpShow, display=display.none)
+vpBins     = input.int(24, "Số mức giá Volume Profile", minval=10, maxval=50, group=grpShow, display=display.none)
+tablePosIn = input.string("Trên phải", "Vị trí bảng thống kê", options=["Trên phải", "Trên trái", "Dưới phải", "Dưới trái"], group=grpShow, display=display.none)
+tableSizeIn = input.string("Nhỏ", "Cỡ chữ bảng", options=["Rất nhỏ", "Nhỏ", "Vừa"], group=grpShow, display=display.none)
 
 // ============ KHUNG THỜI GIAN ============
 chartSec = timeframe.in_seconds(timeframe.period)
@@ -297,26 +299,32 @@ alertcondition(prepL or prepS, "Chuẩn bị", "Setup đang hình thành, gần 
 tfName(sec) => sec < 3600 ? str.tostring(sec / 60) + "m" : sec < 86400 ? str.tostring(sec / 3600) + "H" : sec < 604800 ? "1D" : "1W"
 verdict = sigSec == 3600 ? "Dùng được (backtest +0.08R/lệnh)" : sigSec == 14400 ? "Khuyên dùng (backtest +0.31R/lệnh)" :
      sigSec == 86400 ? "Chưa đủ dữ liệu kiểm chứng" : "Chưa kiểm chứng — chỉ tham khảo"
-var table tb = table.new(position.top_right, 2, 8, border_width=1)
+f_pos(p) => p == "Trên trái" ? position.top_left : p == "Dưới phải" ? position.bottom_right : p == "Dưới trái" ? position.bottom_left : position.top_right
+tSize = tableSizeIn == "Rất nhỏ" ? size.tiny : tableSizeIn == "Vừa" ? size.normal : size.small
+var table tb = table.new(f_pos(tablePosIn), 2, 9, border_width=1)
 if showTable and barstate.islast
     c1 = color.new(color.gray, 20)
     c2 = color.new(#1e222d, 0)
-    table.cell(tb, 0, 0, "Khung tín hiệu", bgcolor=c1, text_color=color.white, text_size=size.small)
-    table.cell(tb, 1, 0, tfName(sigSec) + (sigSec != chartSec ? " (từ khung lớn hơn)" : ""), bgcolor=c2, text_color=color.white, text_size=size.small)
-    table.cell(tb, 0, 1, "Đánh giá khung", bgcolor=c1, text_color=color.white, text_size=size.small)
-    table.cell(tb, 1, 1, verdict, bgcolor=c2, text_color=sigSec == 14400 ? color.lime : sigSec == 3600 ? color.yellow : color.orange, text_size=size.small)
-    table.cell(tb, 0, 2, "Lệnh trên chart này", bgcolor=c1, text_color=color.white, text_size=size.small)
-    table.cell(tb, 1, 2, str.tostring(nTrades), bgcolor=c2, text_color=color.white, text_size=size.small)
-    table.cell(tb, 0, 3, "Có lời", bgcolor=c1, text_color=color.white, text_size=size.small)
-    table.cell(tb, 1, 3, nTrades > 0 ? str.tostring(100.0 * nWins / nTrades, "#") + "%" : "—", bgcolor=c2, text_color=color.white, text_size=size.small)
-    table.cell(tb, 0, 4, "TB / Tổng", bgcolor=c1, text_color=color.white, text_size=size.small)
+    table.cell(tb, 0, 0, "Khung tín hiệu", bgcolor=c1, text_color=color.white, text_size=tSize)
+    table.cell(tb, 1, 0, tfName(sigSec) + (sigSec != chartSec ? " (từ khung lớn hơn)" : ""), bgcolor=c2, text_color=color.white, text_size=tSize)
+    table.cell(tb, 0, 1, "Đánh giá khung", bgcolor=c1, text_color=color.white, text_size=tSize)
+    table.cell(tb, 1, 1, verdict, bgcolor=c2, text_color=sigSec == 14400 ? color.lime : sigSec == 3600 ? color.yellow : color.orange, text_size=tSize)
+    table.cell(tb, 0, 2, "Lệnh trên chart này", bgcolor=c1, text_color=color.white, text_size=tSize)
+    table.cell(tb, 1, 2, str.tostring(nTrades), bgcolor=c2, text_color=color.white, text_size=tSize)
+    table.cell(tb, 0, 3, "Có lời", bgcolor=c1, text_color=color.white, text_size=tSize)
+    table.cell(tb, 1, 3, nTrades > 0 ? str.tostring(100.0 * nWins / nTrades, "#") + "%" : "—", bgcolor=c2, text_color=color.white, text_size=tSize)
+    table.cell(tb, 0, 4, "TB / Tổng", bgcolor=c1, text_color=color.white, text_size=tSize)
     table.cell(tb, 1, 4, nTrades > 0 ? str.tostring(sumR / nTrades, "+#.##;-#.##") + "R / " + str.tostring(sumR, "+#.#;-#.#") + "R" : "—",
-         bgcolor=c2, text_color=sumR >= 0 ? color.lime : color.red, text_size=size.small)
-    table.cell(tb, 0, 5, "Sụt giảm tối đa", bgcolor=c1, text_color=color.white, text_size=size.small)
-    table.cell(tb, 1, 5, str.tostring(maxDD, "#.#") + "R", bgcolor=c2, text_color=color.white, text_size=size.small)
-    table.cell(tb, 0, 6, "Dữ liệu OI", bgcolor=c1, text_color=color.white, text_size=size.small)
+         bgcolor=c2, text_color=sumR >= 0 ? color.lime : color.red, text_size=tSize)
+    table.cell(tb, 0, 5, "Sụt giảm tối đa", bgcolor=c1, text_color=color.white, text_size=tSize)
+    table.cell(tb, 1, 5, str.tostring(maxDD, "#.#") + "R", bgcolor=c2, text_color=color.white, text_size=tSize)
+    table.cell(tb, 0, 6, "Dữ liệu OI", bgcolor=c1, text_color=color.white, text_size=tSize)
     table.cell(tb, 1, 6, oiAvailable ? "Có · " + str.tostring(oiChg, "+#.#;-#.#") + "% (" + str.tostring(oiHours) + "h)" : "Không có — bỏ qua lọc OI",
-         bgcolor=c2, text_color=oiAvailable ? color.white : color.orange, text_size=size.small)
-    table.cell(tb, 0, 7, "Lệnh hiện tại", bgcolor=c1, text_color=color.white, text_size=size.small)
+         bgcolor=c2, text_color=oiAvailable ? color.white : color.orange, text_size=tSize)
+    if not oiAvailable
+        table.cell(tb, 0, 8, "Gợi ý", bgcolor=c1, text_color=color.white, text_size=tSize)
+        table.cell(tb, 1, 8, "Mở mã BINANCE:" + str.replace_all(syminfo.ticker, ".P", "") + ".P để có dữ liệu OI (lọc OI giúp tín hiệu tốt hơn)",
+             bgcolor=c2, text_color=color.orange, text_size=tSize)
+    table.cell(tb, 0, 7, "Lệnh hiện tại", bgcolor=c1, text_color=color.white, text_size=tSize)
     table.cell(tb, 1, 7, tSide == 0 ? "Không có" : (tSide > 0 ? "MUA" : "BÁN") + " từ " + f_fmt(tEntry) + (tArmed ? " · trailing ON" : ""),
-         bgcolor=c2, text_color=color.white, text_size=size.small)
+         bgcolor=c2, text_color=color.white, text_size=tSize)

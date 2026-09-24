@@ -22,6 +22,14 @@ services:
         generateValue: true
       - key: CRYPTOPANIC_TOKEN   # tùy chọn, miễn phí tại cryptopanic.com/developers/api
         sync: false
+      - key: GEMINI_API_KEY      # tùy chọn: AI hỏi đáp (miễn phí tại aistudio.google.com)
+        sync: false
+      - key: GROQ_API_KEY        # tùy chọn: AI dự phòng 1 (console.groq.com)
+        sync: false
+      - key: OPENROUTER_API_KEY  # tùy chọn: AI dự phòng 2 (openrouter.ai)
+        sync: false
+      - key: PRIVATE_MODE        # 1 = người mới phải được admin duyệt
+        value: "1"
       - key: TOP_N
         value: "20"
       - key: MAX_SIGNALS_PER_DAY

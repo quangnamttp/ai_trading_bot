@@ -1,6 +1,7 @@
 """Dữ liệu vĩ mô miễn phí: Fear & Greed, thanh khoản stablecoin, BTC dominance, lịch kinh tế Mỹ."""
 from __future__ import annotations
 
+import json
 import logging
 from datetime import datetime, timedelta, timezone
 
@@ -50,21 +51,54 @@ async def btc_dominance() -> float | None:
         return None
 
 
-async def high_impact_events() -> list[dict]:
-    """Sự kiện kinh tế Mỹ tác động mạnh trong tuần (CPI, FOMC, NFP...)."""
+_last_calendar: list[dict] = []
+
+
+async def _save_calendar(rows: list[dict]) -> None:
     try:
-        rows = await get_json("https://nfs.faireconomy.media/ff_calendar_thisweek.json", ttl=3 * 3600)
+        from app import storage
+        await storage.kv_set("calendar_json", json.dumps(rows))
     except Exception as exc:  # noqa: BLE001
-        log.warning("Lịch kinh tế lỗi: %s", exc)
+        log.debug("Không lưu được lịch: %s", exc)
+
+
+async def _load_calendar() -> list[dict]:
+    try:
+        from app import storage
+        raw = await storage.kv_get("calendar_json")
+        return json.loads(raw) if raw else []
+    except Exception:  # noqa: BLE001
         return []
+
+
+async def us_calendar(impacts: tuple[str, ...] = ("High",)) -> list[dict]:
+    """Tin kinh tế Mỹ trong tuần (ForexFactory, miễn phí) theo mức tác động.
+    ForexFactory giới hạn tần suất rất chặt -> không chờ khi bị chặn, dùng bản tải thành công gần nhất."""
+    global _last_calendar
+    try:
+        rows = await get_json("https://nfs.faireconomy.media/ff_calendar_thisweek.json", ttl=3 * 3600,
+                              retries=1, max_wait=0)
+        if rows is not _last_calendar:
+            _last_calendar = rows
+            await _save_calendar(rows)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Lịch kinh tế lỗi (dùng bản gần nhất): %s", exc)
+        rows = _last_calendar or await _load_calendar()
     events = []
     for r in rows:
-        if r.get("country") == "USD" and r.get("impact") == "High":
+        if r.get("country") == "USD" and r.get("impact") in impacts:
             try:
-                events.append({"title": r["title"], "time": datetime.fromisoformat(r["date"]).astimezone(timezone.utc)})
+                events.append({"title": r["title"], "time": datetime.fromisoformat(r["date"]).astimezone(timezone.utc),
+                               "impact": r["impact"], "forecast": r.get("forecast") or "",
+                               "previous": r.get("previous") or ""})
             except (KeyError, ValueError):
                 continue
-    return events
+    return sorted(events, key=lambda e: e["time"])
+
+
+async def high_impact_events() -> list[dict]:
+    """Sự kiện kinh tế Mỹ tác động mạnh trong tuần (CPI, FOMC, NFP...)."""
+    return await us_calendar(("High",))
 
 
 async def event_blackout(now: datetime | None = None, before: timedelta = timedelta(hours=3),

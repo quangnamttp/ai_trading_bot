@@ -24,6 +24,8 @@ from app.strategy.core import Candidate, apply_live_context, best_candidate, bui
 log = logging.getLogger(__name__)
 CALIBRATION = Path(__file__).parent / "calibration.json"
 LIVE_BONUS_MAX = 2  # điểm tối đa dữ liệu live (tin tức, thanh khoản) có thể cộng thêm
+MAX_USER_SIGNALS_PER_SCAN = 3
+MAX_SCAN_COINS = 60  # giới hạn tổng số coin quét (Render gói miễn phí), ưu tiên coin nhiều người theo dõi
 TIER_B = 70         # hạng B (swing ngắn): chỉ dùng sau WATCH_REPORT_HOUR nếu cả ngày chưa có tín hiệu
 
 
@@ -58,6 +60,7 @@ class Found:
     style: Style
     tier: str = "A"
     silent: bool = False       # gửi không chuông (swing dài ban đêm)
+    source: str = "top"        # top = Top 20 (đã backtest) · user = coin tự chọn của người dùng
 
 
 def calibration() -> dict:
@@ -117,12 +120,26 @@ async def _analyze(coin: binance.Coin, style: Style, btc_mid: pd.DataFrame | Non
     return best_candidate(coin.symbol, scores), base, scores
 
 
-async def _eligible_coins() -> list[binance.Coin]:
+async def _eligible_coins(with_user: bool = False) -> tuple[list[binance.Coin], set[str]]:
+    """(danh sách coin cần quét, tập mã Top N). Top N bỏ coin niêm yết < 90 ngày; coin người dùng tự chọn thì giữ
+    nguyên (họ chủ động chọn). Tổng số coin giới hạn MAX_SCAN_COINS, ưu tiên coin nhiều người theo dõi."""
     coins = await binance.universe(settings.top_n, settings.min_quote_volume, await storage.get_watchlist())
     listed = await binance.listing_dates()
     now = pd.Timestamp.now(tz="UTC")
     min_age = pd.Timedelta(days=settings.min_listing_days)
-    return [c for c in coins if c.symbol not in listed or now - listed[c.symbol] >= min_age]
+    top = [c for c in coins if c.symbol not in listed or now - listed[c.symbol] >= min_age]
+    top_syms = {c.symbol for c in top}
+    if not with_user:
+        return top, top_syms
+    counts: dict[str, int] = {}
+    for r in await storage.all_user_coins():
+        counts[r["symbol"]] = counts.get(r["symbol"], 0) + 1
+    extra = sorted((s for s in counts if s not in top_syms), key=lambda s: -counts[s])
+    extra = extra[:max(0, MAX_SCAN_COINS - len(top))]
+    if extra:
+        allc = {c.symbol: c for c in await binance.universe(1000, 0)}
+        top += [allc[s] for s in extra if s in allc]
+    return top, top_syms
 
 
 async def analyze_symbol(symbol: str, style_key: str = "short") -> dict:
@@ -174,15 +191,14 @@ async def scan(style_key: str = "short", *, force: bool = False) -> tuple[list[F
         cap = settings.long_max_per_week
     sent = [s for s in await storage.signals_since(since) if s.get("style", "short") == style_key]
     open_now, by_side = await _open_state()
-    room = min(settings.max_signals_per_scan, cap - len(sent), settings.max_open_signals - len(open_now))
-    if room <= 0:
-        return [], f"{style.label}: đã đủ giới hạn ({len(sent)}/{cap}, đang mở {len(open_now)})"
+    sent = [s for s in sent if s.get("source", "top") == "top"]
+    room = max(0, min(settings.max_signals_per_scan, cap - len(sent), settings.max_open_signals - len(open_now)))
     # hạng B: swing ngắn, sau giờ WATCH_REPORT_HOUR mà cả ngày chưa có tín hiệu -> hạ ngưỡng (đã backtest: vẫn có lời)
     tier_b = style_key == "short" and not sent and datetime.now(VN_TZ).hour >= settings.watch_report_hour
     if tier_b:
         th_min = min(th, TIER_B)
 
-    coins = await _eligible_coins()
+    coins, top_syms = await _eligible_coins(with_user=True)
     busy = {s["symbol"] for s in open_now}
     btc_mid = await binance.klines("BTCUSDT", style.tfs[1], style.bars[1])
     fng = await macro.fear_greed_history()
@@ -231,12 +247,19 @@ async def scan(style_key: str = "short", *, force: bool = False) -> tuple[list[F
 
     chosen = []
     for f in final:
+        if f.coin.symbol not in top_syms:
+            continue
         if len(chosen) >= room:
             break
         if by_side.get(f.candidate.side, 0) >= settings.max_same_direction:
             continue  # đã đủ lệnh cùng chiều -> tránh dồn rủi ro khi cả thị trường đảo chiều
         by_side[f.candidate.side] = by_side.get(f.candidate.side, 0) + 1
         chosen.append(f)
+    # coin tự chọn: không chiếm giới hạn của Top N (chính sách đã backtest); mỗi người tự giới hạn số tín hiệu nhận
+    user_found = [f for f in final if f.coin.symbol not in top_syms][:MAX_USER_SIGNALS_PER_SCAN]
+    for f in user_found:
+        f.source = "user"
+    chosen += user_found
     return chosen, f"{style.label}: {len(pre)} ứng viên, {len(final)} đạt ngưỡng {th_min:.0f}"
 
 
@@ -244,7 +267,7 @@ async def watch_candidates(limit: int = 5, style_key: str = "short") -> list[str
     """Coin đang hình thành setup nhưng CHƯA đủ điểm — để người dùng chủ động theo dõi (không phải tín hiệu)."""
     style = STYLES[style_key]
     th = threshold(style_key)
-    coins = await _eligible_coins()
+    coins, _ = await _eligible_coins()
     btc_mid = await binance.klines("BTCUSDT", style.tfs[1], style.bars[1])
     fng = await macro.fear_greed_history()
     out = []

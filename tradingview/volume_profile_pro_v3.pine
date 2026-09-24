@@ -1,71 +1,76 @@
 //@version=5
-// Volume Profile Pro v3 — công cụ VÙNG GIÁ đi kèm Swing Entry Pro v5.
+// Volume Profile Pro v3.1 — công cụ VÙNG GIÁ đi kèm Swing Entry Pro v5.
 // • POC / VAH / VAL (cuộn 150 nến + theo phiên) và POC chưa bị chạm (naked POC) = các mốc giá biết TRƯỚC khi giá tới:
 //   dùng để đặt lệnh chờ, chốt lời (Swing Pro v5 dùng cùng công thức để đặt TP2).
 // • Dấu VP★ (nến đảo chiều tại POC/VAL/VAH) mặc định TẮT: backtest 2 năm / 20 coin cho thấy dùng riêng bị lỗ
 //   (-0.06 đến -0.23R/lệnh). Chỉ bật để tham khảo.
 // • Không repaint: mọi tín hiệu chỉ xác nhận khi nến đóng.
-indicator("Volume Profile Pro v3 - POC + Value Area + Phiên + Naked POC", overlay=true, max_boxes_count=250, max_lines_count=100, max_labels_count=100)
+indicator("Volume Profile Pro v3.1 - POC + Value Area + Phiên + Naked POC", overlay=true, max_boxes_count=250, max_lines_count=100, max_labels_count=100)
 
 // ============ NHÓM: CHẾ ĐỘ HIỂN THỊ ============
 grpMode = "Chế độ hiển thị"
-showRolling = input.bool(true, "Hiện Volume Profile Cuộn (Rolling)", group=grpMode)
-showSession = input.bool(true, "Hiện Volume Profile Theo Phiên", group=grpMode)
+showRolling = input.bool(true, "Hiện Volume Profile Cuộn (Rolling)", group=grpMode, display=display.none)
+showSessionIn = input.bool(true, "Hiện Volume Profile Theo Phiên (tự ẩn trên khung 4H trở lên)", group=grpMode, display=display.none)
+tablePosIn = input.string("Dưới phải", "Vị trí bảng", options=["Trên phải", "Trên trái", "Dưới phải", "Dưới trái"], group=grpMode, display=display.none)
+tableSizeIn = input.string("Nhỏ", "Cỡ chữ bảng", options=["Rất nhỏ", "Nhỏ", "Vừa"], group=grpMode, display=display.none)
+chartSecVP = timeframe.in_seconds(timeframe.period)
+// Phiên Á/Âu/Mỹ chỉ có ý nghĩa trên khung nhỏ hơn 4H (khung lớn: 1 nến đã dài hơn cả phiên)
+showSession = showSessionIn and chartSecVP < 14400
 
 // ============ NHÓM: PROFILE CUỘN (ROLLING) ============
 grpRoll = "Volume Profile Cuộn"
-rollLookback = input.int(150, "Số nến nhìn lại", minval=20, maxval=400, group=grpRoll)
-rollBins     = input.int(24, "Số mức giá (bins)", minval=10, maxval=50, group=grpRoll)
+rollLookback = input.int(150, "Số nến nhìn lại", minval=20, maxval=400, group=grpRoll, display=display.none)
+rollBins     = input.int(24, "Số mức giá (bins)", minval=10, maxval=50, group=grpRoll, display=display.none)
 
 // ============ NHÓM: PROFILE THEO PHIÊN ============
 grpSess = "Volume Profile Theo Phiên"
-sessionChoice   = input.string("Á (Asia)", "Chọn phiên", options=["Á (Asia)", "Âu (London)", "Mỹ (New York)", "Tùy chỉnh"], group=grpSess)
-customSession   = input.session("0000-0800", "Giờ phiên tùy chỉnh (UTC, nếu chọn Tùy chỉnh)", group=grpSess)
-sessionDaysBack = input.int(1, "Xem lại bao nhiêu phiên gần nhất", minval=1, maxval=5, group=grpSess)
-sessBins        = input.int(24, "Số mức giá (bins) cho phiên", minval=10, maxval=50, group=grpSess)
+sessionChoice   = input.string("Á (Asia)", "Chọn phiên", options=["Á (Asia)", "Âu (London)", "Mỹ (New York)", "Tùy chỉnh"], group=grpSess, display=display.none)
+customSession   = input.session("0000-0800", "Giờ phiên tùy chỉnh (UTC, nếu chọn Tùy chỉnh)", group=grpSess, display=display.none)
+sessionDaysBack = input.int(1, "Xem lại bao nhiêu phiên gần nhất", minval=1, maxval=5, group=grpSess, display=display.none)
+sessBins        = input.int(24, "Số mức giá (bins) cho phiên", minval=10, maxval=50, group=grpSess, display=display.none)
 
 // ============ NHÓM: VALUE AREA & ĐIỂM VÀO LỆNH ============
 grpVA = "Value Area & Điểm vào lệnh"
-vaPercent      = input.float(70, "Value Area (%)", minval=50, maxval=90, group=grpVA)
-showEntry      = input.bool(false, "Đánh dấu VP★ (tham khảo — backtest dùng riêng bị lỗ)", group=grpVA)
-touchPct       = input.float(0.3, "Khoảng cách coi là 'chạm' vùng (%)", minval=0.05, step=0.05, group=grpVA)
-volMALenVP     = input.int(20, "Chu kỳ MA khối lượng", group=grpVA)
-volSpikeMultVP = input.float(1.3, "Hệ số volume xác nhận tại vùng", minval=1.0, step=0.1, group=grpVA)
+vaPercent      = input.float(70, "Value Area (%)", minval=50, maxval=90, group=grpVA, display=display.none)
+showEntry      = input.bool(false, "Đánh dấu VP★ (tham khảo — backtest dùng riêng bị lỗ)", group=grpVA, display=display.none)
+touchPct       = input.float(0.3, "Khoảng cách coi là 'chạm' vùng (%)", minval=0.05, step=0.05, group=grpVA, display=display.none)
+volMALenVP     = input.int(20, "Chu kỳ MA khối lượng", group=grpVA, display=display.none)
+volSpikeMultVP = input.float(1.3, "Hệ số volume xác nhận tại vùng", minval=1.0, step=0.1, group=grpVA, display=display.none)
 
 // ============ NHÓM: BỘ LỌC XU HƯỚNG ============
 grpTrendVP = "Bộ lọc xu hướng"
-useTrendFilterVP = input.bool(true, "Chỉ vào lệnh thuận xu hướng (khuyên dùng)", group=grpTrendVP)
-trendEmaLenVP    = input.int(50, "Độ dài EMA xu hướng (chỉnh lại khi đổi khung giờ)", minval=5, maxval=200, group=grpTrendVP)
-showTrendEmaVP   = input.bool(true, "Hiện đường EMA xu hướng trên biểu đồ", group=grpTrendVP)
+useTrendFilterVP = input.bool(true, "Chỉ vào lệnh thuận xu hướng (khuyên dùng)", group=grpTrendVP, display=display.none)
+trendEmaLenVP    = input.int(50, "Độ dài EMA xu hướng (chỉnh lại khi đổi khung giờ)", minval=5, maxval=200, group=grpTrendVP, display=display.none)
+showTrendEmaVP   = input.bool(true, "Hiện đường EMA xu hướng trên biểu đồ", group=grpTrendVP, display=display.none)
 
 // ============ NHÓM: QUẢN LÝ LỆNH (SL/TP GỢI Ý) ============
 grpRiskVP = "Quản lý lệnh (SL/TP gợi ý)"
-showSLTP_VP  = input.bool(true, "Hiện SL/TP gợi ý khi có tín hiệu VP★", group=grpRiskVP)
-atrLenVP     = input.int(14, "Chu kỳ ATR", group=grpRiskVP)
-atrMultSLVP  = input.float(1.2, "ATR x Stop Loss", minval=0.3, step=0.1, group=grpRiskVP)
-atrMultTPVP  = input.float(2.0, "ATR x Take Profit", minval=0.3, step=0.1, group=grpRiskVP)
+showSLTP_VP  = input.bool(true, "Hiện SL/TP gợi ý khi có tín hiệu VP★", group=grpRiskVP, display=display.none)
+atrLenVP     = input.int(14, "Chu kỳ ATR", group=grpRiskVP, display=display.none)
+atrMultSLVP  = input.float(1.2, "ATR x Stop Loss", minval=0.3, step=0.1, group=grpRiskVP, display=display.none)
+atrMultTPVP  = input.float(2.0, "ATR x Take Profit", minval=0.3, step=0.1, group=grpRiskVP, display=display.none)
 
 // ============ NHÓM: TRỌNG SỐ THEO THỜI GIAN ============
 grpDecay = "Trọng số theo thời gian"
-timeDecayStrength = input.float(0.0, "Ưu tiên nến gần đây (0 = tắt, 0.8 = ưu tiên mạnh)", minval=0.0, maxval=0.9, step=0.1, group=grpDecay)
+timeDecayStrength = input.float(0.0, "Ưu tiên nến gần đây (0 = tắt, 0.8 = ưu tiên mạnh)", minval=0.0, maxval=0.9, step=0.1, group=grpDecay, display=display.none)
 
 // ============ NHÓM: KHOẢNG TRỐNG THANH KHOẢN - LVN ============
 grpLVN = "Khoảng trống thanh khoản (LVN)"
-showLVN     = input.bool(true, "Đánh dấu khoảng trống thanh khoản", group=grpLVN)
-lvnThreshPct = input.float(15, "Ngưỡng volume yếu (%)", minval=5, maxval=30, group=grpLVN)
+showLVN     = input.bool(true, "Đánh dấu khoảng trống thanh khoản", group=grpLVN, display=display.none)
+lvnThreshPct = input.float(15, "Ngưỡng volume yếu (%)", minval=5, maxval=30, group=grpLVN, display=display.none)
 
 // ============ NHÓM: POC TRINH - NAKED POC ============
 grpNaked = "POC Trinh (Naked POC)"
-showNaked     = input.bool(true, "Hiện các POC Trinh (chưa bị giá quay lại kiểm định)", group=grpNaked)
-maxNakedTrack = input.int(10, "Số lượng POC Trinh tối đa theo dõi", minval=3, maxval=20, group=grpNaked)
+showNaked     = input.bool(true, "Hiện các POC Trinh (chưa bị giá quay lại kiểm định)", group=grpNaked, display=display.none)
+maxNakedTrack = input.int(10, "Số lượng POC Trinh tối đa theo dõi", minval=3, maxval=20, group=grpNaked, display=display.none)
 
 // ============ MÀU SẮC ============
 grpColor = "Màu sắc"
-poc_color   = input.color(#FF1744, "Màu đường POC", group=grpColor)
-vup_color   = input.color(color.new(color.blue, 30), "Vùng MUA - trong Value Area", group=grpColor)
-vdown_color = input.color(color.new(color.orange, 30), "Vùng BÁN - trong Value Area", group=grpColor)
-up_color    = input.color(color.new(color.blue, 75), "Vùng MUA - ngoài Value Area", group=grpColor)
-down_color  = input.color(color.new(color.orange, 75), "Vùng BÁN - ngoài Value Area", group=grpColor)
+poc_color   = input.color(#FF1744, "Màu đường POC", group=grpColor, display=display.none)
+vup_color   = input.color(color.new(color.blue, 30), "Vùng MUA - trong Value Area", group=grpColor, display=display.none)
+vdown_color = input.color(color.new(color.orange, 30), "Vùng BÁN - trong Value Area", group=grpColor, display=display.none)
+up_color    = input.color(color.new(color.blue, 75), "Vùng MUA - ngoài Value Area", group=grpColor, display=display.none)
+down_color  = input.color(color.new(color.orange, 75), "Vùng BÁN - ngoài Value Area", group=grpColor, display=display.none)
 
 
 
@@ -240,7 +245,9 @@ var float sessVAH = na
 var float sessVAL = na
 
 // ============ THEO DÕI POC TRINH (NAKED POC) - chạy mỗi bar ============
-newDay = ta.change(time("D")) != 0
+// POC trinh: trên khung < 4H tính theo NGÀY; khung >= 4H tính theo TUẦN (khung 1D mỗi nến đã là 1 ngày)
+nakedTf = chartSecVP >= 14400 ? "W" : "D"
+newDay = ta.change(time(nakedTf)) != 0
 var int barsSinceDayStart = 0
 barsSinceDayStart := newDay ? 0 : barsSinceDayStart + 1
 
@@ -433,18 +440,20 @@ if showEntry and showSLTP_VP and bearZone
     label.new(bar_index, high, "SL " + f_fmt(slS) + "\nTP " + f_fmt(tpS), style=label.style_label_down, color=color.new(color.red, 60), textcolor=color.white, size=size.small)
 
 // ============ BẢNG THÔNG TIN ============
-var table vpInfo = table.new(position.bottom_right, 2, 5, border_width=1)
+f_posVP(p) => p == "Trên trái" ? position.top_left : p == "Trên phải" ? position.top_right : p == "Dưới trái" ? position.bottom_left : position.bottom_right
+tSizeVP = tableSizeIn == "Rất nhỏ" ? size.tiny : tableSizeIn == "Vừa" ? size.normal : size.small
+var table vpInfo = table.new(f_posVP(tablePosIn), 2, 5, border_width=1)
 if barstate.islast
-    table.cell(vpInfo, 0, 0, "POC (Cuộn)", bgcolor=color.gray, text_color=color.white)
-    table.cell(vpInfo, 1, 0, na(rollPOC) ? "—" : f_fmt(rollPOC), bgcolor=color.new(color.gray, 20), text_color=color.white)
-    table.cell(vpInfo, 0, 1, "Value Area (Cuộn)", bgcolor=color.gray, text_color=color.white)
-    table.cell(vpInfo, 1, 1, (na(rollVAL) ? "—" : f_fmt(rollVAL)) + " - " + (na(rollVAH) ? "—" : f_fmt(rollVAH)), bgcolor=color.new(color.purple, 50), text_color=color.white)
-    table.cell(vpInfo, 0, 2, "POC (Phiên)", bgcolor=color.gray, text_color=color.white)
-    table.cell(vpInfo, 1, 2, na(sessPOC) ? "—" : f_fmt(sessPOC), bgcolor=color.new(color.yellow, 40), text_color=color.black)
-    table.cell(vpInfo, 0, 3, "Value Area (Phiên)", bgcolor=color.gray, text_color=color.white)
-    table.cell(vpInfo, 1, 3, (na(sessVAL) ? "—" : f_fmt(sessVAL)) + " - " + (na(sessVAH) ? "—" : f_fmt(sessVAH)), bgcolor=color.new(color.fuchsia, 50), text_color=color.white)
-    table.cell(vpInfo, 0, 4, "Số POC Trinh còn lại", bgcolor=color.gray, text_color=color.white)
-    table.cell(vpInfo, 1, 4, str.tostring(array.size(nakedPOCs)), bgcolor=color.new(#FF1744, 40), text_color=color.white)
+    table.cell(vpInfo, 0, 0, "POC (Cuộn)", bgcolor=color.gray, text_color=color.white, text_size=tSizeVP)
+    table.cell(vpInfo, 1, 0, na(rollPOC) ? "—" : f_fmt(rollPOC), bgcolor=color.new(color.gray, 20), text_color=color.white, text_size=tSizeVP)
+    table.cell(vpInfo, 0, 1, "Value Area (Cuộn)", bgcolor=color.gray, text_color=color.white, text_size=tSizeVP)
+    table.cell(vpInfo, 1, 1, (na(rollVAL) ? "—" : f_fmt(rollVAL)) + " - " + (na(rollVAH) ? "—" : f_fmt(rollVAH)), bgcolor=color.new(color.purple, 50), text_color=color.white, text_size=tSizeVP)
+    table.cell(vpInfo, 0, 2, "POC (Phiên)", bgcolor=color.gray, text_color=color.white, text_size=tSizeVP)
+    table.cell(vpInfo, 1, 2, not showSession ? "Tắt trên khung ≥4H" : na(sessPOC) ? "—" : f_fmt(sessPOC), bgcolor=color.new(color.yellow, 40), text_color=color.black, text_size=tSizeVP)
+    table.cell(vpInfo, 0, 3, "Value Area (Phiên)", bgcolor=color.gray, text_color=color.white, text_size=tSizeVP)
+    table.cell(vpInfo, 1, 3, (na(sessVAL) ? "—" : f_fmt(sessVAL)) + " - " + (na(sessVAH) ? "—" : f_fmt(sessVAH)), bgcolor=color.new(color.fuchsia, 50), text_color=color.white, text_size=tSizeVP)
+    table.cell(vpInfo, 0, 4, nakedTf == "W" ? "POC Trinh (tuần) còn lại" : "POC Trinh (ngày) còn lại", bgcolor=color.gray, text_color=color.white, text_size=tSizeVP)
+    table.cell(vpInfo, 1, 4, str.tostring(array.size(nakedPOCs)), bgcolor=color.new(#FF1744, 40), text_color=color.white, text_size=tSizeVP)
 
 // ============ ALERT ============
 alertcondition(bullZone, "Vùng Volume Profile - MUA", "Giá chạm vùng volume mạnh (POC/VAL) + nến đảo chiều + volume xác nhận")

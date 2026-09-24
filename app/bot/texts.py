@@ -143,12 +143,20 @@ Hạng A = đạt chuẩn · Hạng B = chuẩn thấp hơn, chỉ gửi sau 15h
 4. Đặt <b>Trailing Stop</b> cho cả lệnh: giá kích hoạt và callback % có trong tin nhắn.
    Sàn không có Trailing Stop: khi giá tới mức kích hoạt thì tự dời SL về giá vào.
 
-<b>Lịch tự động</b>: 07:00 thị trường 24h · 15:05 danh sách theo dõi (nếu chưa có tín hiệu) · 22:00 tổng kết lời/lỗ.
-Tạm dừng quanh tin vĩ mô Mỹ (CPI, FOMC, NFP) · cảnh báo nếu có tin xấu về coin bạn đang giữ lệnh.
+<b>🪙 Coin của tôi</b> (tối đa 20): chọn nhận tín hiệu Top 20, chỉ coin của mình, hoặc cả hai.
+Bấm 📌 cho coin đang giữ (Spot) → bot cảnh báo khi xu hướng đổi chiều, thủng vùng giá, OI/funding bất thường, tin xấu.
+
+<b>Lịch tự động</b>: 07:00 thị trường 24h + tin trong ngày (thứ 2: lịch cả tuần) · 15:05 danh sách theo dõi
+(nếu chưa có tín hiệu) · 22:00 tổng kết lời/lỗ · chủ nhật 22:05 tổng kết tuần.
+Cảnh báo: tin vĩ mô sắp ra, BTC chạy mạnh, funding cực đoan, tin xấu về coin đang có lệnh.
+Tin tức cũng gửi vào topic 📰 của nhóm — ai đã vào nhóm có thể tắt tin tức ở chat riêng trong ⚙️.
+
+<b>🤖 Hỏi AI</b>: hỏi về tin tức, lịch sự kiện, thị trường (20 câu/ngày). Nút 🧠 dưới tín hiệu giải thích
+vì sao bot vào lệnh. AI chỉ giải thích — không tạo tín hiệu.
 
 <b>Trung thực về rủi ro</b>
 Backtest 2 năm / 40 coin: khoảng 43% lệnh có lời, trung bình +0.2R/lệnh, chuỗi sụt giảm tệ nhất khoảng 16R
 (= −8% vốn nếu rủi ro 0.5%/lệnh), khoảng 1/4 số tháng bị lỗ. Không tín hiệu nào chắc chắn thắng.
 
-<b>Lệnh</b>: /start /menu /phantich SOL /thongke /mode
+<b>Lệnh</b>: /start /menu /phantich SOL /thongke /mode /lich
 Giá tham chiếu Binance Futures — giá ở sàn khác có thể lệch nhẹ."""

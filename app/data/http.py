@@ -36,7 +36,8 @@ async def close() -> None:
         await _client.aclose()
 
 
-async def get_json(urls: str | list[str], params: dict | None = None, *, ttl: float = 0, retries: int = 3) -> Any:
+async def get_json(urls: str | list[str], params: dict | None = None, *, ttl: float = 0, retries: int = 3,
+                   max_wait: float = 120) -> Any:
     """GET JSON, thử lần lượt các host dự phòng. `ttl` > 0 để cache kết quả."""
     urls = [urls] if isinstance(urls, str) else urls
     key = f"{urls[0]}?{sorted((params or {}).items())}"
@@ -51,9 +52,9 @@ async def get_json(urls: str | list[str], params: dict | None = None, *, ttl: fl
                 async with _sem:
                     r = await c.get(url, params=params)
                 if r.status_code in (418, 429):  # quá giới hạn tần suất -> chờ đúng thời gian sàn yêu cầu
-                    wait = float(r.headers.get("Retry-After", 30))
+                    wait = min(float(r.headers.get("Retry-After", 30)), max_wait)
                     log.warning("Bị giới hạn tần suất %s, chờ %.0fs", url, wait)
-                    await asyncio.sleep(min(wait, 120))
+                    await asyncio.sleep(wait)
                     raise httpx.HTTPStatusError(f"{r.status_code}", request=r.request, response=r)
                 if r.status_code >= 500:
                     raise httpx.HTTPStatusError(f"{r.status_code}", request=r.request, response=r)

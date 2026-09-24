@@ -70,6 +70,19 @@ async def job_health(ctx: ContextTypes.DEFAULT_TYPE) -> None:
     await _safe("health", reports.health_check(ctx.bot))
 
 
+async def job_alerts(ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    await _safe("alerts", reports.market_alerts(ctx.bot))
+
+
+async def job_holdings(ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    await _safe("holdings", reports.holdings_watch(ctx.bot))
+
+
+async def job_weekly(ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    if datetime.now(VN_TZ).weekday() == 6:  # chủ nhật
+        await _safe("weekly", reports.weekly_report(ctx.bot))
+
+
 def schedule(app: Application) -> None:
     jq = app.job_queue
     now = datetime.now(VN_TZ)
@@ -82,6 +95,9 @@ def schedule(app: Application) -> None:
     jq.run_daily(job_morning, time=time(7, 0, tzinfo=VN_TZ), name="morning")
     jq.run_daily(job_watch, time=time(settings.watch_report_hour, 5, tzinfo=VN_TZ), name="watch")
     jq.run_daily(job_evening, time=time(settings.quiet_start, 0, tzinfo=VN_TZ), name="evening")
+    jq.run_daily(job_weekly, time=time(settings.quiet_start, 5, tzinfo=VN_TZ), name="weekly")
+    jq.run_repeating(job_alerts, interval=900, first=180, name="alerts")
+    jq.run_repeating(job_holdings, interval=3600, first=next_scan + timedelta(minutes=4), name="holdings")
 
 
 # ---------------------------------------------------------------- web

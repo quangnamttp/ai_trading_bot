@@ -60,6 +60,20 @@ class Settings:
     watch_report_hour: int = _int("WATCH_REPORT_HOUR", 15)  # chưa có tín hiệu tới giờ này -> gửi danh sách theo dõi
     health_alert_hours: float = _float("HEALTH_ALERT_HOURS", 3)
 
+    # Người dùng
+    private_mode: bool = os.getenv("PRIVATE_MODE", "1") == "1"   # người mới phải được admin duyệt
+    max_user_coins: int = _int("MAX_USER_COINS", 20)
+
+    # AI hỏi đáp (tùy chọn; thử lần lượt Gemini -> Groq -> OpenRouter, lỗi hết thì trả lời bằng dữ liệu có sẵn)
+    gemini_key: str = os.getenv("GEMINI_API_KEY", "")
+    groq_key: str = os.getenv("GROQ_API_KEY", "")
+    openrouter_key: str = os.getenv("OPENROUTER_API_KEY", "")
+    ai_daily_limit: int = _int("AI_DAILY_LIMIT", 20)
+
+    # Cảnh báo thị trường
+    btc_move_alert_pct: float = _float("BTC_MOVE_ALERT_PCT", 3.0)       # BTC chạy >= x% trong 1 giờ
+    funding_alert: float = _float("FUNDING_ALERT", 0.001)               # |funding| >= 0.1%/8h
+
     # Tùy chọn
     cryptopanic_token: str = os.getenv("CRYPTOPANIC_TOKEN", "")
     log_level: str = os.getenv("LOG_LEVEL", "INFO")

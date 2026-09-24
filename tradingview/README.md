@@ -4,10 +4,18 @@ Gồm 2 chỉ báo, dùng chung trên một chart (gói TradingView miễn phí 
 
 | File | Vai trò |
 |---|---|
-| `swing_entry_pro_v5.pine` | **Khi nào vào lệnh**: điểm vào, SL, TP1, TP2, trailing stop, hạng tín hiệu, cảnh báo "Chuẩn bị", bảng thống kê |
-| `volume_profile_pro_v3.pine` | **Vùng giá quan trọng**: POC, Value Area (VAH/VAL), POC chưa bị chạm, vùng thanh khoản mỏng |
+| `swing_entry_pro_v5.pine` (v5.1) | **Khi nào vào lệnh**: điểm vào, SL, TP1, TP2, trailing stop, hạng tín hiệu, cảnh báo "Chuẩn bị", bảng thống kê |
+| `volume_profile_pro_v3.pine` (v3.1) | **Vùng giá quan trọng**: POC, Value Area (VAH/VAL), POC chưa bị chạm, vùng thanh khoản mỏng |
 
 Cả 2 chỉ báo chạy 24/24, không lọc giờ, và **không repaint**: tín hiệu chỉ xuất hiện khi nến đóng, đã hiện thì không bao giờ mất.
+
+### Cập nhật v5.1 / v3.1
+- Ẩn thông số khỏi dòng trạng thái → hết chữ đè lên bảng.
+- Chọn **vị trí bảng** (4 góc) và **cỡ chữ** trong Cài đặt → Hiển thị.
+- Swing: khi chart không có dữ liệu OI (vd sàn MEXC) bảng nhắc mở mã `BINANCE:...USDT.P`.
+- Volume Profile: trên khung ≥ 4H, POC trinh tính **theo tuần** (bản cũ báo 0 trên khung 1D) và tự ẩn Profile theo phiên.
+
+Cập nhật: mở Pine Editor → mở script cũ → xóa hết → dán nội dung file mới → **Save**. Chart tự cập nhật.
 
 ## Cài lên TradingView
 

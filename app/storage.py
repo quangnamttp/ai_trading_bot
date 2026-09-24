@@ -19,6 +19,10 @@ users = sa.Table(
     sa.Column("mode", sa.String(8), nullable=False, server_default="futures"),  # spot | futures
     sa.Column("risk_pct", sa.Float, nullable=False, server_default="0.5"),
     sa.Column("style", sa.String(8), nullable=False, server_default="both"),  # short | long | both
+    sa.Column("coin_mode", sa.String(8), nullable=False, server_default="top"),  # top | mine | both
+    sa.Column("news_dm", sa.Boolean, nullable=False, server_default=sa.true()),  # nhận tin tức ở chat riêng
+    sa.Column("approved", sa.Boolean, nullable=False, server_default=sa.true()),  # người cũ tự được duyệt
+    sa.Column("full_name", sa.String(128)),
     sa.Column("subscribed", sa.Boolean, nullable=False, server_default=sa.true()),
     sa.Column("banned", sa.Boolean, nullable=False, server_default=sa.false()),
     sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
@@ -43,6 +47,7 @@ signals = sa.Table(
     sa.Column("setup", sa.String(16), nullable=False),
     sa.Column("style", sa.String(8), nullable=False, server_default="short"),  # short | long
     sa.Column("tier", sa.String(2), nullable=False, server_default="A"),
+    sa.Column("source", sa.String(8), nullable=False, server_default="top"),  # top | user (coin tự chọn)
     sa.Column("entry", sa.Float, nullable=False),
     sa.Column("sl", sa.Float, nullable=False),
     sa.Column("tp1", sa.Float, nullable=False),
@@ -64,6 +69,14 @@ signal_messages = sa.Table(
     sa.Column("message_id", sa.BigInteger, nullable=False),
 )
 
+
+user_coins = sa.Table(
+    "user_coins", meta,
+    sa.Column("chat_id", sa.BigInteger, primary_key=True),
+    sa.Column("symbol", sa.String(32), primary_key=True),
+    sa.Column("holding", sa.Boolean, nullable=False, server_default=sa.false()),  # 📌 đang giữ (theo dõi Spot)
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+)
 
 kv = sa.Table(
     "kv", meta,
@@ -164,16 +177,19 @@ def _row(r) -> dict:
 
 
 # ---------------------------------------------------------------- users
-async def upsert_user(chat_id: int, username: str | None) -> dict:
+async def upsert_user(chat_id: int, username: str | None, full_name: str | None = None) -> dict:
     async with engine().begin() as c:
         row = (await c.execute(sa.select(users).where(users.c.chat_id == chat_id))).first()
         if row is None:
+            approved = (not settings.private_mode) or chat_id in settings.admin_ids
             await c.execute(users.insert().values(chat_id=chat_id, username=username, mode="futures",
                                                   risk_pct=settings.default_risk_pct, subscribed=True,
-                                                  banned=False, created_at=now()))
+                                                  banned=False, approved=approved, created_at=now()))
             row = (await c.execute(sa.select(users).where(users.c.chat_id == chat_id))).first()
-        elif username and row.username != username:
-            await c.execute(users.update().where(users.c.chat_id == chat_id).values(username=username))
+        elif (username and row.username != username) or (full_name and row.full_name != full_name):
+            await c.execute(users.update().where(users.c.chat_id == chat_id)
+                            .values(username=username or row.username, full_name=full_name or row.full_name))
+            row = (await c.execute(sa.select(users).where(users.c.chat_id == chat_id))).first()
     return _row(row)
 
 
@@ -190,7 +206,7 @@ async def update_user(chat_id: int, **values) -> None:
 
 async def subscribers() -> list[dict]:
     async with engine().connect() as c:
-        rows = (await c.execute(sa.select(users).where(users.c.subscribed, ~users.c.banned))).all()
+        rows = (await c.execute(sa.select(users).where(users.c.subscribed, ~users.c.banned, users.c.approved))).all()
     return [_row(r) for r in rows]
 
 
@@ -295,3 +311,60 @@ async def log_news_block(symbol: str, side: int, price: float, reason: str) -> N
     async with engine().begin() as c:
         await c.execute(news_blocks.insert().values(symbol=symbol, side=side, price=price, reason=reason[:500],
                                                     created_at=now()))
+
+
+# ---------------------------------------------------------------- coin tự chọn
+async def user_coins_of(chat_id: int) -> list[dict]:
+    async with engine().connect() as c:
+        rows = (await c.execute(sa.select(user_coins).where(user_coins.c.chat_id == chat_id)
+                                .order_by(user_coins.c.created_at))).all()
+    return [dict(r._mapping) for r in rows]
+
+
+async def all_user_coins() -> list[dict]:
+    """Coin tự chọn của mọi người dùng đã duyệt, không bị chặn."""
+    q = (sa.select(user_coins).join(users, users.c.chat_id == user_coins.c.chat_id)
+         .where(users.c.approved, ~users.c.banned))
+    async with engine().connect() as c:
+        return [dict(r._mapping) for r in (await c.execute(q)).all()]
+
+
+async def add_user_coin(chat_id: int, symbol: str) -> bool:
+    async with engine().begin() as c:
+        if (await c.execute(sa.select(user_coins).where(user_coins.c.chat_id == chat_id,
+                                                        user_coins.c.symbol == symbol))).first():
+            return False
+        await c.execute(user_coins.insert().values(chat_id=chat_id, symbol=symbol, holding=False, created_at=now()))
+    return True
+
+
+async def remove_user_coin(chat_id: int, symbol: str) -> None:
+    async with engine().begin() as c:
+        await c.execute(user_coins.delete().where(user_coins.c.chat_id == chat_id, user_coins.c.symbol == symbol))
+
+
+async def toggle_holding(chat_id: int, symbol: str) -> None:
+    async with engine().begin() as c:
+        await c.execute(user_coins.update().where(user_coins.c.chat_id == chat_id, user_coins.c.symbol == symbol)
+                        .values(holding=~user_coins.c.holding))
+
+
+async def messages_since(chat_id: int, since: datetime) -> list[dict]:
+    """Tín hiệu đã gửi cho 1 người từ mốc `since` (để giới hạn số tín hiệu/ngày riêng từng người)."""
+    q = (sa.select(signals.c.id, signals.c.style, signals.c.source)
+         .join(signal_messages, signal_messages.c.signal_id == signals.c.id)
+         .where(signal_messages.c.chat_id == chat_id, signals.c.created_at >= since))
+    async with engine().connect() as c:
+        return [dict(r._mapping) for r in (await c.execute(q)).all()]
+
+
+async def get_signal(signal_id: int) -> dict | None:
+    async with engine().connect() as c:
+        row = (await c.execute(sa.select(signals).where(signals.c.id == signal_id))).first()
+    return _row(row) if row else None
+
+
+async def kv_incr(key: str) -> int:
+    n = int(await kv_get(key) or 0) + 1
+    await kv_set(key, str(n))
+    return n

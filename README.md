@@ -50,6 +50,21 @@ Các ý tưởng đã thử nhưng không đưa vào vì **không cải thiện 
 Hạn chế: danh sách coin lấy theo thời điểm hiện tại (thiên lệch sống sót); tin tức không có lịch sử miễn phí nên
 không backtest được (bot ghi lại mỗi lần tin tức chặn tín hiệu để đánh giá sau). **Kết quả quá khứ không đảm bảo tương lai.**
 
+## Người dùng, coin tự chọn, tin tức, AI
+
+- **Chế độ riêng tư** (`PRIVATE_MODE=1`, mặc định): người mới bấm Start → admin nhận nút ✅ Duyệt / ❌ Từ chối.
+  Lệnh admin: `/allow ID`, `/ban ID`, `/unban ID`, `/users`.
+- **🪙 Coin của tôi**: mỗi người tối đa 20 coin, chọn nhận tín hiệu *Top 20* / *chỉ coin của tôi* / *cả hai*;
+  📌 *đang giữ* để nhận cảnh báo xu hướng, vùng giá, OI/funding, tin xấu. Tín hiệu coin tự chọn không chiếm giới hạn của
+  Top 20; mỗi người tối đa 3 tín hiệu swing ngắn/ngày. Tổng số coin quét tối đa 60 (ưu tiên coin nhiều người theo dõi).
+- **Nhóm Telegram có Topic**: gõ `/set_news` trong topic tin tức, `/set_ai` trong topic hỏi đáp (admin).
+  Tín hiệu luôn gửi chat riêng (mỗi người cài đặt khác nhau); tin tức gửi topic + chat riêng (tắt được trong ⚙️).
+- **📅 Lịch sự kiện**: ForexFactory (miễn phí) — giải thích tiếng Việt từng loại tin + thống kê BTC 24h sau tin
+  (FOMC, NFP có sẵn 2 năm; CPI và tin khác bot tự tích lũy dần).
+- **🤖 AI** (tùy chọn): đặt `GEMINI_API_KEY`, `GROQ_API_KEY`, `OPENROUTER_API_KEY` trên Render. Thử lần lượt
+  Gemini → Groq → OpenRouter, tự dò model còn dùng được; lỗi hết thì trả lời bằng dữ liệu có sẵn. 20 câu/người/ngày
+  (`AI_DAILY_LIMIT`). Admin gõ `/ai_ping` để kiểm tra. AI chỉ giải thích dựa trên dữ liệu bot — không tạo tín hiệu.
+
 ## Lịch tự động (giờ VN)
 
 | Giờ | Việc |
@@ -57,9 +72,12 @@ không backtest được (bot ghi lại mỗi lần tin tức chặn tín hiệu
 | Mỗi giờ :01 | Quét ⚡ Swing ngắn (6h–22h); khi nến 4H đóng thì quét thêm 🌙 Swing dài |
 | Mỗi 5 phút | Theo dõi lệnh đang mở: kích hoạt trailing, TP1, đóng lệnh (trả lời ngay dưới tin nhắn tín hiệu) |
 | Mỗi 10–15 phút | Nhắc trước 1 giờ khi có tin vĩ mô Mỹ · cảnh báo tin xấu về coin đang có lệnh |
-| 07:00 | Thị trường 24h: BTC/ETH, top tăng/giảm, Fear & Greed, OI, funding, stablecoin, tin vĩ mô, tin chính, coin đang theo dõi |
+| 07:00 | Thị trường 24h (BTC/ETH, top tăng/giảm, Fear & Greed, OI, funding, stablecoin, tin chính, coin đang theo dõi) + tin kinh tế hôm nay; **thứ 2: lịch cả tuần** |
 | 15:05 | Nếu cả ngày chưa có tín hiệu: gửi danh sách coin đang hình thành setup (không phải tín hiệu) |
 | 22:00 | Tổng kết lời/lỗ từng lệnh (R và % vốn), lệnh giữ qua đêm, cộng dồn 7 và 30 ngày |
+| Mỗi 15 phút | Cảnh báo BTC chạy ≥ 3%/giờ, funding cực đoan ở coin lớn |
+| Mỗi giờ :05 | Theo dõi coin 📌 đang giữ của từng người |
+| Chủ nhật 22:05 | Tổng kết tuần của từng người |
 | Mỗi 30 phút | Tự kiểm tra: quá 3 giờ không quét được thì báo admin |
 
 ## Triển khai miễn phí (Render + Neon + UptimeRobot)
