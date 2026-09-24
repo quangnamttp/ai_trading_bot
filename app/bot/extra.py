@@ -51,6 +51,8 @@ async def request_approval(update: Update, ctx: ContextTypes.DEFAULT_TYPE, user:
 
 async def auto_approve_member(bot, chat_id: int) -> bool:
     """Người đã là thành viên nhóm (nhóm có topic 📰 / 💬 của bot) -> tự duyệt, không cần admin bấm."""
+    if await storage.kv_get(f"deleted:{chat_id}"):
+        return False  # admin đã xóa người này -> phải chờ admin duyệt lại
     groups = {t[0] for t in [await reports.group_target("news")] if t}
     for g in groups:
         try:
@@ -73,6 +75,8 @@ async def auto_approve_member(bot, chat_id: int) -> bool:
 async def _set_approved(ctx: ContextTypes.DEFAULT_TYPE, chat_id: int, ok: bool) -> None:
     await storage.update_user(chat_id, approved=ok, banned=not ok)
     await storage.kv_set(f"pending:{chat_id}", "")
+    if ok:
+        await storage.kv_set(f"deleted:{chat_id}", "")
     try:
         await ctx.bot.send_message(chat_id, "✅ Bạn đã được duyệt! Gõ /start để mở menu." if ok
                                    else "❌ Yêu cầu dùng bot của bạn chưa được chấp nhận.")

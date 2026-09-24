@@ -142,7 +142,8 @@ def mode_keyboard(user: dict) -> InlineKeyboardMarkup:
     if not spot:
         rows.append([InlineKeyboardButton(f"{mark(user.get('style', 'both') == k)}{t}", callback_data=f"style:{k}")
                      for k, t in (("short", "⚡ Ngắn"), ("long", "🌙 Dài"), ("both", "Cả hai"))])
-    rows.append([InlineKeyboardButton(f"🔔 Nhận tín hiệu: {'BẬT' if user['subscribed'] else 'TẮT'}",
+    rows.append([InlineKeyboardButton("⏸ Tín hiệu: admin đang tạm dừng" if user.get("admin_muted") else
+                                      f"🔔 Nhận tín hiệu: {'BẬT' if user['subscribed'] else 'TẮT'}",
                                       callback_data="sub:toggle")])
     rows.append([InlineKeyboardButton(f"💱 Đơn vị tiền: {'VNĐ' if user.get('currency') == 'VND' else 'USDT'}",
                                       callback_data="cur:toggle")])
@@ -185,6 +186,9 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     if kind == "mode" and value in ("spot", "futures"):
         await storage.update_user(user["chat_id"], mode=value)
     elif kind == "sub":
+        if user.get("admin_muted"):
+            await q.answer("Admin đang tạm dừng tín hiệu của bạn — liên hệ admin để mở lại.", show_alert=True)
+            return
         await storage.update_user(user["chat_id"], subscribed=not user["subscribed"])
     elif kind == "cur":
         await storage.update_user(user["chat_id"], currency="USDT" if user.get("currency") == "VND" else "VND")
@@ -410,7 +414,7 @@ async def users_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     us = await storage.all_users()
     lines = [f"👥 <b>{len(us)} người dùng</b> (⛔ chặn · ⏳ chờ duyệt · 🔔 nhận tín hiệu · 🔕 tắt)"]
     for u in us[-40:]:
-        flag = "⛔" if u["banned"] else "⏳" if not u.get("approved", True) else "🔔" if u["subscribed"] else "🔕"
+        flag = _flag(u)
         n = len(await storage.user_coins_of(u["chat_id"]))
         name = escape(u.get("full_name") or u["username"] or "-")
         lines.append(f"{flag} <code>{u['chat_id']}</code> {name} · {u['mode']} · {u['risk_pct']:g}% · "
@@ -429,6 +433,32 @@ async def admin_panel(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
          InlineKeyboardButton("🤖 Kiểm tra AI", callback_data="adm:ai")],
         [InlineKeyboardButton("🌍 Thị trường", callback_data="adm:market"),
          InlineKeyboardButton("📅 Lịch tuần", callback_data="adm:cal")]]))
+
+
+def _flag(u: dict) -> str:
+    return ("⛔" if u["banned"] else "⏳" if not u.get("approved", True) else "⏸" if u.get("admin_muted")
+            else "🔔" if u["subscribed"] else "🔕")
+
+
+async def _user_card(q, u: dict, *, edit: bool = False) -> None:
+    """Thẻ 1 người dùng + 3 nút: tạm dừng tín hiệu · xóa · chặn."""
+    uid = u["chat_id"]
+    status = ("⛔ đang bị chặn" if u["banned"] else "⏸ admin đang tạm dừng tín hiệu" if u.get("admin_muted")
+              else "🔔 đang nhận tín hiệu" if u["subscribed"] else "🔕 tự tắt tín hiệu")
+    text = (f"👤 <b>{escape(u.get('full_name') or u['username'] or '-')}</b> · <code>{uid}</code>\n"
+            f"{u['mode']} · rủi ro {u['risk_pct']:g}% · {status}")
+    markup = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔔 Mở lại tín hiệu" if u.get("admin_muted") else "🔕 Tắt tín hiệu",
+                              callback_data=f"adm:mute:{uid}")],
+        [InlineKeyboardButton("🗑 Xóa", callback_data=f"adm:del:{uid}"),
+         InlineKeyboardButton("✅ Bỏ chặn" if u["banned"] else "⛔ Chặn", callback_data=f"adm:ban:{uid}")]])
+    if edit:
+        try:
+            await q.edit_message_text(text, parse_mode=ParseMode.HTML, reply_markup=markup)
+            return
+        except BadRequest:
+            pass
+    await q.message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=markup)
 
 
 async def on_admin(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
@@ -451,10 +481,11 @@ async def on_admin(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
                                                     InlineKeyboardButton("❌ Từ chối", callback_data=f"appr:{u['chat_id']}:0")]]))
     elif op == "users":
         us = [u for u in await storage.all_users() if not is_admin(u["chat_id"])]
-        lines = [f"👥 <b>{len(us)} người dùng</b> (🔔 nhận tín hiệu · 🔕 tắt · ⛔ chặn · ⏳ chờ duyệt)"]
+        lines = [f"👥 <b>{len(us)} người dùng</b> (🔔 nhận tín hiệu · 🔕 tự tắt · ⏸ admin tạm dừng · ⛔ chặn · ⏳ chờ duyệt)",
+                 "Bấm tên để 🔕 tạm dừng tín hiệu / 🗑 xóa / ⛔ chặn."]
         rows = []
         for u in us[-30:]:
-            flag = "⛔" if u["banned"] else "⏳" if not u.get("approved", True) else "🔔" if u["subscribed"] else "🔕"
+            flag = _flag(u)
             name = u.get("full_name") or u["username"] or str(u["chat_id"])
             lines.append(f"{flag} {escape(name)} · {u['mode']} · {u['risk_pct']:g}%")
             rows.append([InlineKeyboardButton(f"{flag} {name[:20]}", callback_data=f"adm:u:{u['chat_id']}")])
@@ -463,16 +494,45 @@ async def on_admin(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     elif op == "u":
         u = await storage.get_user(int(parts[2]))
         if u:
-            await q.message.reply_text(
-                f"👤 {escape(u.get('full_name') or u['username'] or '-')} · <code>{u['chat_id']}</code>\n"
-                f"{u['mode']} · rủi ro {u['risk_pct']:g}% · tín hiệu {'BẬT' if u['subscribed'] else 'TẮT'}",
-                parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("✅ Bỏ chặn" if u["banned"] else "⛔ Chặn", callback_data=f"adm:ban:{u['chat_id']}")]]))
-    elif op == "ban":
+            await _user_card(q, u)
+        else:
+            await q.message.reply_text("Người này không còn trong danh sách.")
+    elif op in ("ban", "mute"):
+        u = await storage.get_user(int(parts[2]))
+        if not u:
+            return
+        if op == "ban":
+            await storage.update_user(u["chat_id"], banned=not u["banned"], **({"approved": True} if u["banned"] else {}))
+            note = "✅ Đã bỏ chặn." if u["banned"] else "⛔ Đã chặn — người này không dùng được bot nữa."
+        else:
+            await storage.update_user(u["chat_id"], admin_muted=not u.get("admin_muted"))
+            note = "🔔 Đã mở lại tín hiệu." if u.get("admin_muted") else "🔕 Đã tạm dừng tín hiệu của người này."
+            try:
+                await ctx.bot.send_message(u["chat_id"], "🔔 Admin đã mở lại tín hiệu cho bạn." if u.get("admin_muted")
+                                           else "⏸ Admin đã tạm dừng tín hiệu của bạn. Bạn vẫn dùng được danh mục, "
+                                                "hỏi AI và thống kê.")
+            except Exception:  # noqa: BLE001
+                pass
+        await q.message.reply_text(note)
+        await _user_card(q, await storage.get_user(u["chat_id"]), edit=True)
+    elif op == "del":
         u = await storage.get_user(int(parts[2]))
         if u:
-            await storage.update_user(u["chat_id"], banned=not u["banned"], **({"approved": True} if u["banned"] else {}))
-            await q.message.reply_text("✅ Đã bỏ chặn." if u["banned"] else "⛔ Đã chặn.")
+            name = escape(u.get("full_name") or u["username"] or str(u["chat_id"]))
+            await q.message.reply_text(
+                f"🗑 Chắc chắn xóa <b>{name}</b>?\nCài đặt, danh mục, coin theo dõi của họ bị xóa hết. Nếu họ bấm Start "
+                "lại sẽ phải chờ admin duyệt (kể cả khi còn trong nhóm).", parse_mode=ParseMode.HTML,
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🗑 Xóa", callback_data=f"adm:delok:{u['chat_id']}"),
+                                                    InlineKeyboardButton("Không", callback_data=f"adm:u:{u['chat_id']}")]]))
+    elif op == "delok":
+        uid = int(parts[2])
+        if await storage.get_user(uid):
+            await storage.delete_user(uid)
+            try:
+                await ctx.bot.send_message(uid, "Tài khoản của bạn đã được admin gỡ khỏi bot tín hiệu.")
+            except Exception:  # noqa: BLE001
+                pass
+        await q.edit_message_text("🗑 Đã xóa người dùng khỏi danh sách nhận tín hiệu.")
     elif op == "scan":
         await q.message.reply_text("⏳ Đang quét thị trường...")
         await q.message.reply_text(escape(await service.run_scan(ctx.bot, ("short", "long"), force=True)))

@@ -188,3 +188,19 @@ async def test_refresh_menus_once_per_version(db):
     kb = bot.send_message.call_args.kwargs["reply_markup"]
     assert kb.is_persistent
     assert await handlers.refresh_menus(bot) == 0  # cùng phiên bản menu -> không gửi lại
+
+
+async def test_admin_mute_and_delete_user(db, monkeypatch):
+    from app.bot import extra
+    monkeypatch.setattr(storage, "settings", replace(storage.settings, private_mode=True, admin_ids=[1]))
+    await storage.upsert_user(20, "a")
+    await storage.update_user(20, approved=True)
+    await storage.add_position(20, "SOLUSDT")
+    assert 20 in {u["chat_id"] for u in await storage.subscribers()}
+    await storage.update_user(20, admin_muted=True)  # 🔕 admin tạm dừng -> không nhận tín hiệu
+    assert 20 not in {u["chat_id"] for u in await storage.subscribers()}
+    await storage.delete_user(20)  # 🗑 xóa -> mất hết dữ liệu
+    assert await storage.get_user(20) is None and await storage.portfolio_of(20) == []
+    u = await storage.upsert_user(20, "a")  # quay lại -> phải chờ duyệt, không tự duyệt qua nhóm
+    assert not u["approved"]
+    assert await extra.auto_approve_member(None, 20) is False

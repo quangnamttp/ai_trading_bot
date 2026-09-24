@@ -25,6 +25,7 @@ users = sa.Table(
     sa.Column("full_name", sa.String(128)),
     sa.Column("currency", sa.String(8), nullable=False, server_default="USDT"),  # đơn vị hiển thị: USDT | VND
     sa.Column("subscribed", sa.Boolean, nullable=False, server_default=sa.true()),
+    sa.Column("admin_muted", sa.Boolean, nullable=False, server_default=sa.false()),  # admin tạm dừng tín hiệu
     sa.Column("banned", sa.Boolean, nullable=False, server_default=sa.false()),
     sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
 )
@@ -227,8 +228,10 @@ async def upsert_user(chat_id: int, username: str | None, full_name: str | None 
     async with engine().begin() as c:
         row = (await c.execute(sa.select(users).where(users.c.chat_id == chat_id))).first()
         if row is None:
-            approved = (not settings.private_mode) or chat_id in settings.admin_ids
-            await c.execute(users.insert().values(chat_id=chat_id, username=username, mode="futures",
+            # người đã bị admin xóa quay lại -> luôn phải chờ admin duyệt
+            was_deleted = (await c.execute(sa.select(kv.c.value).where(kv.c.key == f"deleted:{chat_id}"))).first()
+            approved = ((not settings.private_mode) or chat_id in settings.admin_ids) and not (was_deleted and was_deleted.value)
+            await c.execute(users.insert().values(chat_id=chat_id, username=username, full_name=full_name, mode="futures",
                                                   risk_pct=settings.default_risk_pct, subscribed=True,
                                                   banned=False, approved=approved, news_dm=False, created_at=now()))
             row = (await c.execute(sa.select(users).where(users.c.chat_id == chat_id))).first()
@@ -252,7 +255,8 @@ async def update_user(chat_id: int, **values) -> None:
 
 async def subscribers() -> list[dict]:
     async with engine().connect() as c:
-        rows = (await c.execute(sa.select(users).where(users.c.subscribed, ~users.c.banned, users.c.approved))).all()
+        rows = (await c.execute(sa.select(users).where(users.c.subscribed, ~users.c.banned, users.c.approved,
+                                                      ~users.c.admin_muted))).all()
     return [_row(r) for r in rows]
 
 
@@ -532,3 +536,14 @@ async def user_signals(chat_id: int, days: int = 30) -> list[dict]:
          .order_by(signals.c.id.desc()))
     async with engine().connect() as c:
         return [_row(r) for r in (await c.execute(q)).all()]
+
+
+async def delete_user(chat_id: int) -> None:
+    """Admin xóa người dùng: xóa cài đặt, coin theo dõi, danh mục + lịch sử danh mục. Lịch sử tín hiệu đã gửi giữ lại
+    để thống kê. Đánh dấu 'đã xóa' để lần sau quay lại phải chờ admin duyệt (kể cả thành viên nhóm)."""
+    async with engine().begin() as c:
+        for table in (user_coins, portfolio, portfolio_tx):
+            await c.execute(table.delete().where(table.c.chat_id == chat_id))
+        await c.execute(users.delete().where(users.c.chat_id == chat_id))
+    await kv_set(f"deleted:{chat_id}", "1")
+    await kv_set(f"pending:{chat_id}", "")
