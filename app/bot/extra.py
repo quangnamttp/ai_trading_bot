@@ -1,4 +1,5 @@
-"""Tính năng người dùng mở rộng: duyệt người dùng mới, 🪙 coin của tôi, 📅 lịch sự kiện, 🤖 hỏi AI, nhóm Topic."""
+"""Tính năng người dùng mở rộng: duyệt người dùng mới, 🪙 coin theo dõi (Futures), 📅 lịch sự kiện, 🤖 hỏi AI,
+topic 📰 Tin tức của nhóm."""
 from __future__ import annotations
 
 import logging
@@ -7,7 +8,7 @@ from html import escape
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ChatAction, ParseMode
 from telegram.error import BadRequest, TelegramError
-from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
+from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes, filters
 
 from app import assistant, reports, storage
 from app.config import settings
@@ -16,6 +17,7 @@ from app.data import binance
 log = logging.getLogger(__name__)
 
 MODE_TEXT = {"top": "🔝 Top 20", "mine": "🎯 Chỉ coin của tôi", "both": "➕ Top 20 + coin của tôi"}
+B = InlineKeyboardButton
 
 
 def is_admin(uid: int) -> bool:
@@ -49,7 +51,7 @@ async def request_approval(update: Update, ctx: ContextTypes.DEFAULT_TYPE, user:
 
 async def auto_approve_member(bot, chat_id: int) -> bool:
     """Người đã là thành viên nhóm (nhóm có topic 📰 / 💬 của bot) -> tự duyệt, không cần admin bấm."""
-    groups = {t[0] for t in [await reports.group_target("news"), await reports.group_target("ai")] if t}
+    groups = {t[0] for t in [await reports.group_target("news")] if t}
     for g in groups:
         try:
             m = await bot.get_chat_member(g, chat_id)
@@ -107,21 +109,18 @@ async def allow_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 async def coins_view(user: dict) -> tuple[str, InlineKeyboardMarkup]:
     coins = await storage.user_coins_of(user["chat_id"])
     mode = user.get("coin_mode", "top")
-    lines = ["🪙 <b>Coin của tôi</b>", f"Nhận tín hiệu: <b>{MODE_TEXT.get(mode, mode)}</b>", ""]
+    lines = ["🪙 <b>Coin theo dõi (Futures)</b>", f"Nhận tín hiệu: <b>{MODE_TEXT.get(mode, mode)}</b>", ""]
     if coins:
-        for c in coins:
-            lines.append(f"• {escape(binance.split_symbol(c['symbol'])[0])}" + (" · 📌 đang giữ" if c["holding"] else ""))
+        lines += [f"• {escape(binance.split_symbol(c['symbol'])[0])}" for c in coins]
     else:
         lines.append("Chưa có coin nào — đang nhận tín hiệu Top 20.")
-    lines += ["", f"Tối đa {settings.max_user_coins} coin. 📌 = coin bạn đang giữ (Spot): bot cảnh báo khi xu hướng đổi "
-                  "chiều, thủng vùng giá quan trọng, OI/funding bất thường, có tin xấu.",
-              "<i>Coin ngoài Top 20 chưa được backtest riêng — dùng cùng chiến lược.</i>"]
-    rows = [[InlineKeyboardButton(("📌 " if c["holding"] else "📍 ") + binance.split_symbol(c["symbol"])[0],
-                                  callback_data=f"coin:hold:{c['symbol']}"),
-             InlineKeyboardButton("🗑 Xóa", callback_data=f"coin:del:{c['symbol']}")] for c in coins]
-    rows.append([InlineKeyboardButton("➕ Thêm coin", callback_data="coin:add")])
+    lines += ["", f"Tối đa {settings.max_user_coins} coin. Bot quét thêm các coin này mỗi giờ bằng cùng chiến lược.",
+              "<i>Coin ngoài Top 20 chưa được backtest riêng. Coin đang giữ Spot: chuyển sang chế độ Spot → 💼 Danh mục.</i>"]
+    rows = [[B("🗑 " + binance.split_symbol(c["symbol"])[0], callback_data=f"coin:del:{c['symbol']}")
+             for c in coins[i:i + 3]] for i in range(0, len(coins), 3)]
+    rows.append([B("➕ Thêm coin", callback_data="coin:add")])
     if coins:
-        rows.append([InlineKeyboardButton(("✅ " if mode == k else "") + t, callback_data=f"cmode:{k}")
+        rows.append([B(("✅ " if mode == k else "") + t, callback_data=f"cmode:{k}")
                      for k, t in (("top", "Top 20"), ("mine", "Chỉ coin của tôi"), ("both", "Cả hai"))])
     return "\n".join(lines), InlineKeyboardMarkup(rows)
 
@@ -163,6 +162,7 @@ async def add_coin_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE, user: di
 
 
 async def on_coin(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    from app.bot import portfolio_ui
     q = update.callback_query
     user = await storage.get_user(q.from_user.id)
     if not user or not user.get("approved") or user.get("banned"):
@@ -172,6 +172,10 @@ async def on_coin(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     if parts[0] == "cmode":
         await storage.update_user(user["chat_id"], coin_mode=parts[1])
         await q.answer(f"Đã chọn: {MODE_TEXT[parts[1]]}")
+        user = await storage.get_user(user["chat_id"])
+        if user["mode"] == "spot":
+            await portfolio_ui.show_list(update, ctx, user, edit=True)
+            return
     elif parts[1] == "add":
         ctx.user_data["await_coin"] = True
         await q.answer()
@@ -181,13 +185,12 @@ async def on_coin(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     elif parts[1] == "del":
         await storage.remove_user_coin(user["chat_id"], parts[2])
         await q.answer("Đã xóa")
-    elif parts[1] == "hold":
-        await storage.toggle_holding(user["chat_id"], parts[2])
-        await q.answer("Đã cập nhật 📌")
     elif parts[1] == "menu":
         await q.answer()
         await coins_menu(update, ctx, user)
         return
+    else:
+        await q.answer()
     text, markup = await coins_view(await storage.get_user(user["chat_id"]))
     try:
         await q.edit_message_text(text, parse_mode=ParseMode.HTML, reply_markup=markup)
@@ -224,25 +227,67 @@ async def on_event(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 # ---------------------------------------------------------------- 🤖 hỏi AI
+def _markup(buttons: list[tuple[str, str]]) -> InlineKeyboardMarkup | None:
+    return InlineKeyboardMarkup([[B(t, callback_data=d)] for t, d in buttons]) if buttons else None
+
+
 async def ai_prompt(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-    ctx.user_data["await_ai"] = True
-    await _reply(update, "🤖 <b>Trợ lý giao dịch</b> — gõ câu hỏi, ví dụ:\n"
-                         "• <i>Lập kế hoạch DCA cho SOL</i> (Spot)\n"
-                         "• <i>Vùng vào lệnh đẹp cho ETH ở đâu?</i>\n"
-                         "• <i>Lệnh đang mở của tôi nên làm gì?</i>\n"
-                         "• Reply vào tin tín hiệu để hỏi về đúng lệnh đó\n\n"
-                         "Mốc giá do bot tính từ dữ liệu Binance, AI chỉ giải thích. Câu hỏi thị trường chung → topic "
-                         f"💬 Hỏi đáp AI của nhóm. {settings.ai_daily_limit} câu/ngày, câu ngoài phạm vi không tính lượt.")
+    user = await storage.get_user(update.effective_user.id)
+    spot = user and user.get("mode") == "spot"
+    personal = ("💼 Về danh mục của tôi" if spot else "📊 Về tín hiệu của tôi")
+    ctx.user_data["await_ai"] = "personal"
+    await _reply(update,
+                 "🤖 <b>Hỏi AI</b> — chọn mục rồi gõ câu hỏi (chỉ bạn thấy câu hỏi và câu trả lời):\n\n"
+                 + ("💼 <b>Danh mục của tôi</b> (Spot): coin trong danh mục — nên DCA bao nhiêu, ở đâu, giá vốn, lời/lỗ.\n"
+                    "   Vd: <i>Nên DCA SOL thế nào?</i>\n" if spot else
+                    "📊 <b>Tín hiệu của tôi</b> (Futures): lệnh bot đã gửi và còn mở — vì sao LONG/SHORT, khi nào về bờ.\n"
+                    "   Vd: <i>Lệnh ETH khi nào về bờ?</i> · hoặc reply thẳng vào tin tín hiệu.\n")
+                 + "🌍 <b>Thị trường chung</b>: tin tức, lịch sự kiện, dữ liệu thị trường, mọi coin.\n\n"
+                 f"<i>{settings.ai_daily_limit} câu/ngày · câu ngoài phạm vi không tính lượt.</i>",
+                 reply_markup=InlineKeyboardMarkup([[B(personal, callback_data="aimode:personal"),
+                                                     B("🌍 Thị trường chung", callback_data="aimode:market")]]))
 
 
-async def ai_answer(update: Update, ctx: ContextTypes.DEFAULT_TYPE, question: str, *, user: dict | None = None,
-                    signal: dict | None = None) -> None:
-    """user != None -> trợ lý giao dịch (chat riêng); None -> trợ lý thị trường (topic nhóm)."""
+async def ai_answer(update: Update, ctx: ContextTypes.DEFAULT_TYPE, question: str, *, user: dict,
+                    signal: dict | None = None, kind: str = "personal") -> None:
+    """kind='personal': Spot -> danh mục, Futures -> tín hiệu của tôi · kind='market': thị trường chung."""
     msg = update.effective_message
-    await ctx.bot.send_chat_action(msg.chat_id, ChatAction.TYPING, message_thread_id=msg.message_thread_id)
-    text = await assistant.answer(update.effective_user.id, question, scope="trade" if user else "market",
-                                  user=user, signal=signal)
-    await msg.reply_text(text, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+    await ctx.bot.send_chat_action(msg.chat_id, ChatAction.TYPING)
+    ctx.user_data["ai_q"] = question  # để nút 🌍 / chọn lệnh dùng lại câu hỏi
+    if kind == "market":
+        text, buttons = await assistant.answer_market(user["chat_id"], question)
+    else:
+        text, buttons = await assistant.answer_personal(user, question, signal)
+    await msg.reply_text(text, parse_mode=ParseMode.HTML, disable_web_page_preview=True, reply_markup=_markup(buttons))
+
+
+async def on_ai(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    """aimode:personal|market (chọn mục) · aisig:<id> (chọn lệnh để hỏi) · aimkt (hỏi lại câu vừa rồi ở Thị trường chung)."""
+    q = update.callback_query
+    user = await storage.get_user(q.from_user.id)
+    if not user or not user.get("approved") or user.get("banned"):
+        await q.answer()
+        return
+    kind, _, value = q.data.partition(":")
+    if kind == "aimode":
+        ctx.user_data["await_ai"] = value
+        await q.answer("Đã chọn")
+        await q.message.reply_text("🌍 Gõ câu hỏi về thị trường chung:" if value == "market" else
+                                   ("💼 Gõ câu hỏi về coin trong danh mục của bạn:" if user["mode"] == "spot"
+                                    else "📊 Gõ câu hỏi về tín hiệu bạn đang có:"))
+        return
+    question = ctx.user_data.get("ai_q")
+    await q.answer()
+    if not question:
+        await q.message.reply_text("Hãy gõ lại câu hỏi nhé.")
+        return
+    await ctx.bot.send_chat_action(q.message.chat_id, ChatAction.TYPING)
+    if kind == "aisig":
+        sig = await storage.get_signal(int(value))
+        text, buttons = await assistant.answer_personal(user, question, sig) if sig else ("Không tìm thấy lệnh.", [])
+    else:
+        text, buttons = await assistant.answer_market(user["chat_id"], question)
+    await q.message.reply_text(text, parse_mode=ParseMode.HTML, disable_web_page_preview=True, reply_markup=_markup(buttons))
 
 
 async def on_why(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
@@ -263,50 +308,21 @@ async def ai_ping_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 
 # ---------------------------------------------------------------- nhóm có Topic
 async def set_target(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-    """/set_news hoặc /set_ai gõ trong đúng topic của nhóm (chỉ admin)."""
+    """/set_news gõ trong topic 📰 của nhóm (chỉ admin)."""
     msg = update.effective_message
     if not is_admin(update.effective_user.id):
         await msg.reply_text("⛔ Chỉ admin dùng được lệnh này.")
         return
     if msg.chat.type == "private":
-        await msg.reply_text("Hãy gõ lệnh này bên trong topic của nhóm Telegram.")
+        await msg.reply_text("Hãy gõ lệnh này bên trong topic Tin tức của nhóm Telegram.")
         return
-    kind = "news" if msg.text.startswith("/set_news") else "ai"
-    await storage.kv_set(f"{kind}_target", f"{msg.chat_id}:{msg.message_thread_id}")
-    await msg.reply_text("✅ Từ giờ tin tức, lịch sự kiện và cảnh báo thị trường sẽ gửi vào topic này." if kind == "news"
-                         else "✅ Từ giờ bot trả lời câu hỏi về thị trường crypto trong topic này bằng AI "
-                              f"({settings.ai_daily_limit} câu/người/ngày).")
-
-
-async def group_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-    """Tin nhắn trong nhóm: chỉ trả lời ở topic Hỏi đáp AI; các topic khác bỏ qua.
-    Thành viên nhóm hỏi được luôn (đã vào nhóm = đã được admin nhóm cho phép)."""
-    msg = update.effective_message
-    target = await reports.group_target("ai")
-    if not target or msg.chat_id != target[0] or msg.message_thread_id != target[1]:
-        return
-    await ai_answer(update, ctx, msg.text)
-
-
-async def news_dm_toggle(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-    q = update.callback_query
-    user = await storage.get_user(q.from_user.id)
-    if not user:
-        await q.answer()
-        return
-    await storage.update_user(user["chat_id"], news_dm=not user.get("news_dm", False))
-    await q.answer("📰 Đã TẮT tin tức ở chat riêng" if user.get("news_dm", False) else "📰 Đã BẬT tin tức ở chat riêng")
-    from app.bot.handlers import mode_keyboard, mode_text
-    user = await storage.get_user(user["chat_id"])
-    try:
-        await q.edit_message_text(mode_text(user), parse_mode=ParseMode.HTML, reply_markup=mode_keyboard(user))
-    except BadRequest:
-        pass
+    await storage.kv_set("news_target", f"{msg.chat_id}:{msg.message_thread_id}")
+    await msg.reply_text("✅ Từ giờ tin tức, lịch sự kiện và cảnh báo thị trường sẽ gửi vào topic này.")
 
 
 def register(app: Application) -> None:
     private = filters.ChatType.PRIVATE
-    app.add_handler(CommandHandler(["set_news", "set_ai"], set_target))
+    app.add_handler(CommandHandler("set_news", set_target))
     app.add_handler(CommandHandler("allow", allow_cmd, filters=private))
     app.add_handler(CommandHandler(["lich", "calendar"], calendar_cmd))
     app.add_handler(CommandHandler("ai_ping", ai_ping_cmd, filters=private))
@@ -314,5 +330,4 @@ def register(app: Application) -> None:
     app.add_handler(CallbackQueryHandler(on_coin, pattern=r"^(coin|cmode):"))
     app.add_handler(CallbackQueryHandler(on_event, pattern=r"^(ev|evai):"))
     app.add_handler(CallbackQueryHandler(on_why, pattern=r"^why:"))
-    app.add_handler(CallbackQueryHandler(news_dm_toggle, pattern=r"^newsdm$"))
-    app.add_handler(MessageHandler(filters.ChatType.GROUPS & filters.TEXT & ~filters.COMMAND, group_text))
+    app.add_handler(CallbackQueryHandler(on_ai, pattern=r"^(aimode|aisig|aimkt)"))

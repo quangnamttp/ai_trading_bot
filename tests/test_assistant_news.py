@@ -46,7 +46,7 @@ async def test_scope_codes_returned(monkeypatch):
         return "OUT_OF_SCOPE"
     monkeypatch.setattr(ai, "_discover", disc)
     monkeypatch.setattr(ai, "_call", call)
-    text, _ = await ai.ask("thời tiết hôm nay?", "ctx", "trade")
+    text, _ = await ai.ask("thời tiết hôm nay?", "ctx", "spot")
     assert text == ai.OUT_OF_SCOPE
 
 
@@ -58,14 +58,14 @@ async def test_out_of_scope_does_not_use_quota(db, monkeypatch):
         return "ctx"
     monkeypatch.setattr(assistant.ai, "ask", ask)
     monkeypatch.setattr(assistant, "market_context", ctx)
-    text = await assistant.answer(5, "thời tiết hôm nay thế nào?")
+    text, _ = await assistant.answer_market(5, "thời tiết hôm nay thế nào?")
     assert "crypto" in text
     assert (await assistant.allowed(5))[1] == 0
 
     async def ask_ok(q, ctx, scope):
         return "BTC đang đi ngang.", "x"
     monkeypatch.setattr(assistant.ai, "ask", ask_ok)
-    await assistant.answer(5, "BTC thế nào?")
+    await assistant.answer_market(5, "BTC thế nào?")
     assert (await assistant.allowed(5))[1] == 1
 
 
@@ -158,5 +158,5 @@ async def test_news_stages_once(db, monkeypatch):
     await reports.macro_reminders(None)
     await reports.macro_reminders(None)
     assert len(sent) == 1  # 2 tin cùng giờ gộp 1 tin nhắn, không gửi lặp
-    assert "CPI m/m, Core CPI m/m" in sent[0] and "còn khoảng 1 giờ" in sent[0]
+    assert "Lạm phát CPI (so tháng trước), Lạm phát lõi CPI (so tháng trước)" in sent[0] and "còn khoảng 1 giờ" in sent[0]
     assert len(sent[0].splitlines()) <= 6

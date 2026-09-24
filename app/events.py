@@ -194,7 +194,7 @@ async def detail_text(e: dict) -> str:
     if e.get("previous"):
         extra.append(f"Kỳ trước: {escape(str(e['previous']))}")
     level = "🔴 Tác động mạnh" if e.get("impact") == "High" else "🟠 Tác động vừa"
-    return (f"📌 <b>{escape(e['title'])}</b> · {e['time'].astimezone(VN_TZ):%H:%M %d/%m} (giờ VN) · {level}\n"
+    return (f"📌 <b>{escape(vi_title(e['title']))}</b> · {e['time'].astimezone(VN_TZ):%H:%M %d/%m} (giờ VN) · {level}\n"
             + (" · ".join(extra) + "\n" if extra else "") + f"\n{escape(explain)}\n\n{stats_text(await reaction_stats(kind))}\n\n"
             + ("⏸ Bot tạm dừng tín hiệu mới từ 3 giờ trước đến 1 giờ sau tin." if e.get("impact") == "High" else ""))
 
@@ -207,3 +207,79 @@ async def recent_events(days: int = 7) -> list[dict]:
                                                               macro_events.c.time <= now)
                                 .order_by(macro_events.c.time))).all()
     return [{"title": r.title, "kind": r.kind, "time": storage._aware(r.time)} for r in rows]
+
+
+# ---------------------------------------------------------------- tên tin tiếng Việt
+# (mẫu tên tin ForexFactory, tên tiếng Việt) — mẫu cụ thể đặt trước mẫu chung
+VI_TITLES: list[tuple[str, str]] = [
+    (r"^core pce price index", "Lạm phát lõi PCE"),
+    (r"^pce price index", "Lạm phát PCE"),
+    (r"^core cpi", "Lạm phát lõi CPI"),
+    (r"^cpi", "Lạm phát CPI"),
+    (r"^core ppi", "Giá sản xuất lõi PPI"),
+    (r"^ppi", "Giá sản xuất PPI"),
+    (r"^adp non-farm employment change", "Việc làm tư nhân ADP"),
+    (r"^non-farm employment change", "Bảng lương phi nông nghiệp NFP"),
+    (r"^unemployment rate", "Tỉ lệ thất nghiệp"),
+    (r"^unemployment claims", "Đơn trợ cấp thất nghiệp"),
+    (r"^average hourly earnings", "Thu nhập bình quân theo giờ"),
+    (r"^federal funds rate", "Quyết định lãi suất Fed"),
+    (r"^fomc statement", "Tuyên bố của Fed (FOMC)"),
+    (r"^fomc press conference", "Họp báo của Fed"),
+    (r"^fomc meeting minutes", "Biên bản họp Fed"),
+    (r"^fomc economic projections", "Dự báo kinh tế của Fed"),
+    (r"^fomc member (\w+) speaks", r"Thành viên Fed \1 phát biểu"),
+    (r"^fed chair (\w+) (speaks|testifies)", r"Chủ tịch Fed \1 phát biểu"),
+    (r"^(advance|prelim|final) gdp", "Tăng trưởng GDP"),
+    (r"^gdp", "Tăng trưởng GDP"),
+    (r"^core retail sales", "Doanh số bán lẻ lõi"),
+    (r"^retail sales", "Doanh số bán lẻ"),
+    (r"^ism manufacturing pmi", "PMI sản xuất ISM"),
+    (r"^ism services pmi", "PMI dịch vụ ISM"),
+    (r"^(flash|final) manufacturing pmi", "PMI sản xuất"),
+    (r"^(flash|final) services pmi", "PMI dịch vụ"),
+    (r"^jolts job openings", "Việc làm còn trống JOLTS"),
+    (r"^cb consumer confidence", "Niềm tin tiêu dùng CB"),
+    (r"^(prelim|revised) uom consumer sentiment", "Tâm lý tiêu dùng (ĐH Michigan)"),
+    (r"^(prelim|revised) uom inflation expectations", "Kỳ vọng lạm phát (ĐH Michigan)"),
+    (r"^core durable goods orders", "Đơn hàng lâu bền lõi"),
+    (r"^durable goods orders", "Đơn hàng lâu bền"),
+    (r"^personal spending", "Chi tiêu cá nhân"),
+    (r"^personal income", "Thu nhập cá nhân"),
+    (r"^employment cost index", "Chỉ số chi phí lao động"),
+    (r"^(prelim |revised )?unit labor costs", "Chi phí lao động đơn vị"),
+    (r"^(prelim |revised )?nonfarm productivity", "Năng suất lao động"),
+    (r"^empire state manufacturing index", "Chỉ số sản xuất New York"),
+    (r"^philly fed manufacturing index", "Chỉ số sản xuất Philadelphia"),
+    (r"^industrial production", "Sản xuất công nghiệp"),
+    (r"^import prices", "Giá nhập khẩu"),
+    (r"^trade balance", "Cán cân thương mại"),
+    (r"^pending home sales", "Nhà chờ bán"),
+    (r"^new home sales", "Doanh số nhà mới"),
+    (r"^existing home sales", "Doanh số nhà cũ"),
+    (r"^building permits", "Giấy phép xây dựng"),
+    (r"^housing starts", "Nhà khởi công"),
+    (r"^crude oil inventories", "Tồn kho dầu thô"),
+    (r"^(\d+)-y bond auction", r"Đấu giá trái phiếu \1 năm"),
+    (r"^treasury currency report", "Báo cáo tiền tệ Bộ Tài chính"),
+    (r"^president \w+ speaks", "Tổng thống Mỹ phát biểu"),
+    (r"^bank holiday", "Ngày nghỉ lễ ngân hàng"),
+]
+VI_SUFFIX = {"m/m": "(so tháng trước)", "y/y": "(so năm trước)", "q/q": "(so quý trước)"}
+
+
+def vi_title(title: str) -> str:
+    """'Core CPI m/m' -> 'Lạm phát lõi CPI (so tháng trước)'. Tên chưa có trong từ điển -> giữ nguyên."""
+    t = title.strip()
+    low = t.lower()
+    for pattern, vi in VI_TITLES:
+        m = re.search(pattern, low)
+        if m:
+            name = m.expand(vi)
+            # giữ chữ hoa tên riêng (vd thành viên Fed)
+            for w in t.split():
+                if w.lower() in name.lower().split() and w[:1].isupper() and w.lower() not in ("fed", "cpi", "ppi"):
+                    name = re.sub(rf"\b{re.escape(w.lower())}\b", w, name)
+            suffix = next((v for k, v in VI_SUFFIX.items() if low.endswith(k)), "")
+            return f"{name} {suffix}".strip()
+    return t

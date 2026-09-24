@@ -25,9 +25,29 @@ async def fear_greed_now() -> tuple[int, str] | None:
     try:
         data = await get_json("https://api.alternative.me/fng/", {"limit": 1}, ttl=1800)
         r = data["data"][0]
-        return int(r["value"]), r["value_classification"]
+        return int(r["value"]), FNG_VI.get(r["value_classification"], r["value_classification"])
     except Exception as exc:  # noqa: BLE001
         log.warning("Fear&Greed lỗi: %s", exc)
+        return None
+
+
+FNG_VI = {"Extreme Fear": "Cực kỳ sợ hãi", "Fear": "Sợ hãi", "Neutral": "Trung lập", "Greed": "Tham lam",
+          "Extreme Greed": "Cực kỳ tham lam"}
+
+
+async def usdt_vnd() -> float | None:
+    """Tỉ giá 1 USDT = ? VND (CoinGecko, dự phòng tỉ giá USD/VND). None nếu cả 2 nguồn lỗi."""
+    try:
+        data = await get_json("https://api.coingecko.com/api/v3/simple/price",
+                              {"ids": "tether", "vs_currencies": "vnd"}, ttl=3600, retries=1, max_wait=0)
+        return float(data["tether"]["vnd"])
+    except Exception as exc:  # noqa: BLE001
+        log.debug("Tỉ giá CoinGecko lỗi: %s", exc)
+    try:
+        data = await get_json("https://open.er-api.com/v6/latest/USD", ttl=6 * 3600, retries=1, max_wait=0)
+        return float(data["rates"]["VND"])
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Không lấy được tỉ giá USDT/VND: %s", exc)
         return None
 
 

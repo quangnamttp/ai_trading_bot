@@ -12,7 +12,7 @@ from telegram.error import BadRequest
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
 
 from app import reports, service, storage
-from app.bot import extra, texts
+from app.bot import extra, portfolio_ui, texts
 from app.config import settings
 from app.strategy.core import describe
 from app.strategy.scanner import analyze_symbol, bucket_stats, calibration
@@ -20,24 +20,33 @@ from app.strategy.scanner import analyze_symbol, bucket_stats, calibration
 log = logging.getLogger(__name__)
 
 BTN_OPEN = "📊 Lệnh đang chạy"
+BTN_SPOT_SIG = "📊 Tín hiệu Spot"
 BTN_ANALYZE = "🔍 Phân tích coin"
-BTN_MODE = "⚙️ Chế độ & rủi ro"
+BTN_SETTINGS = "⚙️ Cài đặt"
 BTN_STATS = "📈 Thống kê"
-BTN_MARKET = "🌍 Thị trường"
-BTN_WATCH = "🪙 Coin của tôi"
-BTN_CAL = "📅 Lịch sự kiện"
+BTN_WATCH = "🪙 Coin theo dõi"
+BTN_PORTFOLIO = "💼 Danh mục của tôi"
 BTN_AI = "🤖 Hỏi AI"
 BTN_HELP = "ℹ️ Hướng dẫn"
-BTN_SUB = "🔔 Bật/Tắt tín hiệu"
+BTN_ADMIN = "👥 Quản lý"
+# nút của bàn phím cũ (người dùng chưa bấm /start lại vẫn bấm được)
+OLD_BUTTONS = {"⚙️ Chế độ & rủi ro": BTN_SETTINGS, "🪙 Coin của tôi": BTN_WATCH, "🔔 Bật/Tắt tín hiệu": BTN_SETTINGS,
+               "🌍 Thị trường": "market", "📅 Lịch sự kiện": "calendar"}
 
 
 def is_admin(chat_id: int) -> bool:
     return chat_id in settings.admin_ids
 
 
-def menu() -> ReplyKeyboardMarkup:
-    rows = [[BTN_OPEN, BTN_ANALYZE], [BTN_MODE, BTN_STATS], [BTN_MARKET, BTN_WATCH], [BTN_CAL, BTN_AI],
-            [BTN_HELP, BTN_SUB]]
+def menu(user: dict | None = None) -> ReplyKeyboardMarkup:
+    """Menu theo chế độ (Spot: danh mục · Futures: lệnh & coin theo dõi) và vai trò (admin thêm 👥 Quản lý).
+    Tin tức, lịch sự kiện, thị trường chung nằm ở topic 📰 của nhóm nên không lặp lại ở đây."""
+    if user and user.get("mode") == "spot":
+        rows = [[BTN_PORTFOLIO, BTN_ANALYZE], [BTN_AI, BTN_SPOT_SIG], [BTN_SETTINGS, BTN_STATS], [BTN_HELP]]
+    else:
+        rows = [[BTN_OPEN, BTN_ANALYZE], [BTN_AI, BTN_WATCH], [BTN_SETTINGS, BTN_STATS], [BTN_HELP]]
+    if user and is_admin(user["chat_id"]):
+        rows[-1].append(BTN_ADMIN)
     return ReplyKeyboardMarkup([[KeyboardButton(t) for t in r] for r in rows], resize_keyboard=True)
 
 
@@ -77,47 +86,61 @@ async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
                  "👋 <b>Chào mừng đến bot tín hiệu swing crypto!</b>\n\n"
                  "Bot quét Top 20 coin (và coin bạn tự chọn) mỗi giờ, gửi tín hiệu có điểm vào, SL, TP, trailing stop, "
                  "biểu đồ và theo dõi lệnh tới khi đóng.\n\n"
-                 "• ⚙️ Chế độ Spot/Futures, % rủi ro, kiểu swing · 🪙 Coin của tôi\n"
-                 "• 📅 Lịch sự kiện kinh tế · 🤖 Hỏi AI về thị trường, tin tức\n\n"
+                 + ("• 💼 Danh mục: ghi mua/bán, giá vốn, kế hoạch DCA theo số tiền, bot nhắc khi giá chạm vùng DCA\n"
+                    "• 🤖 Hỏi AI về coin trong danh mục của bạn\n" if user["mode"] == "spot" else
+                    "• 🪙 Coin theo dõi: thêm coin muốn nhận tín hiệu ngoài Top 20\n"
+                    "• 🤖 Hỏi AI về tín hiệu bot đã gửi cho bạn\n")
+                 + "• 📰 Tin tức, lịch sự kiện: xem topic Tin tức trong nhóm\n\n"
                  f"Chế độ hiện tại: <b>{user['mode'].upper()}</b> · rủi ro {user['risk_pct']:g}%/lệnh\n"
-                 "Đổi ở nút ⚙️. Đọc ℹ️ Hướng dẫn trước khi giao dịch.",
-                 reply_markup=menu())
+                 "Đổi ở ⚙️ Cài đặt. Đọc ℹ️ Hướng dẫn trước khi giao dịch.",
+                 reply_markup=menu(user))
 
 
 async def help_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-    if await _user(update):
-        await _reply(update, texts.HELP, reply_markup=menu())
+    user = await _user(update)
+    if user:
+        await _reply(update, texts.HELP, reply_markup=menu(user))
 
 
 def mode_keyboard(user: dict) -> InlineKeyboardMarkup:
-    """Mỗi chế độ 1 hàng, rủi ro 2 hàng x 2 nút, chữ ngắn để Telegram không cắt bớt trên màn hình hẹp."""
+    """Chữ ngắn, rủi ro 2 hàng x 2 nút để Telegram không cắt bớt trên màn hình hẹp.
+    Spot không có Swing dài (backtest yếu) -> ẩn hàng kiểu swing."""
     mark = lambda cond: "✅ " if cond else ""  # noqa: E731
     risk = lambda r: InlineKeyboardButton(f"{mark(user['risk_pct'] == r)}{r:g}%", callback_data=f"risk:{r}")  # noqa: E731
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton(f"{mark(user['mode'] == 'spot')}Spot — chỉ MUA", callback_data="mode:spot")],
-        [InlineKeyboardButton(f"{mark(user['mode'] == 'futures')}Futures — LONG & SHORT", callback_data="mode:futures")],
+    spot = user["mode"] == "spot"
+    rows = [
+        [InlineKeyboardButton(f"{mark(spot)}Spot — chỉ MUA", callback_data="mode:spot")],
+        [InlineKeyboardButton(f"{mark(not spot)}Futures — LONG & SHORT", callback_data="mode:futures")],
         [risk(0.25), risk(0.5)],
         [risk(1.0), risk(2.0)],
-        [InlineKeyboardButton(f"{mark(user.get('style', 'both') == k)}{t}", callback_data=f"style:{k}")
-         for k, t in (("short", "⚡ Ngắn"), ("long", "🌙 Dài"), ("both", "Cả hai"))],
-        [InlineKeyboardButton("🪙 Coin của tôi", callback_data="coin:menu")],
-        [InlineKeyboardButton(f"📰 Tin tức ở chat riêng: {'BẬT' if user.get('news_dm', True) else 'TẮT'}",
-                              callback_data="newsdm")],
-    ])
+    ]
+    if not spot:
+        rows.append([InlineKeyboardButton(f"{mark(user.get('style', 'both') == k)}{t}", callback_data=f"style:{k}")
+                     for k, t in (("short", "⚡ Ngắn"), ("long", "🌙 Dài"), ("both", "Cả hai"))])
+    rows.append([InlineKeyboardButton(f"🔔 Nhận tín hiệu: {'BẬT' if user['subscribed'] else 'TẮT'}",
+                                      callback_data="sub:toggle")])
+    rows.append([InlineKeyboardButton(f"💱 Đơn vị tiền: {'VNĐ' if user.get('currency') == 'VND' else 'USDT'}",
+                                      callback_data="cur:toggle")])
+    return InlineKeyboardMarkup(rows)
 
 
 STYLE_TEXT = {"short": "⚡ Swing ngắn", "long": "🌙 Swing dài", "both": "⚡ Ngắn + 🌙 Dài"}
 
 
 def mode_text(user: dict) -> str:
-    mode = "Spot (chỉ MUA)" if user["mode"] == "spot" else "Futures (LONG &amp; SHORT)"
-    style = STYLE_TEXT.get(user.get("style", "both"), "")
-    return ("⚙️ <b>Chế độ giao dịch &amp; rủi ro mỗi lệnh</b>\n\n"
-            f"Đang chọn: <b>{mode}</b> · rủi ro <b>{user['risk_pct']:g}%</b>/lệnh · <b>{style}</b>\n\n"
-            "• Rủi ro = % vốn mất nếu lệnh chạm SL. Người mới nên dùng <b>0.25–0.5%</b>.\n"
-            "• ⚡ Swing ngắn: 1–3 tín hiệu/ngày (6h–22h), giữ vài giờ → vài ngày.\n"
-            "• 🌙 Swing dài: khoảng 1 tín hiệu/tuần, giữ vài ngày → vài tuần (chỉ Futures — Spot backtest yếu).\n"
-            "Bấm nút bên dưới để đổi:")
+    spot = user["mode"] == "spot"
+    mode = "Spot (chỉ MUA)" if spot else "Futures (LONG &amp; SHORT)"
+    style = "⚡ Swing ngắn" if spot else STYLE_TEXT.get(user.get("style", "both"), "")
+    lines = ["⚙️ <b>Cài đặt</b>", "",
+             f"Đang chọn: <b>{mode}</b> · rủi ro <b>{user['risk_pct']:g}%</b>/lệnh · <b>{style}</b>", "",
+             "• Rủi ro = % vốn mất nếu lệnh chạm SL. Người mới nên dùng <b>0.25–0.5%</b>."]
+    if spot:
+        lines.append("• Spot chỉ nhận tín hiệu MUA swing ngắn (swing dài trên Spot backtest yếu nên không gửi).")
+    else:
+        lines += ["• ⚡ Swing ngắn: 1–3 tín hiệu/ngày (6h–22h), giữ vài giờ → vài ngày.",
+                  "• 🌙 Swing dài: khoảng 1 tín hiệu/tuần, giữ vài ngày → vài tuần."]
+    lines.append("Bấm nút bên dưới để đổi:")
+    return "\n".join(lines)
 
 
 async def mode_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
@@ -133,8 +156,13 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         await q.answer()
         return
     kind, _, value = q.data.partition(":")
-    if kind == "mode":
+    changed_mode = kind == "mode" and value in ("spot", "futures") and value != user["mode"]
+    if kind == "mode" and value in ("spot", "futures"):
         await storage.update_user(user["chat_id"], mode=value)
+    elif kind == "sub":
+        await storage.update_user(user["chat_id"], subscribed=not user["subscribed"])
+    elif kind == "cur":
+        await storage.update_user(user["chat_id"], currency="USDT" if user.get("currency") == "VND" else "VND")
     elif kind == "risk":
         await storage.update_user(user["chat_id"], risk_pct=float(value))
     elif kind == "style" and value in STYLE_TEXT:
@@ -145,13 +173,11 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         await q.edit_message_text(mode_text(user), parse_mode=ParseMode.HTML, reply_markup=mode_keyboard(user))
     except BadRequest:  # bấm lại đúng lựa chọn cũ -> nội dung không đổi
         pass
-
-
-async def toggle_sub(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-    user = await _user(update)
-    if user:
-        await storage.update_user(user["chat_id"], subscribed=not user["subscribed"])
-        await _reply(update, "🔕 Đã TẮT nhận tín hiệu." if user["subscribed"] else "🔔 Đã BẬT nhận tín hiệu.")
+    if changed_mode:  # đổi chế độ -> báo rõ + đổi bàn phím menu cho đúng chế độ
+        await q.message.reply_text(
+            "✅ Đã chuyển sang <b>SPOT</b>: chỉ nhận tín hiệu MUA; menu có 💼 Danh mục của tôi." if user["mode"] == "spot"
+            else "✅ Đã chuyển sang <b>FUTURES</b>: nhận LONG &amp; SHORT; menu có 🪙 Coin theo dõi.",
+            parse_mode=ParseMode.HTML, reply_markup=menu(user))
 
 
 async def open_signals(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
@@ -200,6 +226,12 @@ async def watch_list(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     user = await _user(update)
     if user:
         await extra.coins_menu(update, ctx, user)
+
+
+async def portfolio_menu(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    user = await _user(update)
+    if user:
+        await portfolio_ui.show_list(update, ctx, user)
 
 
 async def analyze(update: Update, ctx: ContextTypes.DEFAULT_TYPE, symbol_text: str | None = None) -> None:
@@ -276,11 +308,15 @@ async def on_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
             await _reply(update, "⏳ Bạn đang chờ admin duyệt. Khi được duyệt, bot sẽ nhắn cho bạn.")
             return
         user = await storage.get_user(user["chat_id"])
-    routes = {BTN_OPEN: open_signals, BTN_MODE: mode_cmd, BTN_STATS: stats, BTN_MARKET: market,
-              BTN_WATCH: watch_list, BTN_HELP: help_cmd, BTN_SUB: toggle_sub, BTN_CAL: extra.calendar_cmd,
-              BTN_AI: extra.ai_prompt}
+    text = OLD_BUTTONS.get(text, text)
+    routes = {BTN_OPEN: open_signals, BTN_SPOT_SIG: open_signals, BTN_SETTINGS: mode_cmd, BTN_STATS: stats,
+              BTN_WATCH: watch_list, BTN_PORTFOLIO: portfolio_menu, BTN_HELP: help_cmd, BTN_AI: extra.ai_prompt,
+              "market": market, "calendar": extra.calendar_cmd}
+    if text == BTN_ADMIN and is_admin(user["chat_id"]):
+        await admin_panel(update, ctx)
+        return
     if text in routes:
-        for k in ("await_symbol", "await_coin", "await_ai"):
+        for k in ("await_symbol", "await_coin", "await_ai", "await_pf"):
             ctx.user_data.pop(k, None)
         await routes[text](update, ctx)
     elif text == BTN_ANALYZE:
@@ -289,13 +325,15 @@ async def on_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         await analyze(update, ctx, text)
     elif ctx.user_data.pop("await_coin", False):
         await extra.add_coin_text(update, ctx, user, text)
+    elif await portfolio_ui.handle_text(update, ctx, user, text):
+        pass
     elif (reply := update.effective_message.reply_to_message) and (
             sig := await storage.signal_by_message(user["chat_id"], reply.message_id)):
         await extra.ai_answer(update, ctx, text, user=user, signal=sig)
-    elif ctx.user_data.pop("await_ai", False) or extra.assistant.ai.enabled():
-        await extra.ai_answer(update, ctx, text, user=user)
+    elif extra.assistant.ai.enabled():
+        await extra.ai_answer(update, ctx, text, user=user, kind=ctx.user_data.pop("await_ai", None) or "personal")
     else:
-        await _reply(update, "Chọn chức năng trong menu bên dưới 👇", reply_markup=menu())
+        await _reply(update, "Chọn chức năng trong menu bên dưới 👇", reply_markup=menu(user))
 
 
 async def analyze_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
@@ -356,6 +394,71 @@ async def users_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     await _reply(update, "\n".join(lines))
 
 
+async def admin_panel(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    us = await storage.all_users()
+    pending = [u for u in us if not u.get("approved", True) and not u["banned"]]
+    await _reply(update, f"👥 <b>Quản lý</b> · {len(us)} người dùng · {len(pending)} chờ duyệt", reply_markup=InlineKeyboardMarkup([
+        [InlineKeyboardButton(f"⏳ Chờ duyệt ({len(pending)})", callback_data="adm:pending"),
+         InlineKeyboardButton("👥 Danh sách", callback_data="adm:users")],
+        [InlineKeyboardButton("🔍 Quét ngay", callback_data="adm:scan"),
+         InlineKeyboardButton("🤖 Kiểm tra AI", callback_data="adm:ai")],
+        [InlineKeyboardButton("🌍 Thị trường", callback_data="adm:market"),
+         InlineKeyboardButton("📅 Lịch tuần", callback_data="adm:cal")]]))
+
+
+async def on_admin(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    q = update.callback_query
+    if not is_admin(q.from_user.id):
+        await q.answer("Chỉ admin")
+        return
+    await q.answer()
+    parts = q.data.split(":")
+    op = parts[1]
+    if op == "pending":
+        pend = [u for u in await storage.all_users() if not u.get("approved", True) and not u["banned"]]
+        if not pend:
+            await q.message.reply_text("Không có ai chờ duyệt.")
+        for u in pend[:15]:
+            name = escape(u.get("full_name") or u["username"] or "-")
+            await q.message.reply_text(
+                f"🙋 {name} · <code>{u['chat_id']}</code>", parse_mode=ParseMode.HTML,
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("✅ Duyệt", callback_data=f"appr:{u['chat_id']}:1"),
+                                                    InlineKeyboardButton("❌ Từ chối", callback_data=f"appr:{u['chat_id']}:0")]]))
+    elif op == "users":
+        us = [u for u in await storage.all_users() if not is_admin(u["chat_id"])]
+        lines = [f"👥 <b>{len(us)} người dùng</b> (🔔 nhận tín hiệu · 🔕 tắt · ⛔ chặn · ⏳ chờ duyệt)"]
+        rows = []
+        for u in us[-30:]:
+            flag = "⛔" if u["banned"] else "⏳" if not u.get("approved", True) else "🔔" if u["subscribed"] else "🔕"
+            name = u.get("full_name") or u["username"] or str(u["chat_id"])
+            lines.append(f"{flag} {escape(name)} · {u['mode']} · {u['risk_pct']:g}%")
+            rows.append([InlineKeyboardButton(f"{flag} {name[:20]}", callback_data=f"adm:u:{u['chat_id']}")])
+        await q.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML,
+                                   reply_markup=InlineKeyboardMarkup(rows) if rows else None)
+    elif op == "u":
+        u = await storage.get_user(int(parts[2]))
+        if u:
+            await q.message.reply_text(
+                f"👤 {escape(u.get('full_name') or u['username'] or '-')} · <code>{u['chat_id']}</code>\n"
+                f"{u['mode']} · rủi ro {u['risk_pct']:g}% · tín hiệu {'BẬT' if u['subscribed'] else 'TẮT'}",
+                parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("✅ Bỏ chặn" if u["banned"] else "⛔ Chặn", callback_data=f"adm:ban:{u['chat_id']}")]]))
+    elif op == "ban":
+        u = await storage.get_user(int(parts[2]))
+        if u:
+            await storage.update_user(u["chat_id"], banned=not u["banned"], **({"approved": True} if u["banned"] else {}))
+            await q.message.reply_text("✅ Đã bỏ chặn." if u["banned"] else "⛔ Đã chặn.")
+    elif op == "scan":
+        await q.message.reply_text("⏳ Đang quét thị trường...")
+        await q.message.reply_text(escape(await service.run_scan(ctx.bot, ("short", "long"), force=True)))
+    elif op == "ai":
+        await q.message.reply_text(await extra.assistant.ping(), parse_mode=ParseMode.HTML)
+    elif op == "market":
+        await q.message.reply_text(await reports.morning_text(), parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+    elif op == "cal":
+        await extra.calendar_cmd(update, ctx)
+
+
 @admin_only
 async def ban_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     if ctx.args and ctx.args[0].lstrip("-").isdigit():
@@ -395,7 +498,9 @@ def register(app: Application) -> None:
     app.add_handler(CommandHandler("users", users_cmd, filters=private))
     app.add_handler(CommandHandler(["ban", "unban"], ban_cmd, filters=private))
     app.add_handler(CommandHandler("broadcast", broadcast_cmd, filters=private))
-    app.add_handler(CallbackQueryHandler(on_callback, pattern=r"^(mode|risk|style):"))
+    app.add_handler(CallbackQueryHandler(on_callback, pattern=r"^(mode|risk|style|sub|cur):"))
+    app.add_handler(CallbackQueryHandler(on_admin, pattern=r"^adm:"))
     extra.register(app)
+    portfolio_ui.register(app)
     app.add_handler(MessageHandler(private & filters.TEXT & ~filters.COMMAND, on_text))
     app.add_error_handler(on_error)

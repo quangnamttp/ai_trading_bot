@@ -2,7 +2,8 @@
 
 - Tự dò model đang dùng được của từng nhà cung cấp (lưu 12 giờ), chỉ dùng model đủ mạnh (bỏ model nhỏ hay lặp/bịa).
 - Kiểm tra câu trả lời: lặp câu, quá nhiều con số không có trong dữ liệu -> bỏ, thử nhà cung cấp kế tiếp.
-- 2 phạm vi: "trade" (chat bot: tín hiệu, lệnh, kế hoạch DCA/điểm vào) và "market" (topic Hỏi đáp: thị trường chung).
+- Phạm vi (đều trong chat riêng): "spot" (danh mục Spot), "futures" (tín hiệu đã gửi), "market" (thị trường chung),
+  "news" (tóm tắt tin), "translate" (dịch tiêu đề tin).
   Câu hỏi ngoài phạm vi -> AI trả về mã OUT_OF_SCOPE / OTHER_PLACE để bot trả lời cố định.
 """
 from __future__ import annotations
@@ -26,21 +27,31 @@ BASE = (
     "KHÔNG bịa số, KHÔNG khẳng định giá chắc chắn tăng/giảm — chỉ nêu kịch bản 'nếu... thì thường...'. "
 )
 SCOPES = {
-    "trade": BASE + (
-        "Bạn là TRỢ LÝ GIAO DỊCH trong chat riêng của bot tín hiệu. Phạm vi: tín hiệu của bot, lệnh đang mở của người "
-        "hỏi, coin họ theo dõi, cách đặt SL/TP/trailing stop, tính khối lượng theo % rủi ro, kế hoạch DCA (Spot) và "
-        "vùng vào lệnh cho 1 coin cụ thể. Với kế hoạch DCA / điểm vào: CHỈ dùng các mốc giá trong 'KẾ HOẠCH DO BOT TÍNH', "
-        "ghi rõ đây là kế hoạch tham khảo, không phải tín hiệu đã kiểm chứng. "
-        f"Nếu câu hỏi là tin tức / thị trường chung (không gắn với lệnh hay coin cụ thể của họ) -> chỉ trả lời đúng: {OTHER_PLACE}. "
+    "spot": BASE + (
+        "Bạn là TRỢ LÝ SPOT trong chat riêng, chỉ lo DANH MỤC SPOT của người hỏi (chỉ mua bán thật, không short, "
+        "không đòn bẩy). Phạm vi: coin trong danh mục của họ — giá vốn, lời/lỗ, nên DCA bao nhiêu tiền ở mốc nào, "
+        "khi nào dừng DCA, chốt lời từng phần theo kịch bản, rủi ro. Mốc giá và số tiền CHỈ lấy từ 'VỊ THẾ SPOT' và "
+        "'KẾ HOẠCH DO BOT TÍNH'; ghi rõ là kế hoạch tham khảo. "
+        f"Nếu câu hỏi là tin tức / thị trường chung, không gắn với coin trong danh mục -> chỉ trả lời đúng: {OTHER_PLACE}. "
         f"Nếu câu hỏi không liên quan crypto / giao dịch (thời tiết, đời sống...) -> chỉ trả lời đúng: {OUT_OF_SCOPE}."
     ),
+    "futures": BASE + (
+        "Bạn là TRỢ LÝ TÍN HIỆU FUTURES trong chat riêng, chỉ trả lời về TÍN HIỆU BOT ĐÃ GỬI có trong dữ liệu. "
+        "Phạm vi: vì sao bot LONG/SHORT (dựa vào 'Lý do bot'), khi nào về bờ (chỉ nêu giá cần quay lại mức nào, cách "
+        "bao nhiêu %, KHÔNG hứa thời gian), SL/TP/trailing đang ở đâu, quy tắc quản lý lệnh của bot (chốt 50% ở TP1, "
+        "trailing kích hoạt ở +1R), rủi ro cần theo dõi. Không khuyên gồng lỗ, không khuyên dời SL xa hơn. "
+        f"Nếu câu hỏi là tin tức / thị trường chung -> chỉ trả lời đúng: {OTHER_PLACE}. "
+        f"Nếu câu hỏi không liên quan crypto / giao dịch -> chỉ trả lời đúng: {OUT_OF_SCOPE}."
+    ),
     "market": BASE + (
-        "Bạn là TRỢ LÝ THỊ TRƯỜNG trong nhóm Telegram. Phạm vi: thị trường crypto nói chung, mọi coin, tin tức, lịch "
-        "sự kiện kinh tế và ảnh hưởng tới crypto, xu hướng, dòng tiền. "
-        f"Nếu câu hỏi về lệnh / tài khoản / vốn cá nhân của người hỏi -> chỉ trả lời đúng: {OTHER_PLACE}. "
+        "Bạn là TRỢ LÝ THỊ TRƯỜNG CHUNG trong chat riêng. Phạm vi: thị trường crypto nói chung, mọi coin, tin tức, "
+        "lịch sự kiện kinh tế và ảnh hưởng tới crypto, xu hướng, dòng tiền. "
+        f"Nếu câu hỏi về lệnh / danh mục / vốn cá nhân của người hỏi -> chỉ trả lời đúng: {OTHER_PLACE}. "
         f"Nếu câu hỏi không liên quan crypto / tài chính (thời tiết, đời sống...) -> chỉ trả lời đúng: {OUT_OF_SCOPE}."
     ),
     "news": BASE + "Bạn viết tóm tắt tin tức thị trường cực ngắn (tối đa 3 gạch đầu dòng, mỗi dòng dưới 20 từ).",
+    "translate": ("Dịch từng tiêu đề tin tức crypto sang TIẾNG VIỆT tự nhiên, ngắn gọn. Giữ nguyên tên riêng, mã coin, "
+                  "con số. Trả về đúng số dòng, mỗi dòng dạng 'số. bản dịch', không thêm gì khác."),
 }
 
 # thứ tự ưu tiên model đủ mạnh; model nhỏ (hay lặp, bịa) bị loại
@@ -174,6 +185,8 @@ async def ask(question: str, context: str, scope: str = "market") -> tuple[str |
                 for code in (OUT_OF_SCOPE, OTHER_PLACE):
                     if code in text[:40]:
                         return code, f"{provider}:{model}"
+                if scope == "translate" and text:
+                    return text, f"{provider}:{model}"
                 if not text or degenerate(text):
                     log.warning("AI %s/%s trả lời lặp/rỗng -> bỏ", provider, model)
                     continue

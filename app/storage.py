@@ -23,6 +23,7 @@ users = sa.Table(
     sa.Column("news_dm", sa.Boolean, nullable=False, server_default=sa.false()),  # nhận tin tức ở chat riêng
     sa.Column("approved", sa.Boolean, nullable=False, server_default=sa.true()),  # người cũ tự được duyệt
     sa.Column("full_name", sa.String(128)),
+    sa.Column("currency", sa.String(8), nullable=False, server_default="USDT"),  # đơn vị hiển thị: USDT | VND
     sa.Column("subscribed", sa.Boolean, nullable=False, server_default=sa.true()),
     sa.Column("banned", sa.Boolean, nullable=False, server_default=sa.false()),
     sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
@@ -75,6 +76,37 @@ user_coins = sa.Table(
     sa.Column("chat_id", sa.BigInteger, primary_key=True),
     sa.Column("symbol", sa.String(32), primary_key=True),
     sa.Column("holding", sa.Boolean, nullable=False, server_default=sa.false()),  # 📌 đang giữ (theo dõi Spot)
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+)
+
+# 💼 Danh mục Spot: mỗi coin người dùng đang giữ (số lượng, giá vốn TB, vốn dự kiến cho DCA)
+portfolio = sa.Table(
+    "portfolio", meta,
+    sa.Column("chat_id", sa.BigInteger, primary_key=True),
+    sa.Column("symbol", sa.String(32), primary_key=True),  # mã Binance Futures dùng để lấy dữ liệu (vd 1000PEPEUSDT)
+    sa.Column("qty", sa.Float, nullable=False, server_default="0"),  # số coin thật (đã quy đổi hệ số 1000)
+    sa.Column("avg_price", sa.Float, nullable=False, server_default="0"),  # giá vốn TB / 1 coin (USDT)
+    sa.Column("invested", sa.Float, nullable=False, server_default="0"),  # tổng tiền đã mua (USDT)
+    sa.Column("realized", sa.Float, nullable=False, server_default="0"),  # lời/lỗ đã chốt (USDT)
+    sa.Column("budget", sa.Float, nullable=False, server_default="0"),  # tổng vốn dự kiến cho DCA (USDT)
+    sa.Column("plan", sa.Text),  # kế hoạch DCA đã chốt (JSON: các mốc giá, số tiền, trạng thái)
+    sa.Column("exchange", sa.String(16), nullable=False, server_default="Binance"),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+)
+
+# Lịch sử mua/bán trong danh mục (giữ sàn + đơn vị tiền để sau này hỗ trợ sàn Việt / VND)
+portfolio_tx = sa.Table(
+    "portfolio_tx", meta,
+    sa.Column("id", sa.Integer, primary_key=True, autoincrement=True),
+    sa.Column("chat_id", sa.BigInteger, nullable=False, index=True),
+    sa.Column("symbol", sa.String(32), nullable=False),
+    sa.Column("side", sa.String(4), nullable=False),  # buy | sell
+    sa.Column("qty", sa.Float, nullable=False),
+    sa.Column("price", sa.Float, nullable=False),  # USDT / 1 coin
+    sa.Column("amount", sa.Float, nullable=False),  # USDT
+    sa.Column("currency", sa.String(8), nullable=False, server_default="USDT"),  # đơn vị người dùng đã nhập
+    sa.Column("exchange", sa.String(16), nullable=False, server_default="Binance"),
+    sa.Column("note", sa.String(64)),
     sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
 )
 
@@ -144,6 +176,15 @@ async def init() -> None:
         async with engine().begin() as c:
             await c.execute(users.update().values(news_dm=False))
         await kv_set("migr:news_dm_off", "1")
+    # v3.4: coin 📌 "đang giữ" cũ -> chuyển sang 💼 Danh mục Spot (chưa có số lượng, người dùng tự ghi lệnh mua)
+    if not await kv_get("migr:holding_to_portfolio"):
+        async with engine().begin() as c:
+            rows = (await c.execute(sa.select(user_coins).where(user_coins.c.holding))).all()
+            for r in rows:
+                if not (await c.execute(sa.select(portfolio).where(portfolio.c.chat_id == r.chat_id,
+                                                                   portfolio.c.symbol == r.symbol))).first():
+                    await c.execute(portfolio.insert().values(chat_id=r.chat_id, symbol=r.symbol, created_at=now()))
+        await kv_set("migr:holding_to_portfolio", "1")
 
 
 def now() -> datetime:
@@ -327,11 +368,16 @@ async def user_coins_of(chat_id: int) -> list[dict]:
 
 
 async def all_user_coins() -> list[dict]:
-    """Coin tự chọn của mọi người dùng đã duyệt, không bị chặn."""
-    q = (sa.select(user_coins).join(users, users.c.chat_id == user_coins.c.chat_id)
-         .where(users.c.approved, ~users.c.banned))
+    """Coin tự chọn đang dùng của mọi người dùng đã duyệt, không bị chặn:
+    chế độ Futures -> 🪙 Coin theo dõi; chế độ Spot -> coin trong 💼 Danh mục."""
+    fut = (sa.select(user_coins.c.chat_id, user_coins.c.symbol)
+           .join(users, users.c.chat_id == user_coins.c.chat_id)
+           .where(users.c.approved, ~users.c.banned, users.c.mode == "futures"))
+    spot = (sa.select(portfolio.c.chat_id, portfolio.c.symbol)
+            .join(users, users.c.chat_id == portfolio.c.chat_id)
+            .where(users.c.approved, ~users.c.banned, users.c.mode == "spot"))
     async with engine().connect() as c:
-        return [dict(r._mapping) for r in (await c.execute(q)).all()]
+        return [dict(r._mapping) for q in (fut, spot) for r in (await c.execute(q)).all()]
 
 
 async def add_user_coin(chat_id: int, symbol: str) -> bool:
@@ -388,3 +434,101 @@ async def kv_decr(key: str) -> None:
     n = int(await kv_get(key) or 0)
     if n > 0:
         await kv_set(key, str(n - 1))
+
+
+# ---------------------------------------------------------------- 💼 danh mục Spot
+async def portfolio_of(chat_id: int) -> list[dict]:
+    async with engine().connect() as c:
+        rows = (await c.execute(sa.select(portfolio).where(portfolio.c.chat_id == chat_id)
+                                .order_by(portfolio.c.created_at))).all()
+    return [_row(r) for r in rows]
+
+
+async def position(chat_id: int, symbol: str) -> dict | None:
+    async with engine().connect() as c:
+        row = (await c.execute(sa.select(portfolio).where(portfolio.c.chat_id == chat_id,
+                                                          portfolio.c.symbol == symbol))).first()
+    return _row(row) if row else None
+
+
+async def all_positions() -> list[dict]:
+    """Coin trong danh mục của mọi người dùng đã duyệt, không bị chặn (để theo dõi, cảnh báo DCA)."""
+    q = (sa.select(portfolio).join(users, users.c.chat_id == portfolio.c.chat_id)
+         .where(users.c.approved, ~users.c.banned))
+    async with engine().connect() as c:
+        return [_row(r) for r in (await c.execute(q)).all()]
+
+
+async def add_position(chat_id: int, symbol: str) -> bool:
+    async with engine().begin() as c:
+        if (await c.execute(sa.select(portfolio).where(portfolio.c.chat_id == chat_id,
+                                                       portfolio.c.symbol == symbol))).first():
+            return False
+        await c.execute(portfolio.insert().values(chat_id=chat_id, symbol=symbol, created_at=now()))
+    return True
+
+
+async def remove_position(chat_id: int, symbol: str) -> None:
+    async with engine().begin() as c:
+        await c.execute(portfolio.delete().where(portfolio.c.chat_id == chat_id, portfolio.c.symbol == symbol))
+
+
+async def update_position(chat_id: int, symbol: str, **values) -> None:
+    async with engine().begin() as c:
+        await c.execute(portfolio.update().where(portfolio.c.chat_id == chat_id, portfolio.c.symbol == symbol)
+                        .values(**values))
+
+
+def apply_trade(pos: dict, side: str, qty: float, price: float) -> dict:
+    """Cập nhật số lượng / giá vốn TB / lời lỗ đã chốt sau 1 lệnh mua hoặc bán (giá theo USDT / 1 coin)."""
+    q0, avg = pos.get("qty") or 0.0, pos.get("avg_price") or 0.0
+    out = {"qty": q0, "avg_price": avg, "invested": pos.get("invested") or 0.0, "realized": pos.get("realized") or 0.0}
+    if side == "buy":
+        out["qty"] = q0 + qty
+        out["avg_price"] = (q0 * avg + qty * price) / out["qty"] if out["qty"] > 0 else 0.0
+        out["invested"] += qty * price
+    else:
+        qty = min(qty, q0)
+        out["qty"] = q0 - qty
+        out["realized"] += qty * (price - avg)
+        if out["qty"] <= 1e-12:
+            out["qty"], out["avg_price"] = 0.0, 0.0
+    return out
+
+
+async def record_trade(chat_id: int, symbol: str, side: str, qty: float, price: float, *,
+                       currency: str = "USDT", note: str | None = None) -> dict:
+    """Ghi 1 lệnh mua/bán vào lịch sử và cập nhật danh mục. Trả về vị thế mới."""
+    pos = await position(chat_id, symbol)
+    if pos is None:
+        await add_position(chat_id, symbol)
+        pos = await position(chat_id, symbol)
+    if side == "sell":
+        qty = min(qty, pos["qty"])
+    new = apply_trade(pos, side, qty, price)
+    async with engine().begin() as c:
+        await c.execute(portfolio_tx.insert().values(chat_id=chat_id, symbol=symbol, side=side, qty=qty, price=price,
+                                                     amount=qty * price, currency=currency, exchange=pos["exchange"],
+                                                     note=note, created_at=now()))
+        await c.execute(portfolio.update().where(portfolio.c.chat_id == chat_id, portfolio.c.symbol == symbol)
+                        .values(**new))
+    return {**pos, **new}
+
+
+async def trades_of(chat_id: int, symbol: str, limit: int = 15) -> list[dict]:
+    async with engine().connect() as c:
+        rows = (await c.execute(sa.select(portfolio_tx).where(portfolio_tx.c.chat_id == chat_id,
+                                                              portfolio_tx.c.symbol == symbol)
+                                .order_by(portfolio_tx.c.id.desc()).limit(limit))).all()
+    return [_row(r) for r in rows]
+
+
+async def user_signals(chat_id: int, days: int = 30) -> list[dict]:
+    """Tín hiệu đã gửi cho 1 người trong `days` ngày (mới nhất trước), kèm message_id tin tín hiệu."""
+    since = now() - timedelta(days=days)
+    q = (sa.select(signals, signal_messages.c.message_id)
+         .join(signal_messages, signal_messages.c.signal_id == signals.c.id)
+         .where(signal_messages.c.chat_id == chat_id, signals.c.created_at >= since)
+         .order_by(signals.c.id.desc()))
+    async with engine().connect() as c:
+        return [_row(r) for r in (await c.execute(q)).all()]

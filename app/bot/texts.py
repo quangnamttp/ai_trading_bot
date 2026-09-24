@@ -112,6 +112,40 @@ def event_message(sig: dict, event: str, px: float, r: float, mode: str) -> str:
     return EVENT_TEXT[event].format(d=escape(sig["display"]), px=price(px / mult), r=r)
 
 
+OUTCOME_TEXT = {"SL": "chạm cắt lỗ", "BE": "về hòa vốn", "TRAIL": "trailing stop", "TP": "chốt lời",
+                "TIMEOUT": "hết thời gian giữ lệnh"}
+
+
+def close_summary(sig: dict, trade, *, risk_pct: float, hours: float, btc_chg: float | None) -> str:
+    """📋 Tổng kết lệnh khi đóng: kết quả, lý do đóng, lãi lớn nhất từng đạt, BTC trong lúc giữ lệnh, bài học ngắn."""
+    r = trade.realized_r
+    side = "LONG" if sig["side"] > 0 else "SHORT"
+    lines = [f"📋 <b>Tổng kết lệnh {escape(sig['display'])} {side}</b>",
+             f"Kết quả: <b>{r:+.2f}R</b> = <b>{r * risk_pct:+.2f}% vốn</b> (rủi ro {risk_pct:g}%/lệnh)",
+             f"Đóng vì: {OUTCOME_TEXT.get(trade.outcome, trade.outcome or 'đã đóng')} · giữ {hours:.0f} giờ",
+             f"Lãi lớn nhất từng đạt: {trade.max_r:+.1f}R"]
+    if btc_chg is not None:
+        lines.append(f"BTC trong lúc giữ lệnh: {btc_chg:+.1%}")
+    lesson = []
+    against = btc_chg is not None and btc_chg * sig["side"] < -0.02
+    if r > 0.05:
+        lesson.append("Lệnh đi đúng hướng; chốt 50% ở TP1 và để trailing chạy là đúng quy tắc.")
+    elif trade.outcome == "TIMEOUT":
+        lesson.append("Giá đi ngang quá lâu — bot đóng để giải phóng vốn cho cơ hội khác.")
+    elif trade.max_r >= 1:
+        lesson.append(f"Lệnh từng lãi +{trade.max_r:.1f}R rồi quay đầu — trailing / dời SL đã giữ lại phần có thể.")
+    elif trade.max_r < 0.3:
+        lesson.append("Giá đi ngược gần như ngay sau khi vào — setup không được thị trường xác nhận; "
+                      "SL giới hạn thiệt hại đúng kế hoạch.")
+    else:
+        lesson.append("Giá có nhích đúng hướng nhưng không đủ lực; SL cắt lỗ đúng kế hoạch.")
+    if against and r <= 0:
+        lesson.append(f"BTC chạy ngược {btc_chg:+.1%} kéo cả thị trường — altcoin khó thắng khi BTC đi mạnh ngược chiều.")
+    lines.append("💡 " + " ".join(lesson))
+    lines.append("<i>Lệnh lỗ là một phần của hệ thống — đánh giá sau nhiều lệnh, không theo từng lệnh.</i>")
+    return "\n".join(lines)
+
+
 def stats_message(rows: list[dict], title: str) -> str:
     if not rows:
         return f"📈 <b>{title}</b>\nChưa có lệnh nào đóng."
@@ -131,7 +165,7 @@ HELP = """ℹ️ <b>Hướng dẫn sử dụng</b>
 dòng tiền (taker, CVD), phái sinh (funding, OI, tỉ lệ long/short), thị trường chung (BTC, Fear &amp; Greed, tin tức).
 Chỉ vào lệnh khi có xác nhận: OI biến động mạnh, hoặc đám đông nghiêng hẳn về phía ngược lại, hoặc setup Retest.
 
-<b>2 kiểu giao dịch</b> (chọn ở ⚙️)
+<b>2 kiểu giao dịch</b> (chọn ở ⚙️ Cài đặt, Spot chỉ có Swing ngắn)
 • ⚡ <b>Swing ngắn</b>: tối đa 3 tín hiệu/ngày, chỉ từ 6h đến 22h, giữ vài giờ → vài ngày.
 • 🌙 <b>Swing dài</b>: khoảng 1 tín hiệu/tuần, giữ vài ngày → vài tuần. Ban đêm vẫn gửi nhưng <b>không chuông</b>.
 Hạng A = đạt chuẩn · Hạng B = chuẩn thấp hơn, chỉ gửi sau 15h nếu cả ngày chưa có tín hiệu.
@@ -143,25 +177,33 @@ Hạng A = đạt chuẩn · Hạng B = chuẩn thấp hơn, chỉ gửi sau 15h
 4. Đặt <b>Trailing Stop</b> cho cả lệnh: giá kích hoạt và callback % có trong tin nhắn.
    Sàn không có Trailing Stop: khi giá tới mức kích hoạt thì tự dời SL về giá vào.
 
-<b>🪙 Coin của tôi</b> (tối đa 20): chọn nhận tín hiệu Top 20, chỉ coin của mình, hoặc cả hai.
-Bấm 📌 cho coin đang giữ (Spot) → bot cảnh báo khi xu hướng đổi chiều, thủng vùng giá, OI/funding bất thường, tin xấu.
+<b>⚙️ Cài đặt</b>: Spot (chỉ MUA) / Futures (LONG &amp; SHORT), % rủi ro, kiểu swing, bật/tắt tín hiệu, đơn vị USDT/VNĐ.
+Menu tự đổi theo chế độ đang chọn.
 
-<b>Lịch tự động</b>: 07:00 thị trường 24h + tin trong ngày (thứ 2: lịch cả tuần) · 15:05 danh sách theo dõi
-(nếu chưa có tín hiệu) · 22:00 tổng kết lời/lỗ · chủ nhật 20:00 tổng kết thị trường tuần, 22:05 tổng kết lệnh tuần.
+<b>💼 Danh mục của tôi</b> (Spot, tối đa 20 coin)
+• ➕ Mua / ➖ Bán: gõ số tiền đã mua (vd <code>100</code> hoặc <code>2tr</code>) → bot tự tính số coin và giá vốn trung bình.
+• 🎯 Đặt vốn DCA: gõ tổng tiền dự kiến mua thêm → bot chia vào các vùng hỗ trợ (30% / 30% / 40%) và <b>nhắc khi giá
+chạm vùng</b>. Mua trên sàn xong bấm ✅ Đã mua là danh mục tự cập nhật.
+• Bot cảnh báo coin trong danh mục khi xu hướng đổi chiều, thủng vùng giá, OI/funding bất thường, có tin xấu.
+• 22:00 báo giá trị danh mục, lời/lỗ.
 
-<b>📰 Topic Tin tức</b> (nhóm): tin vĩ mô Mỹ báo 4 lần — trước 1 giờ (tin là gì, cao/thấp hơn dự báo thì tốt/xấu,
-thống kê BTC), lúc ra tin, 15 phút sau và 1 giờ sau (BTC/ETH phản ứng thật + kịch bản). Muốn nhận cả ở chat riêng:
-bật trong ⚙️.
+<b>🪙 Coin theo dõi</b> (Futures, tối đa 20): thêm coin muốn nhận tín hiệu ngoài Top 20.
 
-<b>🤖 Hỏi AI</b> (20 câu/ngày, câu ngoài phạm vi không tính lượt):
-• Chat riêng với bot = trợ lý giao dịch: <i>Lập kế hoạch DCA cho SOL</i>, <i>Vùng vào lệnh ETH?</i>, hỏi về lệnh đang
-mở, hoặc reply vào tin tín hiệu để hỏi về đúng lệnh đó. Mốc giá do bot tính, AI chỉ giải thích.
-• Topic 💬 Hỏi đáp của nhóm = trợ lý thị trường: tin tức, lịch sự kiện, mọi coin.
+<b>Lịch tự động</b>: 07:00 thị trường 24h · 15:05 danh sách theo dõi (nếu chưa có tín hiệu) · 22:00 tổng kết cá nhân
+· chủ nhật 20:00 tổng kết thị trường tuần (topic 📰), 22:05 tổng kết lệnh tuần. Lệnh đóng → 📋 Tổng kết lệnh.
+
+<b>📰 Topic Tin tức</b> (nhóm): tin tức, lịch tuần (tin ghim), tin vĩ mô Mỹ báo 4 lần — trước 1 giờ, lúc ra tin,
+15 phút và 1 giờ sau (BTC/ETH phản ứng thật + kịch bản).
+
+<b>🤖 Hỏi AI</b> (chỉ bạn thấy · 20 câu/ngày · câu ngoài phạm vi không tính lượt)
+• Spot: hỏi về coin trong danh mục (DCA bao nhiêu, ở đâu, giá vốn, lời/lỗ).
+• Futures: hỏi về tín hiệu bot đã gửi và còn mở (vì sao LONG/SHORT, khi nào về bờ) — hoặc reply vào tin tín hiệu.
+• 🌍 Thị trường chung: tin tức, lịch sự kiện, mọi coin.
 AI không tạo tín hiệu; kế hoạch DCA là tham khảo, chưa được backtest như tín hiệu.
 
 <b>Trung thực về rủi ro</b>
 Backtest 2 năm / 40 coin: khoảng 43% lệnh có lời, trung bình +0.2R/lệnh, chuỗi sụt giảm tệ nhất khoảng 16R
 (= −8% vốn nếu rủi ro 0.5%/lệnh), khoảng 1/4 số tháng bị lỗ. Không tín hiệu nào chắc chắn thắng.
 
-<b>Lệnh</b>: /start /menu /phantich SOL /thongke /mode /lich
+<b>Lệnh</b>: /start /help /phantich SOL /thongke
 Giá tham chiếu Binance Futures — giá ở sàn khác có thể lệch nhẹ."""

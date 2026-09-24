@@ -74,7 +74,7 @@ def test_event_classify_and_calendar():
     evs = [{"title": "CPI m/m", "time": t, "impact": "High", "forecast": "0.3%"},
            {"title": "Unemployment Claims", "time": t + timedelta(days=1), "impact": "Medium", "forecast": "220K"}]
     text, markup = reports.calendar_message(evs, "Lịch")
-    assert "CPI m/m" in text and "19:30" in text  # giờ VN
+    assert "Lạm phát CPI (so tháng trước)" in text and "19:30" in text  # tên tiếng Việt, giờ VN
     assert all(len(b.callback_data) <= 64 for row in markup.inline_keyboard for b in row)
 
 

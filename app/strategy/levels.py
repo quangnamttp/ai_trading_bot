@@ -86,7 +86,7 @@ def build_plan(d1: pd.DataFrame, h4: pd.DataFrame) -> dict:
 
 async def coin_plan(symbol: str) -> dict:
     d1 = await binance.klines(symbol, "1d", 400)
-    h4 = await binance.klines(symbol, "4h", 540)
+    h4 = await binance.klines(symbol, "4h", 540, closed_only=False)  # giá hiện tại khớp giá sàn
     plan = build_plan(d1, h4)
     plan["symbol"] = symbol
     plan["display"] = binance.split_symbol(symbol)[0]

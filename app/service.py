@@ -46,8 +46,9 @@ def receives(user: dict, sig: dict, my_coins: set[str] | None = None) -> bool:
 
 
 async def _send(bot: Bot, chat_id: int, text: str, *, photo: bytes | None = None, url: str | None = None,
-                reply_to: int | None = None, silent: bool = False, why_id: int | None = None) -> int | None:
-    rows = []
+                reply_to: int | None = None, silent: bool = False, why_id: int | None = None,
+                markup: InlineKeyboardMarkup | None = None) -> int | None:
+    rows = list(markup.inline_keyboard) if markup else []
     if url:
         rows.append([InlineKeyboardButton("📈 Mở chart TradingView", url=url)])
     if why_id:
@@ -159,6 +160,24 @@ async def track(bot: Bot) -> None:
             log.warning("Theo dõi #%s lỗi: %s", sig["id"], exc)
 
 
+_btc_cache: dict[int, float | None] = {}
+
+
+async def _close_summary(sig: dict, trade: Trade, risk_pct: float) -> str:
+    created = sig["created_at"]
+    hours = ((trade.closed_at or storage.now()) - created).total_seconds() / 3600
+    if sig["id"] not in _btc_cache:
+        btc = None
+        if sig["symbol"] != "BTCUSDT":
+            try:
+                k = await binance.klines_since("BTCUSDT", "1h", int(created.timestamp() * 1000))
+                btc = float(k["close"].iloc[-1] / k["open"].iloc[0] - 1) if len(k) else None
+            except Exception:  # noqa: BLE001
+                btc = None
+        _btc_cache[sig["id"]] = btc
+    return texts.close_summary(sig, trade, risk_pct=risk_pct, hours=hours, btc_chg=_btc_cache[sig["id"]])
+
+
 async def _track_one(bot: Bot, sig: dict) -> None:
     state = storage.loads(sig["state"])
     trade = Trade.from_dict(state["trade"])
@@ -201,3 +220,6 @@ async def _track_one(bot: Bot, sig: dict) -> None:
         for ev, px in events:
             r = trade.realized_r if ev in ("SL", "STOPPED", "TIMEOUT") else 0.0
             await _send(bot, m["chat_id"], texts.event_message(sig, ev, px, r, u["mode"]), reply_to=m["message_id"])
+        if trade.status != "ACTIVE":
+            summary = await _close_summary(sig, trade, u["risk_pct"])
+            await _send(bot, m["chat_id"], summary, reply_to=m["message_id"])
