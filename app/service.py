@@ -16,8 +16,8 @@ from app.bot import texts
 from app.config import VN_TZ, settings
 from app.data import binance, macro, news
 from app.strategy.core import describe
-from app.strategy.scanner import Found, bucket_stats, scan
-from app.strategy.trade import Trade
+from app.strategy.scanner import STYLES, Found, bucket_stats, scan
+from app.strategy.trade import Trade, callback_rate
 
 log = logging.getLogger(__name__)
 _scan_lock = asyncio.Lock()
@@ -30,22 +30,30 @@ def tv_url(sig: dict, mode: str) -> str:
 
 
 def receives(user: dict, sig: dict) -> bool:
-    """Spot chỉ nhận lệnh MUA của coin có trên spot."""
+    """Spot chỉ nhận lệnh MUA của coin có trên spot; mỗi người chỉ nhận kiểu swing đã chọn.
+    Spot không nhận Swing dài: backtest 2 năm cho kết quả lỗ ở nửa dữ liệu gần đây."""
+    style = sig.get("style", "short")
+    if user.get("style", "both") not in ("both", style):
+        return False
+    if user["mode"] == "spot" and style == "long":
+        return False
     return user["mode"] == "futures" or (sig["side"] > 0 and bool(sig.get("spot_symbol")))
 
 
 async def _send(bot: Bot, chat_id: int, text: str, *, photo: bytes | None = None, url: str | None = None,
-                reply_to: int | None = None) -> int | None:
+                reply_to: int | None = None, silent: bool = False) -> int | None:
     markup = InlineKeyboardMarkup([[InlineKeyboardButton("📈 Mở chart TradingView", url=url)]]) if url else None
     try:
         if photo is not None and len(text) <= CAPTION_LIMIT:
-            m = await bot.send_photo(chat_id, photo, caption=text, parse_mode=ParseMode.HTML, reply_markup=markup)
+            m = await bot.send_photo(chat_id, photo, caption=text, parse_mode=ParseMode.HTML, reply_markup=markup,
+                                     disable_notification=silent)
         else:
             if photo is not None:
-                m0 = await bot.send_photo(chat_id, photo)
+                m0 = await bot.send_photo(chat_id, photo, disable_notification=silent)
                 reply_to = m0.message_id
             m = await bot.send_message(chat_id, text, parse_mode=ParseMode.HTML, reply_markup=markup,
-                                       reply_to_message_id=reply_to, disable_web_page_preview=True)
+                                       reply_to_message_id=reply_to, disable_web_page_preview=True,
+                                       disable_notification=silent)
         return m.message_id
     except Forbidden:
         log.info("Người dùng %s đã chặn bot -> hủy đăng ký", chat_id)
@@ -60,27 +68,32 @@ def _chart(h1: pd.DataFrame, sig: dict, mult: int) -> bytes:
     if mult != 1:
         df[["open", "high", "low", "close"]] = df[["open", "high", "low", "close"]] / mult
     k = 1 / mult
-    return chart.render(df, title=f"{sig['display']} · 1H · Binance {'Spot' if mult != 1 else 'Futures'}",
-                        subtitle=f"Điểm {sig['score']:.0f}/100 · {sig['setup_text']} · {texts.vn_time(sig['created_at'])}",
+    tf = STYLES[sig.get("style", "short")].tfs[0].upper()
+    return chart.render(df, title=f"{sig['display']} · {tf} · Binance {'Spot' if mult != 1 else 'Futures'}",
+                        subtitle=f"Điểm {sig['score']:.0f}/100 · Hạng {sig.get('tier', 'A')} · {sig['setup_text']} · "
+                                 f"{texts.vn_time(sig['created_at'])}",
                         side=sig["side"], entry=sig["entry"] * k, sl=sig["sl"] * k, tp1=sig["tp1"] * k,
-                        tp2=sig["tp2"] * k, zone_lo=sig["zone_lo"] * k, zone_hi=sig["zone_hi"] * k)
+                        tp2=(sig["entry"] + sig["side"] * abs(sig["entry"] - sig["sl"])) * k,
+                        zone_lo=sig["zone_lo"] * k, zone_hi=sig["zone_hi"] * k, tp2_label="TRAIL")
 
 
 async def publish(bot: Bot, found: Found) -> int:
-    c, coin, row = found.candidate, found.coin, found.candidate.row
+    c, coin, row, style = found.candidate, found.coin, found.candidate.row, found.style
     created = storage.now()
+    cb = callback_rate(float(row["atr4"]), float(row["entry"]))
     trade = Trade(c.side, row["entry"], row["sl"], created=created,
-                  deadline=created + timedelta(hours=settings.max_hold_hours))
+                  deadline=created + timedelta(hours=style.hold_hours), exit_mode="pct", callback=cb)
     reasons = describe(c)
     setup_text = reasons[0]
     values = dict(symbol=coin.symbol, display=coin.display, side=c.side, spot_symbol=coin.spot_symbol,
-                  multiplier=coin.multiplier, score=c.score, setup=row["setup_type"], entry=row["entry"],
-                  sl=row["sl"], tp1=row["tp1"], tp2=row["tp2"], zone_lo=row["zone_lo"], zone_hi=row["zone_hi"],
-                  reasons=storage.dumps(reasons[1:]), status="ACTIVE", created_at=created,
+                  multiplier=coin.multiplier, score=c.score, setup=row["setup_type"], style=style.key, tier=found.tier,
+                  entry=row["entry"], sl=row["sl"], tp1=row["tp1"], tp2=row["tp2"], zone_lo=row["zone_lo"],
+                  zone_hi=row["zone_hi"], reasons=storage.dumps(reasons[1:]), status="ACTIVE", created_at=created,
                   state=storage.dumps({"trade": trade.to_dict(), "last_ts": created, "notified_stop": row["sl"]}))
     sig_id = await storage.insert_signal(**values)
-    sig = {**values, "id": sig_id, "trend": row["trend"], "setup_text": setup_text, "reasons": reasons[1:]}
-    stats = bucket_stats(c.score)
+    sig = {**values, "id": sig_id, "trend": row["trend"], "setup_text": setup_text, "reasons": reasons[1:],
+           "exit_mode": "pct", "callback": cb}
+    stats = bucket_stats(c.score, style.key)
 
     photos: dict[int, bytes] = {}
     for user in await storage.subscribers():
@@ -90,23 +103,30 @@ async def publish(bot: Bot, found: Found) -> int:
         if mult not in photos:
             photos[mult] = await asyncio.to_thread(_chart, found.h1, sig, mult)
         text = texts.signal_message(sig, mode=user["mode"], risk_pct=user["risk_pct"], stats=stats)
-        mid = await _send(bot, user["chat_id"], text, photo=photos[mult], url=tv_url(sig, user["mode"]))
+        if found.silent:
+            text = "🌙 <i>Tín hiệu ban đêm (gửi không chuông) — sáng ra kiểm tra giá chưa vượt mức \"Không vào\" rồi hãy vào.</i>\n" + text
+        mid = await _send(bot, user["chat_id"], text, photo=photos[mult], url=tv_url(sig, user["mode"]),
+                          silent=found.silent)
         if mid:
             await storage.add_message(sig_id, user["chat_id"], mid)
         await asyncio.sleep(0.05)
-    log.info("Đã phát tín hiệu #%d %s %s điểm %.1f", sig_id, coin.symbol, c.side_name, c.score)
+    log.info("Đã phát tín hiệu #%d %s %s %s hạng %s điểm %.1f", sig_id, style.key, coin.symbol, c.side_name,
+             found.tier, c.score)
     return sig_id
 
 
-async def run_scan(bot: Bot) -> str:
+async def run_scan(bot: Bot, styles: tuple[str, ...] = ("short",), *, force: bool = False) -> str:
     if _scan_lock.locked():
         return "Đang quét, thử lại sau."
+    notes = []
     async with _scan_lock:
-        found, note = await scan()
-        for f in found:
-            await publish(bot, f)
-        log.info("Quét xong: %s, phát %d tín hiệu", note, len(found))
-        return f"{note}. Phát {len(found)} tín hiệu."
+        for key in styles:
+            found, note = await scan(key, force=force)
+            for f in found:
+                await publish(bot, f)
+            log.info("Quét xong: %s, phát %d tín hiệu", note, len(found))
+            notes.append(f"{note}. Phát {len(found)} tín hiệu.")
+    return "\n".join(notes)
 
 
 async def track(bot: Bot) -> None:
@@ -160,44 +180,3 @@ async def _track_one(bot: Bot, sig: dict) -> None:
         for ev, px in events:
             r = trade.realized_r if ev in ("SL", "STOPPED", "TIMEOUT") else 0.0
             await _send(bot, m["chat_id"], texts.event_message(sig, ev, px, r, u["mode"]), reply_to=m["message_id"])
-
-
-async def market_overview() -> str:
-    btc = await binance.klines("BTCUSDT", "4h", 120)
-    e20, e50 = ta.ema(btc["close"], 20).iloc[-1], ta.ema(btc["close"], 50).iloc[-1]
-    px = btc["close"].iloc[-1]
-    ch24 = px / btc["close"].iloc[-7] - 1
-    trend = "🟢 Tăng" if px > e50 and e20 > e50 else "🔴 Giảm" if px < e50 and e20 < e50 else "⚪ Đi ngang"
-    fg, dom, stable = await asyncio.gather(macro.fear_greed_now(), macro.btc_dominance(), macro.stablecoin_change_7d())
-    events = [e for e in await macro.high_impact_events() if e["time"] >= datetime.now(timezone.utc)][:4]
-    items = await news.headlines(12)
-    sent = news.market_sentiment(items)
-    lines = [f"🌍 <b>Tổng quan thị trường</b> · {texts.vn_time()}",
-             f"₿ BTC: <b>{texts.price(px)}</b> ({ch24:+.1%} 24h) · Xu hướng 4H: {trend}"]
-    if fg:
-        lines.append(f"😱 Fear &amp; Greed: <b>{fg[0]}</b> ({fg[1]})")
-    if dom:
-        lines.append(f"👑 BTC Dominance: {dom:.1f}%")
-    if stable is not None:
-        lines.append(f"💵 Cung stablecoin 7 ngày: {stable:+.2%} ({'tiền đang vào' if stable > 0 else 'tiền đang rút'})")
-    lines.append(f"📰 Sentiment tin tức 12h: {'🟢 tích cực' if sent > 0.15 else '🔴 tiêu cực' if sent < -0.15 else '⚪ trung tính'} ({sent:+.2f})")
-    if events:
-        lines.append("\n📅 <b>Tin vĩ mô Mỹ sắp tới</b> (bot tạm dừng 3h trước → 1h sau):")
-        lines += [f"• {e['time'].astimezone(VN_TZ):%H:%M %d/%m} — {e['title']}" for e in events]
-    if items:
-        lines.append("\n🗞 <b>Tin mới</b>:")
-        lines += [f"• <a href=\"{escape(h.link)}\">{escape(h.title[:90])}</a>" for h in items[:5]]
-    return "\n".join(lines)
-
-
-async def daily_report(bot: Bot) -> None:
-    since = datetime.now(VN_TZ).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
-    today = await storage.signals_since(since)
-    closed = [s for s in await storage.closed_signals(days=1)]
-    opened = await storage.open_signals()
-    text = (f"🗓 <b>Tổng kết ngày</b> {datetime.now(VN_TZ):%d/%m}\n"
-            f"Tín hiệu mới: {len(today)} · Đang mở: {len(opened)}\n"
-            + texts.stats_message(closed, "Lệnh đóng 24h qua").split("\n", 1)[1])
-    for u in await storage.subscribers():
-        await _send(bot, u["chat_id"], text)
-        await asyncio.sleep(0.05)

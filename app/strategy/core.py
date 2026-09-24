@@ -220,6 +220,30 @@ def score_frame(f: pd.DataFrame) -> dict[int, pd.DataFrame]:
     return {1: _side_scores(f, 1), -1: _side_scores(f, -1)}
 
 
+# ---------------------------------------------------------------- cổng chất lượng
+GATE_OI = 0.05        # |thay đổi OI| tối thiểu (24h swing ngắn / 72h swing dài)
+GATE_CROWD = 3.0      # đám đông nghiêng về phía NGƯỢC lệnh ít nhất 3:1
+
+
+def quality_gate(side: int, setup: str, oi_chg: float | None, ls: float | None, style: str = "short") -> str | None:
+    """Trả về lý do chặn (None = cho qua). Chọn theo backtest 2 năm / 40 coin (ổn định ở cả 2 nửa dữ liệu).
+
+    - Cả 2 kiểu: bỏ Pullback LONG (kém ở mọi giai đoạn).
+    - Swing ngắn: cần ít nhất 1 xác nhận — OI biến động mạnh (24h), hoặc đám đông ngược phía, hoặc setup Retest.
+    - Swing dài: bắt buộc OI biến động mạnh (72h) — không có OI xác nhận thì setup 4H kém ổn định.
+    """
+    if setup == "pullback" and side > 0:
+        return "Pullback LONG (backtest kém)"
+    oi_ok = oi_chg is not None and abs(oi_chg) >= GATE_OI
+    if style == "long":
+        return None if oi_ok else "Swing dài cần OI biến động >= 5% (3 ngày)"
+    contra = None if not ls else (ls if side < 0 else 1 / ls)
+    crowd_ok = contra is not None and contra >= GATE_CROWD
+    if not (oi_ok or crowd_ok or setup == "retest"):
+        return "Chưa có xác nhận OI / đám đông"
+    return None
+
+
 # ---------------------------------------------------------------- live
 @dataclass
 class Candidate:
@@ -246,25 +270,18 @@ def best_candidate(symbol: str, scores: dict[int, pd.DataFrame]) -> Candidate | 
 
 
 def apply_live_context(c: Candidate, deriv: dict, *, coin_news: dict | None, market_news: float,
-                       stable_7d: float | None) -> Candidate:
-    """Thay điểm trung tính bằng dữ liệu thật (OI, L/S, tin tức, thanh khoản) và áp bộ lọc tin xấu."""
+                       stable_7d: float | None, style: str = "short") -> Candidate:
+    """Áp dữ liệu live: cổng chất lượng (OI, long/short), funding, tin tức, thanh khoản."""
     s, row = c.side, c.row
     adj = 0.0
 
-    # OI 24h: tiền mới vào cùng hướng giá = xu hướng khỏe
-    oi = deriv.get("oi_change_24h")
+    # OI & long/short KHÔNG cộng điểm nữa (backtest cho thấy cộng điểm làm chọn lệnh kém hơn);
+    # chúng được dùng ở `quality_gate` — cùng cách với backtest.
+    oi, ls = deriv.get("oi_chg"), deriv.get("ls")
     if oi is not None:
-        pts = 4.0 if oi > 0.02 else 2.0 if oi > -0.02 else 0.0
-        adj += pts - NEUTRAL_LIVE["oi"]
-        c.reasons.append(f"OI 24h {oi:+.1%}")
-    # Đám đông (global L/S) nghiêng quá về cùng phía = rủi ro; top trader cùng phía = tốt
-    gls, tls = deriv.get("global_ls"), deriv.get("top_ls")
-    if gls is not None and tls is not None:
-        crowd_ok = gls < 2.5 if s > 0 else gls > 0.6
-        smart_ok = tls >= 1.0 if s > 0 else tls <= 1.0
-        pts = 1.5 * crowd_ok + 1.5 * smart_ok
-        adj += pts - NEUTRAL_LIVE["ls"]
-        c.reasons.append(f"L/S đám đông {gls:.2f} · top trader {tls:.2f}")
+        c.reasons.append(f"OI {oi:+.1%}")
+    if ls:
+        c.reasons.append(f"Tỉ lệ long/short đám đông {ls:.2f}")
     fund = deriv.get("funding")
     if fund is not None:
         if fund * s > 0.0008:
@@ -287,6 +304,8 @@ def apply_live_context(c: Candidate, deriv: dict, *, coin_news: dict | None, mar
         news_pts = max(0.0, news_pts - 1)
     adj += news_pts - NEUTRAL_LIVE["news"]
 
+    if not c.vetoed:
+        c.vetoed = quality_gate(s, row["setup_type"], oi, ls, style)
     c.score = round(c.score + adj, 1)
     row["score"] = c.score
     return c

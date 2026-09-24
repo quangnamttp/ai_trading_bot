@@ -35,17 +35,30 @@ class Settings:
     database_url: str = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///bot.db")
 
     # Vũ trụ coin
-    top_n: int = _int("TOP_N", 30)
+    top_n: int = _int("TOP_N", 20)
     min_quote_volume: float = _float("MIN_QUOTE_VOLUME", 20_000_000)
+    min_listing_days: int = _int("MIN_LISTING_DAYS", 90)  # bỏ coin mới niêm yết (hay bơm xả thất thường)
 
-    # Chính sách tín hiệu
+    # Chính sách tín hiệu — Swing ngắn (1H/4H/1D)
     score_threshold: float = _float("SCORE_THRESHOLD", 75)
-    max_signals_per_day: int = _int("MAX_SIGNALS_PER_DAY", 5)
+    max_signals_per_day: int = _int("MAX_SIGNALS_PER_DAY", 3)
     max_signals_per_scan: int = _int("MAX_SIGNALS_PER_SCAN", 2)
     max_open_signals: int = _int("MAX_OPEN_SIGNALS", 6)
+    max_same_direction: int = _int("MAX_SAME_DIRECTION", 2)  # tối đa lệnh cùng chiều mở cùng lúc
     max_hold_hours: int = _int("MAX_HOLD_HOURS", 7 * 24)
     default_risk_pct: float = _float("DEFAULT_RISK_PCT", 0.5)
     max_leverage: int = _int("MAX_LEVERAGE", 10)
+
+    # Swing dài (4H/1D/1W)
+    long_max_per_week: int = _int("LONG_MAX_PER_WEEK", 3)
+    long_max_hold_hours: int = _int("LONG_MAX_HOLD_HOURS", 30 * 24)
+    long_max_leverage: int = _int("LONG_MAX_LEVERAGE", 5)
+
+    # Giờ yên lặng (giờ VN): không gửi tín hiệu MỚI, vẫn báo SL/TP lệnh đang chạy
+    quiet_start: int = _int("QUIET_START", 22)
+    quiet_end: int = _int("QUIET_END", 6)
+    watch_report_hour: int = _int("WATCH_REPORT_HOUR", 15)  # chưa có tín hiệu tới giờ này -> gửi danh sách theo dõi
+    health_alert_hours: float = _float("HEALTH_ALERT_HOURS", 3)
 
     # Tùy chọn
     cryptopanic_token: str = os.getenv("CRYPTOPANIC_TOKEN", "")

@@ -11,7 +11,7 @@ from telegram.constants import ParseMode
 from telegram.error import BadRequest
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
 
-from app import service, storage
+from app import reports, service, storage
 from app.bot import texts
 from app.config import settings
 from app.strategy.core import describe
@@ -84,14 +84,22 @@ def mode_keyboard(user: dict) -> InlineKeyboardMarkup:
         [InlineKeyboardButton(f"{mark(user['mode'] == 'futures')}Futures — LONG & SHORT", callback_data="mode:futures")],
         [risk(0.25), risk(0.5)],
         [risk(1.0), risk(2.0)],
+        [InlineKeyboardButton(f"{mark(user.get('style', 'both') == k)}{t}", callback_data=f"style:{k}")
+         for k, t in (("short", "⚡ Ngắn"), ("long", "🌙 Dài"), ("both", "Cả hai"))],
     ])
+
+
+STYLE_TEXT = {"short": "⚡ Swing ngắn", "long": "🌙 Swing dài", "both": "⚡ Ngắn + 🌙 Dài"}
 
 
 def mode_text(user: dict) -> str:
     mode = "Spot (chỉ MUA)" if user["mode"] == "spot" else "Futures (LONG &amp; SHORT)"
+    style = STYLE_TEXT.get(user.get("style", "both"), "")
     return ("⚙️ <b>Chế độ giao dịch &amp; rủi ro mỗi lệnh</b>\n\n"
-            f"Đang chọn: <b>{mode}</b> · rủi ro <b>{user['risk_pct']:g}%</b>/lệnh\n\n"
-            "Rủi ro = % vốn mất nếu lệnh chạm SL. Người mới nên dùng <b>0.25–0.5%</b>.\n"
+            f"Đang chọn: <b>{mode}</b> · rủi ro <b>{user['risk_pct']:g}%</b>/lệnh · <b>{style}</b>\n\n"
+            "• Rủi ro = % vốn mất nếu lệnh chạm SL. Người mới nên dùng <b>0.25–0.5%</b>.\n"
+            "• ⚡ Swing ngắn: 1–3 tín hiệu/ngày (6h–22h), giữ vài giờ → vài ngày.\n"
+            "• 🌙 Swing dài: khoảng 1 tín hiệu/tuần, giữ vài ngày → vài tuần (chỉ Futures — Spot backtest yếu).\n"
             "Bấm nút bên dưới để đổi:")
 
 
@@ -112,6 +120,8 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         await storage.update_user(user["chat_id"], mode=value)
     elif kind == "risk":
         await storage.update_user(user["chat_id"], risk_pct=float(value))
+    elif kind == "style" and value in STYLE_TEXT:
+        await storage.update_user(user["chat_id"], style=value)
     user = await storage.get_user(user["chat_id"])
     await q.answer("Đã lưu ✅")
     try:
@@ -153,18 +163,20 @@ async def stats(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     parts = [texts.stats_message(await storage.closed_signals(days=d), t)
              for d, t in ((7, "7 ngày"), (30, "30 ngày"), (None, "Từ đầu"))]
     cal = calibration()
-    if cal.get("summary"):
-        s = cal["summary"]
-        parts.append(f"🧪 <b>Backtest</b> {cal['days']} ngày, {cal['coins']} coin: {s['closed']} lệnh, "
-                     f"{s['win_rate']:.0%} có lời, TB {s['avg_r']:+.2f}R/lệnh, sụt giảm tối đa {s['max_dd_r']}R, "
-                     f"tháng lỗ {s['losing_months']}")
+    names = {"short": "⚡ Swing ngắn", "long": "🌙 Swing dài"}
+    for key, st in cal.get("styles", {}).items():
+        s = st.get("summary", {})
+        if s.get("n"):
+            parts.append(f"🧪 <b>Backtest {names.get(key, key)}</b> ({cal.get('data', '')}): {s['n']} lệnh, "
+                         f"{s['win']:.0%} có lời, TB {s['avgR']:+.2f}R/lệnh (nửa đầu {s['first_half_avgR']:+.2f} · "
+                         f"nửa sau {s['second_half_avgR']:+.2f}), sụt giảm tối đa {s['DD']}R, tháng lỗ {s['lose_m']}")
     await _reply(update, "\n\n".join(parts))
 
 
 async def market(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     if await _user(update):
         msg = await update.effective_message.reply_text("⏳ Đang tổng hợp dữ liệu...")
-        await msg.edit_text(await service.market_overview(), parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+        await msg.edit_text(await reports.morning_text(), parse_mode=ParseMode.HTML, disable_web_page_preview=True)
 
 
 async def watch_list(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
@@ -216,10 +228,12 @@ def analysis_text(res: dict) -> str:
     if d:
         lines.append("\n💹 <b>Phái sinh</b>: " + " · ".join(filter(None, [
             f"funding {d['funding']:.4%}" if "funding" in d else "",
-            f"OI 24h {d['oi_change_24h']:+.1%}" if "oi_change_24h" in d else "",
-            f"L/S đám đông {d['global_ls']:.2f}" if "global_ls" in d else "",
+            f"OI 24h {d['oi_chg']:+.1%}" if "oi_chg" in d else "",
+            f"tỉ lệ long/short đám đông {d['ls']:.2f}" if "ls" in d else "",
             f"top trader {d['top_ls']:.2f}" if "top_ls" in d else "",
         ])))
+        lines.append("<i>Bot chỉ vào lệnh khi OI biến động ≥5%, hoặc đám đông nghiêng ≥3:1 về phía ngược lại, "
+                     "hoặc setup Retest.</i>")
     n = res["news"]
     if n["count"]:
         lines.append(f"📰 Tin 24h: {n['count']} bài, sentiment {n['sentiment']:+.2f}")
@@ -273,7 +287,7 @@ def admin_only(fn):
 @admin_only
 async def scan_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     await _reply(update, "⏳ Đang quét thị trường...")
-    await _reply(update, escape(await service.run_scan(ctx.bot)))
+    await _reply(update, escape(await service.run_scan(ctx.bot, ("short", "long"), force=True)))
 
 
 @admin_only
@@ -347,6 +361,6 @@ def register(app: Application) -> None:
     app.add_handler(CommandHandler("users", users_cmd))
     app.add_handler(CommandHandler(["ban", "unban"], ban_cmd))
     app.add_handler(CommandHandler("broadcast", broadcast_cmd))
-    app.add_handler(CallbackQueryHandler(on_callback, pattern=r"^(mode|risk):"))
+    app.add_handler(CallbackQueryHandler(on_callback, pattern=r"^(mode|risk|style):"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
     app.add_error_handler(on_error)

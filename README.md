@@ -1,55 +1,66 @@
 # 🤖 Bot tín hiệu swing crypto (v3)
 
-Bot Telegram quét top coin Binance Futures mỗi giờ và gửi **1–5 tín hiệu/ngày**. Mỗi tín hiệu có vùng vào lệnh, SL, TP,
-biểu đồ kiểu TradingView, và được theo dõi tới khi đóng lệnh (báo dời SL, chốt lời, cắt lỗ). Có 2 chế độ:
-**Spot** (chỉ MUA) và **Futures** (LONG/SHORT, kèm khối lượng và đòn bẩy an toàn). Toàn bộ dữ liệu miễn phí.
+Bot Telegram quét top 20 coin Binance Futures và gửi tín hiệu có điểm vào, SL, TP1, trailing stop và biểu đồ
+kiểu TradingView. Bot theo dõi từng lệnh tới khi đóng. Có 2 kiểu giao dịch: **⚡ Swing ngắn** (1–3 tín hiệu/ngày, 6h–22h)
+và **🌙 Swing dài** (khoảng 1 tín hiệu/tuần). Chế độ **Spot** chỉ nhận lệnh MUA; **Futures** nhận LONG/SHORT kèm đòn bẩy
+an toàn. Toàn bộ dữ liệu miễn phí.
 
-> Code cũ (v2) vẫn còn ở tag `legacy-v2`.
+> Code cũ nằm ở tag `legacy-v2` / `legacy-final`. Hai chỉ báo TradingView: xem [tradingview/README.md](tradingview/README.md).
 
 ## Bot quyết định thế nào
 
-Khung thời gian: **1D** (xu hướng lớn) → **4H** (xu hướng + vùng giá trị) → **1H** (thời điểm vào lệnh).
-Chỉ đánh **thuận xu hướng**, vào ngay khi setup vừa hình thành thay vì đuổi theo sau khi giá đã chạy:
-
-- **PULLBACK**: xu hướng 4H khỏe, giá hồi về EMA20 4H rồi bật lại.
-- **RETEST**: vừa phá đỉnh/đáy 48 nến 1H với volume lớn, giá còn sát mốc vừa phá.
-
-Điểm 0–100 gồm 6 nhóm dữ liệu độc lập:
-
-| Nhóm | Điểm | Dữ liệu (miễn phí) |
+| | ⚡ Swing ngắn | 🌙 Swing dài |
 |---|---|---|
-| Xu hướng | 30 | EMA 1D/4H, ADX/DI 4H |
-| Động lượng | 15 | RSI 4H, MACD 1H |
-| Setup | 20 | Pullback / Retest |
-| Dòng tiền | 15 | Taker buy/sell, CVD 24h, volume (Binance) |
-| Phái sinh | 10 | Funding, Open Interest 24h, tỉ lệ long/short đám đông & top trader |
-| Thị trường chung | 10 | Xu hướng BTC, Fear & Greed, cung stablecoin (DefiLlama), sentiment tin tức (RSS) |
+| Khung (setup / xu hướng / bối cảnh) | 1H / 4H / 1D | 4H / 1D / 1W |
+| Quét | mỗi giờ, chỉ 6h–22h giờ VN | khi nến 4H đóng; ban đêm gửi **không chuông** |
+| Ngưỡng điểm | 75 (hạng B: 70, chỉ sau 15h nếu cả ngày chưa có tín hiệu) | 70 |
+| Cổng chất lượng | OI biến động ≥ 5% (24h) **hoặc** đám đông nghiêng ≥ 3:1 về phía ngược lại **hoặc** setup Retest | OI biến động ≥ 5% (3 ngày) |
+| Giới hạn | 3 tín hiệu/ngày | 3 tín hiệu/tuần |
 
-**Bộ lọc chặn cứng**: dòng tiền yếu, Fear & Greed ≤ 13, funding quá nóng, biến động quá thấp hoặc quá cao,
-sát kháng cự/hỗ trợ ngày, tin xấu nghiêm trọng về coin (hack, delist, kiện tụng...), và **3 giờ trước đến 1 giờ sau
-tin vĩ mô Mỹ** (CPI, FOMC, NFP — lịch ForexFactory).
+Áp dụng cho cả 2 kiểu:
+- Chỉ đánh thuận xu hướng. Có 2 kiểu setup: hồi về EMA20 khung xu hướng (Pullback) và kiểm tra lại mốc vừa phá (Retest).
+- **Bỏ Pullback LONG**, vì backtest cho kết quả kém ở mọi giai đoạn.
+- Điểm 0–100 gồm 6 nhóm: xu hướng, động lượng, setup, dòng tiền taker/CVD, phái sinh, thị trường chung.
+- Chặn tín hiệu khi: dòng tiền yếu, Fear & Greed ≤ 13, funding quá nóng, biến động bất thường, sát kháng cự ngày,
+  tin xấu nghiêm trọng, và **3 giờ trước đến 1 giờ sau** tin vĩ mô Mỹ.
+- Tối đa 2 lệnh cùng chiều mở cùng lúc. Bỏ coin niêm yết dưới 90 ngày. Mỗi coin nghỉ 12h (ngắn) / 72h (dài) sau tín hiệu.
 
-**Quản lý lệnh**: lãi +1R thì dời SL về entry; tại TP1 (2R) chốt 50%; phần còn lại chạy trailing stop
-(giá đóng cửa 1H tốt nhất ∓ 2.5×ATR 4H); giữ tối đa 7 ngày.
+**Quản lý lệnh (đặt 1 lần trên sàn)**: SL cố định · chốt 50% tại 2R · **Trailing Stop của sàn** cho cả lệnh,
+kích hoạt ở +1R, callback = 3×ATR khung xu hướng (tối đa 10%).
+Bot dùng đúng cách này để mô phỏng và theo dõi lệnh, nên số liệu thống kê khớp với cách anh/chị đặt lệnh.
 
-## Kết quả backtest (trung thực)
+## Kết quả backtest 2 năm (09/2024 → 09/2026, 40 coin)
 
-`python -m app.backtest --days 365 --top 30` — 1 năm, 30 coin, cùng code với bot live, tính phí 0.1%, nến chạm
-cả SL lẫn TP thì tính SL:
+`python -m app.backtest --save`. Backtest dùng cùng code với bot live, tính phí 0.1%. Nếu một nến chạm cả SL lẫn TP thì
+tính là chạm SL. Top N được xếp hạng lại mỗi ngày theo khối lượng.
 
-| Chỉ số | Giá trị |
+| | Lệnh | Có lời | TB/lệnh | 60% đầu | 40% sau | Sụt giảm tối đa | Tháng lỗ |
+|---|---|---|---|---|---|---|---|
+| ⚡ Swing ngắn · Futures | 595 (~0.8/ngày) | 43% | **+0.20R** | +0.20 | +0.22 | 16.5R | 5/25 |
+| ⚡ Swing ngắn · Spot | 260 | 43% | **+0.21R** | +0.26 | +0.12 | 12.5R | 11/25 |
+| 🌙 Swing dài · Futures | 92 (~1/tuần) | 44% | **+0.27R** | +0.16 | +0.44 | 10.7R | 10/25 |
+| 🌙 Swing dài · Spot | 47 | 45% | +0.07R | +0.17 | **−0.17** | 7.6R | → **không gửi cho Spot** |
+
+Các ý tưởng đã thử nhưng không đưa vào vì **không cải thiện ở cả 2 phần dữ liệu**:
+- Quét và vào lệnh theo khung 15m: lỗ ở mọi cấu hình.
+- Cộng điểm theo OI/đám đông: kém hơn so với dùng làm cổng lọc.
+- Tín hiệu của 2 chỉ báo TradingView cũ, FVG, nén biến động, chỉ số choppiness.
+- Gann và sóng Elliott: không kiểm chứng được một cách khách quan.
+
+Hạn chế: danh sách coin lấy theo thời điểm hiện tại (thiên lệch sống sót); tin tức không có lịch sử miễn phí nên
+không backtest được (bot ghi lại mỗi lần tin tức chặn tín hiệu để đánh giá sau). **Kết quả quá khứ không đảm bảo tương lai.**
+
+## Lịch tự động (giờ VN)
+
+| Giờ | Việc |
 |---|---|
-| Tín hiệu | ~2.3/ngày |
-| Lệnh có lời | **~33%** (lợi nhuận đến từ số ít lệnh chạy xa) |
-| Kỳ vọng | **+0.16R/lệnh** · profit factor 1.35 |
-| Sụt giảm tối đa | **34R** — với rủi ro 0.5%/lệnh ≈ −17% tài khoản |
-| Tháng lỗ | 4/13 |
-
-Theo mức điểm: nhóm 60 điểm −0.10R, 70 điểm +0.08R, 75 điểm +0.20R, 85 điểm +0.36R/lệnh.
-Điểm càng cao thì kết quả càng tốt, vì vậy bot dùng ngưỡng 75.
-
-Hạn chế: danh sách top coin lấy theo khối lượng *hiện tại* (thiên lệch sống sót); OI, long/short và tin tức
-không có lịch sử miễn phí nên backtest tính điểm trung tính cho các nhóm này. **Kết quả quá khứ không đảm bảo tương lai.**
+| Mỗi giờ :01 | Quét ⚡ Swing ngắn (6h–22h); khi nến 4H đóng thì quét thêm 🌙 Swing dài |
+| Mỗi 5 phút | Theo dõi lệnh đang mở: kích hoạt trailing, TP1, đóng lệnh (trả lời ngay dưới tin nhắn tín hiệu) |
+| Mỗi 10–15 phút | Nhắc trước 1 giờ khi có tin vĩ mô Mỹ · cảnh báo tin xấu về coin đang có lệnh |
+| 07:00 | Thị trường 24h: BTC/ETH, top tăng/giảm, Fear & Greed, OI, funding, stablecoin, tin vĩ mô, tin chính, coin đang theo dõi |
+| 15:05 | Nếu cả ngày chưa có tín hiệu: gửi danh sách coin đang hình thành setup (không phải tín hiệu) |
+| 22:00 | Tổng kết lời/lỗ từng lệnh (R và % vốn), lệnh giữ qua đêm, cộng dồn 7 và 30 ngày |
+| Mỗi 30 phút | Tự kiểm tra: quá 3 giờ không quét được thì báo admin |
 
 ## Triển khai miễn phí (Render + Neon + UptimeRobot)
 
@@ -76,32 +87,33 @@ pytest                      # chạy test
 | Người dùng | Admin |
 |---|---|
 | `/start` `/menu` — menu chính | `/scan` — quét ngay |
-| `/mode` — Spot/Futures, % rủi ro | `/add SOL` `/remove SOL` — thêm/bớt coin ngoài top |
+| `/mode` — Spot/Futures, % rủi ro, kiểu swing | `/add SOL` `/remove SOL` — thêm/bớt coin ngoài top |
 | `/phantich SOL` — phân tích 1 coin | `/users` `/ban ID` `/unban ID` |
 | `/thongke` — thống kê thật + backtest | `/broadcast nội dung` |
 
-Lịch tự động (giờ VN): quét mỗi giờ ở phút :01, theo dõi lệnh mỗi 5 phút, tổng quan thị trường 07:30, tổng kết 21:00.
 
 ## Cấu trúc
 
 ```
 app/
   main.py            web server aiohttp (webhook + /health) và lịch chạy job
-  service.py         phát tín hiệu, theo dõi lệnh, báo cáo
+  service.py         phát tín hiệu, theo dõi lệnh
+  reports.py         báo cáo 07:00 / 15:05 / 22:00, cảnh báo tin, nhắc tin vĩ mô, tự kiểm tra
   chart.py           biểu đồ kiểu TradingView
-  storage.py         SQLite / Postgres
-  backtest.py        backtest và hiệu chỉnh ngưỡng
-  data/              Binance (+Bybit dự phòng), vĩ mô, tin tức
+  storage.py         SQLite / Postgres (tự thêm cột mới khi nâng cấp)
+  backtest.py        backtest 2 năm cho cả 2 kiểu swing + lưu calibration.json
+  data/              Binance (nến, funding), Bybit (OI, long/short), vĩ mô, tin tức
   strategy/
     core.py          đặc trưng đa khung + chấm điểm (dùng chung cho live và backtest)
     trade.py         máy trạng thái lệnh (dùng chung cho live và backtest)
-    scanner.py       quét live + áp dữ liệu phái sinh/tin tức
-    custom.py        chỗ gắn chỉ báo TradingView riêng (xem tradingview/README.md)
-    calibration.json kết quả backtest theo mức điểm
+    scanner.py       quét live 2 kiểu swing, cổng chất lượng, hạng A/B, giờ yên lặng
+    tv_indicators.py 2 chỉ báo TradingView chuyển sang Python (để backtest)
+    custom.py        điểm cộng từ chỉ báo TradingView (đang tắt — backtest không cải thiện)
+    calibration.json kết quả backtest theo từng kiểu swing
   bot/               menu, lệnh, nội dung tin nhắn
 ```
 
 Chạy lại backtest định kỳ (ví dụ mỗi tháng) và lưu hiệu chỉnh mới:
-`python -m app.backtest --days 365 --top 30 --save`
+`python -m app.backtest --download --save` (lần đầu tải dữ liệu khoảng 15 phút)
 
 ⚠️ Công cụ hỗ trợ phân tích, không phải lời khuyên đầu tư. Luôn đặt SL và chỉ dùng số vốn bạn chấp nhận mất.

@@ -18,8 +18,8 @@ FAPI = ["https://fapi.binance.com"]
 SPOT = ["https://api.binance.com", "https://data-api.binance.vision", "https://api1.binance.com"]
 BYBIT = "https://api.bybit.com"
 
-INTERVAL_MS = {"1h": 3_600_000, "4h": 14_400_000, "1d": 86_400_000, "5m": 300_000, "15m": 900_000}
-BYBIT_INTERVAL = {"1h": "60", "4h": "240", "1d": "D", "5m": "5", "15m": "15"}
+INTERVAL_MS = {"5m": 300_000, "15m": 900_000, "1h": 3_600_000, "4h": 14_400_000, "1d": 86_400_000, "1w": 604_800_000}
+BYBIT_INTERVAL = {"5m": "5", "15m": "15", "1h": "60", "4h": "240", "1d": "D", "1w": "W"}
 STABLES = {"USDC", "FDUSD", "TUSD", "USDP", "DAI", "BUSD", "USDE", "PYUSD", "RLUSD", "USD1", "XUSD", "BFUSD"}
 _MULT_RE = re.compile(r"^(1000000|100000|10000|1000|1M)(.+)$")
 
@@ -196,3 +196,31 @@ async def derivatives_snapshot(symbol: str) -> dict:
     except Exception as exc:  # noqa: BLE001
         log.debug("L/S %s: %s", symbol, exc)
     return out
+
+
+async def listing_dates() -> dict[str, pd.Timestamp]:
+    """Ngày niêm yết hợp đồng (để bỏ qua coin mới niêm yết)."""
+    info = await get_json(f"{FAPI[0]}/fapi/v1/exchangeInfo", ttl=6 * 3600)
+    return {s["symbol"]: pd.Timestamp(s["onboardDate"], unit="ms", tz="UTC") for s in info["symbols"]}
+
+
+async def tickers_24h() -> dict[str, dict]:
+    rows = await get_json(f"{FAPI[0]}/fapi/v1/ticker/24hr", ttl=120)
+    return {r["symbol"]: r for r in rows}
+
+
+async def all_funding() -> dict[str, float]:
+    rows = await get_json(f"{FAPI[0]}/fapi/v1/premiumIndex", ttl=300)
+    return {r["symbol"]: float(r["lastFundingRate"]) for r in rows if r.get("lastFundingRate") not in (None, "")}
+
+
+async def oi_change_24h(symbol: str) -> tuple[float, float] | None:
+    """(giá trị OI hiện tại USD, % thay đổi 24h) từ Binance."""
+    try:
+        rows = await get_json(f"{FAPI[0]}/futures/data/openInterestHist",
+                              {"symbol": symbol, "period": "1h", "limit": 25}, ttl=600)
+        first, last = float(rows[0]["sumOpenInterestValue"]), float(rows[-1]["sumOpenInterestValue"])
+        return last, (last - first) / first if first else 0.0
+    except Exception as exc:  # noqa: BLE001
+        log.debug("OI %s: %s", symbol, exc)
+        return None

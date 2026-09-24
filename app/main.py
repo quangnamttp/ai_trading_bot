@@ -10,13 +10,13 @@ import asyncio
 import hashlib
 import logging
 import signal
-from datetime import datetime, time, timedelta
+from datetime import datetime, time, timedelta, timezone
 
 from aiohttp import web
 from telegram import Update
 from telegram.ext import Application, ContextTypes
 
-from app import service, storage
+from app import reports, service, storage
 from app.bot import handlers
 from app.config import VN_TZ, settings
 from app.data import binance, http
@@ -27,25 +27,47 @@ STARTED = datetime.now(VN_TZ)
 
 # ---------------------------------------------------------------- jobs
 async def job_scan(ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    """Mỗi giờ (1'30" sau khi nến 1H đóng): swing ngắn; thêm swing dài khi nến 4H vừa đóng."""
+    styles = ("short", "long") if datetime.now(timezone.utc).hour % 4 == 0 else ("short",)
     try:
-        await service.run_scan(ctx.bot)
+        await service.run_scan(ctx.bot, styles)
     except Exception:  # noqa: BLE001
         log.exception("Quét lỗi")
 
 
+async def _safe(name: str, coro) -> None:
+    try:
+        await coro
+    except Exception:  # noqa: BLE001
+        log.exception("Job %s lỗi", name)
+
+
 async def job_track(ctx: ContextTypes.DEFAULT_TYPE) -> None:
-    await service.track(ctx.bot)
-
-
-async def job_daily(ctx: ContextTypes.DEFAULT_TYPE) -> None:
-    await service.daily_report(ctx.bot)
+    await _safe("track", service.track(ctx.bot))
 
 
 async def job_morning(ctx: ContextTypes.DEFAULT_TYPE) -> None:
-    text = await service.market_overview()
-    for u in await storage.subscribers():
-        await service._send(ctx.bot, u["chat_id"], text)
-        await asyncio.sleep(0.05)
+    await _safe("morning", reports.morning(ctx.bot))
+
+
+async def job_watch(ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    await _safe("watch", reports.afternoon_watch(ctx.bot))
+
+
+async def job_evening(ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    await _safe("evening", reports.evening(ctx.bot))
+
+
+async def job_news(ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    await _safe("news", reports.news_alerts(ctx.bot))
+
+
+async def job_macro(ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    await _safe("macro", reports.macro_reminders(ctx.bot))
+
+
+async def job_health(ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    await _safe("health", reports.health_check(ctx.bot))
 
 
 def schedule(app: Application) -> None:
@@ -54,8 +76,12 @@ def schedule(app: Application) -> None:
     next_scan = (now + timedelta(hours=1)).replace(minute=1, second=30, microsecond=0)  # 1'30" sau khi nến 1H đóng
     jq.run_repeating(job_scan, interval=3600, first=next_scan, name="scan")
     jq.run_repeating(job_track, interval=300, first=30, name="track")
-    jq.run_daily(job_daily, time=time(21, 0, tzinfo=VN_TZ), name="daily")
-    jq.run_daily(job_morning, time=time(7, 30, tzinfo=VN_TZ), name="morning")
+    jq.run_repeating(job_news, interval=900, first=120, name="news")
+    jq.run_repeating(job_macro, interval=600, first=60, name="macro")
+    jq.run_repeating(job_health, interval=1800, first=600, name="health")
+    jq.run_daily(job_morning, time=time(7, 0, tzinfo=VN_TZ), name="morning")
+    jq.run_daily(job_watch, time=time(settings.watch_report_hour, 5, tzinfo=VN_TZ), name="watch")
+    jq.run_daily(job_evening, time=time(settings.quiet_start, 0, tzinfo=VN_TZ), name="evening")
 
 
 # ---------------------------------------------------------------- web

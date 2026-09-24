@@ -34,7 +34,7 @@ def _tag(ax, y: float, text: str, color: str) -> None:
 
 
 def render(h1: pd.DataFrame, *, title: str, side: int, entry: float, sl: float, tp1: float, tp2: float,
-           zone_lo: float, zone_hi: float, subtitle: str = "", bars: int = 110) -> bytes:
+           zone_lo: float, zone_hi: float, subtitle: str = "", bars: int = 110, tp2_label: str = "TP2") -> bytes:
     df = h1.tail(bars + 60).copy()
     df["ema20"], df["ema50"] = ta.ema(df["close"], 20), ta.ema(df["close"], 50)
     df = df.tail(bars)
@@ -69,14 +69,14 @@ def render(h1: pd.DataFrame, *, title: str, side: int, entry: float, sl: float, 
                            fc=(0.16, 0.38, 1, 0.22), ec="none"))
     for y, c, ls in ((entry, TEXT, "-"), (sl, DOWN, "-"), (tp1, UP, "-"), (tp2, UP, "--")):
         ax.hlines(y, x0, x1, colors=c, linewidth=1.1, linestyles=ls)
-    _tag(ax, tp2, f"TP2 {_fmt(tp2)}", "#1b7f75")
+    _tag(ax, tp2, f"{tp2_label} {_fmt(tp2)}", "#1b7f75")
     _tag(ax, tp1, f"TP1 {_fmt(tp1)}", UP)
     _tag(ax, entry, f"ENTRY {_fmt(entry)}", "#2962ff")
     _tag(ax, sl, f"SL {_fmt(sl)}", DOWN)
     ax.plot([x0 - step * 0.5], [df["close"].iloc[-1]], marker="o", color="white", markersize=4)
 
-    lo = min(df["low"].min(), sl, tp2)
-    hi = max(df["high"].max(), sl, tp2)
+    lo = min(df["low"].min(), sl, tp1, tp2)
+    hi = max(df["high"].max(), sl, tp1, tp2)
     pad = (hi - lo) * 0.05
     ax.set_ylim(lo - pad, hi + pad)
     ax.set_xlim(x[0] - step, x1 + step)

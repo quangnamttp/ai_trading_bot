@@ -1,5 +1,11 @@
 //@version=5
-indicator("Volume Profile Pro v2 - POC + Value Area + Phiên + Naked POC (có tín hiệu lịch sử)", overlay=true, max_boxes_count=250, max_lines_count=100, max_labels_count=100)
+// Volume Profile Pro v3 — công cụ VÙNG GIÁ đi kèm Swing Entry Pro v5.
+// • POC / VAH / VAL (cuộn 150 nến + theo phiên) và POC chưa bị chạm (naked POC) = các mốc giá biết TRƯỚC khi giá tới:
+//   dùng để đặt lệnh chờ, chốt lời (Swing Pro v5 dùng cùng công thức để đặt TP2).
+// • Dấu VP★ (nến đảo chiều tại POC/VAL/VAH) mặc định TẮT: backtest 2 năm / 20 coin cho thấy dùng riêng bị lỗ
+//   (-0.06 đến -0.23R/lệnh). Chỉ bật để tham khảo.
+// • Không repaint: mọi tín hiệu chỉ xác nhận khi nến đóng.
+indicator("Volume Profile Pro v3 - POC + Value Area + Phiên + Naked POC", overlay=true, max_boxes_count=250, max_lines_count=100, max_labels_count=100)
 
 // ============ NHÓM: CHẾ ĐỘ HIỂN THỊ ============
 grpMode = "Chế độ hiển thị"
@@ -21,7 +27,7 @@ sessBins        = input.int(24, "Số mức giá (bins) cho phiên", minval=10, 
 // ============ NHÓM: VALUE AREA & ĐIỂM VÀO LỆNH ============
 grpVA = "Value Area & Điểm vào lệnh"
 vaPercent      = input.float(70, "Value Area (%)", minval=50, maxval=90, group=grpVA)
-showEntry      = input.bool(true, "Đánh dấu vùng xác suất phản ứng cao", group=grpVA)
+showEntry      = input.bool(false, "Đánh dấu VP★ (tham khảo — backtest dùng riêng bị lỗ)", group=grpVA)
 touchPct       = input.float(0.3, "Khoảng cách coi là 'chạm' vùng (%)", minval=0.05, step=0.05, group=grpVA)
 volMALenVP     = input.int(20, "Chu kỳ MA khối lượng", group=grpVA)
 volSpikeMultVP = input.float(1.3, "Hệ số volume xác nhận tại vùng", minval=1.0, step=0.1, group=grpVA)
@@ -416,12 +422,12 @@ atrVP = ta.atr(atrLenVP)
 plotshape(showEntry and bullZone, title="Vùng phản ứng cao - MUA", style=shape.triangleup, location=location.belowbar, size=size.small, color=color.new(color.lime, 0), text="VP★")
 plotshape(showEntry and bearZone, title="Vùng phản ứng cao - BÁN", style=shape.triangledown, location=location.abovebar, size=size.small, color=color.new(color.red, 0), text="VP★")
 
-if showSLTP_VP and bullZone
+if showEntry and showSLTP_VP and bullZone
     slB = close - atrVP * atrMultSLVP
     tpB = close + atrVP * atrMultTPVP
     label.new(bar_index, low, "SL " + f_fmt(slB) + "\nTP " + f_fmt(tpB), style=label.style_label_up, color=color.new(color.green, 60), textcolor=color.white, size=size.small)
 
-if showSLTP_VP and bearZone
+if showEntry and showSLTP_VP and bearZone
     slS = close + atrVP * atrMultSLVP
     tpS = close - atrVP * atrMultTPVP
     label.new(bar_index, high, "SL " + f_fmt(slS) + "\nTP " + f_fmt(tpS), style=label.style_label_down, color=color.new(color.red, 60), textcolor=color.white, size=size.small)

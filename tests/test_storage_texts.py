@@ -78,3 +78,26 @@ def test_webhook_secret_is_telegram_safe(monkeypatch):
     import app.main as m
     monkeypatch.setattr(m, "settings", _replace(m.settings, webhook_secret="a+b/c=d!@#", telegram_token="1:x"))
     assert re.fullmatch(r"[A-Za-z0-9_-]{1,256}", m.webhook_secret())
+
+
+async def test_migration_adds_new_columns_and_keeps_data(tmp_path, monkeypatch):
+    import sqlalchemy as sa
+
+    url = f"sqlite+aiosqlite:///{tmp_path}/old.db"
+    monkeypatch.setattr(storage, "_engine", None)
+    monkeypatch.setattr(storage, "settings", replace(storage.settings, database_url=url))
+    # schema cũ (chưa có cột style/tier)
+    async with storage.engine().begin() as c:
+        await c.execute(sa.text("CREATE TABLE users (chat_id BIGINT PRIMARY KEY, username VARCHAR(64), "
+                                "mode VARCHAR(8) NOT NULL DEFAULT 'futures', risk_pct FLOAT NOT NULL DEFAULT 0.5, "
+                                "subscribed BOOLEAN NOT NULL DEFAULT 1, banned BOOLEAN NOT NULL DEFAULT 0, "
+                                "created_at DATETIME NOT NULL)"))
+        await c.execute(sa.text("INSERT INTO users (chat_id, username, created_at) VALUES (7, 'cu', '2026-01-01')"))
+    await storage.init()
+    u = await storage.get_user(7)
+    assert u["username"] == "cu" and u["style"] == "both"
+    await storage.kv_set("a", "1")
+    await storage.kv_set("a", "2")
+    assert await storage.kv_get("a") == "2"
+    await storage.engine().dispose()
+    storage._engine = None

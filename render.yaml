@@ -23,8 +23,8 @@ services:
       - key: CRYPTOPANIC_TOKEN   # tùy chọn, miễn phí tại cryptopanic.com/developers/api
         sync: false
       - key: TOP_N
-        value: "30"
+        value: "20"
       - key: MAX_SIGNALS_PER_DAY
-        value: "5"
+        value: "3"
       - key: DEFAULT_RISK_PCT
         value: "0.5"

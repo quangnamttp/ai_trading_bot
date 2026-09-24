@@ -18,6 +18,7 @@ users = sa.Table(
     sa.Column("username", sa.String(64)),
     sa.Column("mode", sa.String(8), nullable=False, server_default="futures"),  # spot | futures
     sa.Column("risk_pct", sa.Float, nullable=False, server_default="0.5"),
+    sa.Column("style", sa.String(8), nullable=False, server_default="both"),  # short | long | both
     sa.Column("subscribed", sa.Boolean, nullable=False, server_default=sa.true()),
     sa.Column("banned", sa.Boolean, nullable=False, server_default=sa.false()),
     sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
@@ -40,6 +41,8 @@ signals = sa.Table(
     sa.Column("multiplier", sa.Integer, nullable=False, server_default="1"),
     sa.Column("score", sa.Float, nullable=False),
     sa.Column("setup", sa.String(16), nullable=False),
+    sa.Column("style", sa.String(8), nullable=False, server_default="short"),  # short | long
+    sa.Column("tier", sa.String(2), nullable=False, server_default="A"),
     sa.Column("entry", sa.Float, nullable=False),
     sa.Column("sl", sa.Float, nullable=False),
     sa.Column("tp1", sa.Float, nullable=False),
@@ -62,6 +65,25 @@ signal_messages = sa.Table(
 )
 
 
+kv = sa.Table(
+    "kv", meta,
+    sa.Column("key", sa.String(128), primary_key=True),
+    sa.Column("value", sa.Text, nullable=False),
+    sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+)
+
+# Nhật ký các lần tin tức chặn tín hiệu -> sau 1-2 tháng đối chiếu xem chặn đúng hay sai
+news_blocks = sa.Table(
+    "news_blocks", meta,
+    sa.Column("id", sa.Integer, primary_key=True, autoincrement=True),
+    sa.Column("symbol", sa.String(32), nullable=False),
+    sa.Column("side", sa.SmallInteger, nullable=False),
+    sa.Column("price", sa.Float, nullable=False),
+    sa.Column("reason", sa.Text, nullable=False),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+)
+
+
 def _url(raw: str) -> tuple[str, dict]:
     """Chuẩn hóa URL Postgres của Neon/Render sang driver asyncpg."""
     if raw.startswith(("postgres://", "postgresql://")):
@@ -81,9 +103,29 @@ def engine() -> AsyncEngine:
     return _engine
 
 
+def _add_missing_columns(conn) -> None:
+    """create_all không thêm cột vào bảng đã có -> tự ALTER TABLE cho các cột mới (giữ nguyên dữ liệu)."""
+    insp = sa.inspect(conn)
+    for table in meta.sorted_tables:
+        if not insp.has_table(table.name):
+            continue
+        have = {c["name"] for c in insp.get_columns(table.name)}
+        for col in table.columns:
+            if col.name not in have:
+                ddl = col.type.compile(dialect=conn.dialect)
+                default = ""
+                if col.server_default is not None:
+                    arg = col.server_default.arg
+                    arg = arg if isinstance(arg, str) else str(arg.compile(dialect=conn.dialect))
+                    default = f" DEFAULT {arg}" if arg.replace(".", "", 1).isdigit() or arg.lower() in ("true", "false", "1", "0")                         else f" DEFAULT '{arg}'"
+                null = " NOT NULL" if not col.nullable and default else ""
+                conn.execute(sa.text(f"ALTER TABLE {table.name} ADD COLUMN {col.name} {ddl}{default}{null}"))
+
+
 async def init() -> None:
     async with engine().begin() as conn:
         await conn.run_sync(meta.create_all)
+        await conn.run_sync(_add_missing_columns)
 
 
 def now() -> datetime:
@@ -232,3 +274,24 @@ async def messages_for(signal_id: int) -> list[dict]:
     async with engine().connect() as c:
         rows = (await c.execute(sa.select(signal_messages).where(signal_messages.c.signal_id == signal_id))).all()
     return [dict(r._mapping) for r in rows]
+
+
+# ---------------------------------------------------------------- kv / nhật ký
+async def kv_get(key: str) -> str | None:
+    async with engine().connect() as c:
+        row = (await c.execute(sa.select(kv.c.value).where(kv.c.key == key))).first()
+    return row.value if row else None
+
+
+async def kv_set(key: str, value: str) -> None:
+    async with engine().begin() as c:
+        if (await c.execute(sa.select(kv.c.key).where(kv.c.key == key))).first():
+            await c.execute(kv.update().where(kv.c.key == key).values(value=value, updated_at=now()))
+        else:
+            await c.execute(kv.insert().values(key=key, value=value, updated_at=now()))
+
+
+async def log_news_block(symbol: str, side: int, price: float, reason: str) -> None:
+    async with engine().begin() as c:
+        await c.execute(news_blocks.insert().values(symbol=symbol, side=side, price=price, reason=reason[:500],
+                                                    created_at=now()))

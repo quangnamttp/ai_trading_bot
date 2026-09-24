@@ -1,0 +1,322 @@
+//@version=5
+// Swing Entry Pro v5 — cùng chiến lược đã backtest 2 năm / 40 coin với bot Telegram.
+// • Tín hiệu chỉ xuất hiện khi nến khung tín hiệu ĐÃ ĐÓNG, dữ liệu khung lớn chỉ dùng nến đã đóng -> KHÔNG repaint.
+// • Điểm vào = giá đóng cửa nến tín hiệu. SL theo đáy/đỉnh 24 nến (giới hạn 0.8–2.2 ATR khung xu hướng).
+// • Chốt 50% tại 2R; Trailing Stop (như lệnh sàn) kích hoạt ở +1R, callback = 3 x ATR khung xu hướng (tối đa 10%).
+// • Lọc Open Interest: chỉ vào lệnh khi OI biến động mạnh (dữ liệu OI của TradingView cho hợp đồng Binance).
+indicator("Swing Entry Pro v5 — Điểm vào + SL/TP + Trailing (không repaint)", shorttitle="Swing Pro v5", overlay=true,
+     max_lines_count=300, max_labels_count=300, max_boxes_count=150)
+
+// ============ CÀI ĐẶT ============
+grpSig = "Tín hiệu"
+sigTfIn    = input.timeframe("", "Khung tín hiệu (để trống = tự động)", group=grpSig,
+     tooltip="Tự động = khung biểu đồ. Nếu biểu đồ nhỏ hơn 1H (vd 15m) thì lấy tín hiệu từ 1H: backtest cho thấy tín hiệu 15m độc lập bị lỗ.")
+threshold  = input.int(75, "Ngưỡng điểm", minval=50, maxval=100, group=grpSig)
+useOI      = input.bool(true, "Lọc theo Open Interest (khuyên dùng)", group=grpSig)
+oiMin      = input.float(5.0, "OI biến động tối thiểu (%)", minval=0, step=0.5, group=grpSig)
+allowShort = input.bool(true, "Cho phép tín hiệu BÁN/SHORT (tắt nếu chỉ giao dịch Spot)", group=grpSig)
+showPrep   = input.bool(true, "Hiện cảnh báo 'Chuẩn bị' (tham khảo, chưa phải tín hiệu)", group=grpSig)
+btcSym     = input.symbol("BINANCE:BTCUSDT.P", "Mã BTC tham chiếu xu hướng", group=grpSig)
+
+grpRisk = "Quản lý lệnh"
+tpR        = input.float(2.0, "Chốt 50% tại (R)", minval=0.5, step=0.5, group=grpRisk)
+actR       = input.float(1.0, "Kích hoạt trailing tại (R)", minval=0.5, step=0.5, group=grpRisk)
+cbMult     = input.float(3.0, "Callback trailing = x ATR khung xu hướng", minval=0.5, step=0.5, group=grpRisk)
+cbMaxPct   = input.float(10.0, "Callback tối đa (%) — giới hạn của sàn", minval=0.5, step=0.5, group=grpRisk)
+maxHold    = input.int(168, "Giữ lệnh tối đa (số nến khung tín hiệu)", minval=10, group=grpRisk)
+feePct     = input.float(0.1, "Phí khứ hồi (%) để tính thống kê", minval=0, step=0.01, group=grpRisk)
+
+grpShow = "Hiển thị"
+showTable  = input.bool(true, "Hiện bảng thống kê", group=grpShow)
+showBoxes  = input.bool(true, "Vẽ hộp vị thế (vùng lời / vùng lỗ)", group=grpShow)
+vpLookback = input.int(150, "Số nến tính POC/VAH/VAL cho TP2 (khớp Volume Profile Pro v3)", minval=50, maxval=400, group=grpShow)
+vpBins     = input.int(24, "Số mức giá Volume Profile", minval=10, maxval=50, group=grpShow)
+
+// ============ KHUNG THỜI GIAN ============
+chartSec = timeframe.in_seconds(timeframe.period)
+sigTf    = sigTfIn != "" and timeframe.in_seconds(sigTfIn) >= chartSec ? sigTfIn : (chartSec < 3600 ? "60" : timeframe.period)
+sigSec   = timeframe.in_seconds(sigTf)
+midTf    = sigSec <= 3600 ? "240" : sigSec <= 14400 ? "D" : sigSec <= 86400 ? "W" : "M"
+highTf   = sigSec <= 3600 ? "D" : sigSec <= 14400 ? "W" : "M"
+oiHours  = sigSec <= 3600 ? 24 : sigSec <= 14400 ? 72 : 168
+oiBars   = math.max(1, math.round(oiHours * 3600 / sigSec))
+barsPerSig = math.max(1, math.round(sigSec / chartSec))
+
+f_fmt(x) =>
+    a = math.abs(x)
+    str.tostring(x, a >= 1000 ? "#,##0.00" : a >= 1 ? "#.####" : a >= 0.01 ? "#.######" : "#.##########")
+
+// ============ DỮ LIỆU (tất cả lấy nến ĐÃ ĐÓNG: [1] + lookahead_on) ============
+f_sig() =>
+    br     = high > low ? (close - low) / (high - low) : 0.5          // ước lượng tỉ lệ mua chủ động từ nến
+    br3    = ta.sma(br, 3)
+    cvd    = math.sum(volume * (2 * br - 1), 24) / math.sum(volume, 24)
+    [_m, _s, hist] = ta.macd(close, 12, 26, 9)
+    hh48   = ta.highest(high, 48)[1]
+    ll48   = ta.lowest(low, 48)[1]
+    volSma = ta.sma(volume, 20)
+    brkL   = close > hh48 and volume > 1.5 * volSma
+    brkS   = close < ll48 and volume > 1.5 * volSma
+    lvlL   = ta.valuewhen(brkL, hh48, 0)
+    lvlS   = ta.valuewhen(brkS, ll48, 0)
+    sinceL = ta.barssince(brkL)
+    sinceS = ta.barssince(brkS)
+    [close[1], ta.ema(close, 20)[1], ta.rsi(close, 14)[1], hist[1], hist[2], volSma[1], ta.sma(volume, 3)[1], br3[1], cvd[1],
+     ta.highest(high, 12)[1], ta.lowest(low, 12)[1], ta.lowest(low, 24)[1], ta.highest(high, 24)[1],
+     lvlL[1], lvlS[1], sinceL[1], sinceS[1]]
+
+f_mid() =>
+    [pdi, mdi, adx] = ta.dmi(14, 14)
+    [close[1], ta.ema(close, 20)[1], ta.ema(close, 50)[1], ta.rsi(close, 14)[1], ta.atr(14)[1], adx[1], pdi[1], mdi[1]]
+
+f_high() =>
+    e50 = ta.ema(close, 50)
+    [close[1], e50[1], (e50 - e50[5])[1], ta.highest(high, 20)[1], ta.lowest(low, 20)[1]]
+
+f_btc() =>
+    [close[1], ta.ema(close, 20)[1], ta.ema(close, 50)[1]]
+
+[sC, sE20, sRsi, sHist, sHistPrev, sVolSma, sVolMa3, sBr3, sCvd, sHH12, sLL12, sLL24, sHH24, sLvlL, sLvlS, sSinceL, sSinceS] =
+     request.security(syminfo.tickerid, sigTf, f_sig(), lookahead=barmerge.lookahead_on)
+[mC, mE20, mE50, mRsi, mAtr, mAdx, mPdi, mMdi] = request.security(syminfo.tickerid, midTf, f_mid(), lookahead=barmerge.lookahead_on)
+[hC, hE50, hSlope, hHH, hLL] = request.security(syminfo.tickerid, highTf, f_high(), lookahead=barmerge.lookahead_on)
+[bC, bE20, bE50] = request.security(btcSym, midTf, f_btc(), lookahead=barmerge.lookahead_on)
+oiSym = syminfo.prefix + ":" + syminfo.ticker + "_OI"
+oiChg = request.security(oiSym, sigTf, (close[1] / close[1 + oiBars] - 1) * 100, lookahead=barmerge.lookahead_on,
+     ignore_invalid_symbol=true)
+oiAvailable = not na(oiChg)
+
+btcTrend = bC > bE50 and bE20 > bE50 ? 1 : bC < bE50 and bE20 < bE50 ? -1 : 0
+sigClosed = ta.change(time(sigTf)) != 0     // nến đầu tiên của kỳ mới = nến khung tín hiệu vừa đóng
+
+// ============ CHẤM ĐIỂM (giống bot, bản không có funding / Fear&Greed / long-short) ============
+above(a, b, s) => (a - b) * s > 0      // a "thuận hướng" so với b
+
+f_side(s, lvl, since) =>
+    d1Up = above(hC, hE50, s)
+    d1Sl = hSlope * s > 0
+    tD1 = d1Up and d1Sl ? 10 : d1Up != d1Sl ? 5 : 0
+    h4Stack = above(mE20, mE50, s) and above(mC, mE50, s)
+    tH4 = h4Stack ? 10 : above(mC, mE50, s) ? 5 : 0
+    diOk = above(mPdi, mMdi, s)
+    tAdx = diOk and mAdx >= 22 ? 10 : diOk and mAdx >= 16 ? 5 : 0
+    trend = tD1 + tH4 + tAdx
+    r = 50 + (mRsi - 50) * s
+    mRsiPts = r >= 50 and r <= 68 ? 8 : (r >= 45 and r < 50) or (r > 68 and r <= 75) ? 4 : 0
+    mh = sHist * s
+    mhp = sHistPrev * s
+    mMacd = mh > 0 and mh > mhp ? 7 : mh > 0 ? 3 : mh > mhp ? 3 : 0
+    momentum = mRsiPts + mMacd
+    dist = (sC - mE20) / mAtr * s
+    retraced = (s > 0 ? sHH12 - sC : sC - sLL12) >= 0.5 * mAtr
+    rsi1 = 50 + (sRsi - 50) * s
+    pullback = h4Stack and dist >= -0.35 and dist <= 1.2 and retraced and rsi1 >= 38 and above(sC, mE50, s)
+    ext = (sC - lvl) * s
+    retest = not pullback and since <= 5 and not na(lvl) and ext >= 0 and ext <= 1.2 * mAtr and tH4 > 0
+    setup = pullback ? 20 : retest ? 16 : 0
+    brs = 0.5 + (sBr3 - 0.5) * s
+    flow = (brs >= 0.53 ? 7 : brs >= 0.50 ? 4 : 0) + (sCvd * s > 0.02 ? 4 : 0) + ((pullback and sVolMa3 < sVolSma) or retest ? 4 : 0)
+    market = (btcTrend * s > 0 ? 5 : btcTrend == 0 ? 2 : 0) + 3.5
+    total = trend + momentum + setup + flow + 6.5 + market
+    atrPct = mAtr / sC
+    entry = sC
+    sw = s > 0 ? sLL24 : sHH24
+    risk = math.min(math.max((entry - (sw - s * 0.1 * mAtr)) * s, 0.8 * mAtr), 2.2 * mAtr)
+    wall = s > 0 ? hHH : hLL
+    room = (wall - entry) * s
+    veto = na(mAtr) or na(hE50) or setup == 0 or tH4 == 0 or flow < 8 or atrPct < 0.004 or atrPct > 0.06
+         or (pullback and room > 0 and room < 1.2 * risk)
+    [total, setup, pullback, veto, entry, risk, trend]
+
+[scL, setupL, pbL, vetoL, entryL, riskL, trendL] = f_side(1, sLvlL, sSinceL)
+[scS, setupS, pbS, vetoS, entryS, riskS, trendS] = f_side(-1, sLvlS, sSinceS)
+
+oiOk = not useOI or not oiAvailable or math.abs(oiChg) >= oiMin
+okL = sigClosed and not vetoL and scL >= threshold and not pbL and oiOk          // bỏ Pullback LONG (backtest kém)
+okS = sigClosed and allowShort and not vetoS and scS >= threshold and oiOk
+
+// ============ VOLUME PROFILE (cùng công thức với Volume Profile Pro v3) ============
+get_vol(y11, y12, y21, y22, height, vol) =>
+    nz(math.max(math.min(math.max(y11, y12), math.max(y21, y22)) - math.max(math.min(y11, y12), math.min(y21, y22)), 0) * vol / height)
+
+f_vp(N, bins) =>
+    float hi = high
+    float lo = low
+    for i = 0 to N - 1
+        hi := math.max(hi, high[i])
+        lo := math.min(lo, low[i])
+    step = (hi - lo) / bins
+    prof = array.new_float(bins, 0.0)
+    if step > 0
+        for i = 0 to N - 1
+            bt = math.max(close[i], open[i])
+            bb = math.min(close[i], open[i])
+            tw = high[i] - bt
+            bw = bb - low[i]
+            body = bt - bb
+            tr = 2 * tw + 2 * bw + body
+            bodyV = tr > 0 ? body * volume[i] / tr : 0.0
+            twV = tr > 0 ? 2 * tw * volume[i] / tr : 0.0
+            bwV = tr > 0 ? 2 * bw * volume[i] / tr : 0.0
+            for x = 0 to bins - 1
+                lx = lo + step * x
+                lx1 = lx + step
+                array.set(prof, x, array.get(prof, x) + get_vol(lx, lx1, bb, bt, body, bodyV) + get_vol(lx, lx1, bt, high[i], tw, twV) + get_vol(lx, lx1, bb, low[i], bw, bwV))
+    pocIdx = 0
+    maxV = -1.0
+    for x = 0 to bins - 1
+        if array.get(prof, x) > maxV
+            maxV := array.get(prof, x)
+            pocIdx := x
+    lo_i = pocIdx
+    hi_i = pocIdx
+    va = maxV
+    target = array.sum(prof) * 0.7
+    while va < target and (lo_i > 0 or hi_i < bins - 1)
+        below = lo_i > 0 ? array.get(prof, lo_i - 1) : -1.0
+        abv = hi_i < bins - 1 ? array.get(prof, hi_i + 1) : -1.0
+        if abv >= below
+            hi_i += 1
+            va += array.get(prof, hi_i)
+        else
+            lo_i -= 1
+            va += array.get(prof, lo_i)
+    [lo + (pocIdx + 0.5) * step, lo + (hi_i + 1) * step, lo + lo_i * step]
+
+// ============ QUẢN LÝ LỆNH (máy trạng thái giống bot: SL kiểm tra trước trong mỗi nến) ============
+var int   tSide = 0
+var float tEntry = na
+var float tSL = na
+var float tRisk = na
+var float tTP1 = na
+var float tAct = na
+var float tCb = na
+var float tPeak = na
+var float tR = 0.0
+var float tRem = 1.0
+var bool  tArmed = false
+var bool  tHit = false
+var int   tStart = 0
+var int   nTrades = 0
+var int   nWins = 0
+var float sumR = 0.0
+var float eq = 0.0
+var float peakEq = 0.0
+var float maxDD = 0.0
+
+f_closeLabel(txt, px, col) =>
+    label.new(bar_index, px, txt, style=label.style_label_left, color=color.new(col, 20), textcolor=color.white, size=size.small)
+
+newSignal = tSide == 0 and (okL or okS)
+if newSignal
+    pickLong = okL and (not okS or scL >= scS)
+    tSide := pickLong ? 1 : -1
+    score = pickLong ? scL : scS
+    tEntry := pickLong ? entryL : entryS
+    tRisk := pickLong ? riskL : riskS
+    tSL := tEntry - tSide * tRisk
+    tTP1 := tEntry + tSide * tpR * tRisk
+    tAct := tEntry + tSide * actR * tRisk
+    tCb := math.min(cbMaxPct / 100, math.max(0.005, cbMult * mAtr / tEntry))
+    tPeak := tEntry
+    tR := 0.0
+    tRem := 1.0
+    tArmed := false
+    tHit := false
+    tStart := bar_index
+    [poc, vah, val] = f_vp(math.max(1, math.min(vpLookback, bar_index)), vpBins)
+    tp2 = tSide > 0 ? (vah > tTP1 ? vah : poc > tTP1 ? poc : tEntry + 3 * tRisk) : (val < tTP1 ? val : poc < tTP1 ? poc : tEntry - 3 * tRisk)
+    grade = score >= 85 or (oiAvailable and math.abs(oiChg) >= 10) ? "A" : "B"
+    txt = (tSide > 0 ? "MUA " : "BÁN ") + grade + " · " + str.tostring(score, "#") + "đ"
+    tip = "Vào: " + f_fmt(tEntry) + "\nSL: " + f_fmt(tSL) + "\nTP1 (chốt 50%): " + f_fmt(tTP1) + "\nTP2 tham khảo (Volume Profile): " + f_fmt(tp2) +
+         "\nTrailing: kích hoạt " + f_fmt(tAct) + ", callback " + str.tostring(tCb * 100, "#.#") + "%" +
+         "\nKhông vào nếu giá đã vượt: " + f_fmt(tEntry + tSide * 0.3 * tRisk) +
+         (oiAvailable ? "\nOI " + str.tostring(oiHours) + "h: " + str.tostring(oiChg, "#.#") + "%" : "")
+    label.new(bar_index, tSide > 0 ? low : high, txt, tooltip=tip, style=tSide > 0 ? label.style_label_up : label.style_label_down,
+         color=tSide > 0 ? color.new(#26a69a, 0) : color.new(#ef5350, 0), textcolor=color.white, size=size.normal)
+    if showBoxes
+        box.new(bar_index, math.max(tEntry, tTP1), bar_index + 20 * barsPerSig, math.min(tEntry, tTP1), border_color=na, bgcolor=color.new(#26a69a, 82))
+        box.new(bar_index, math.max(tEntry, tSL), bar_index + 20 * barsPerSig, math.min(tEntry, tSL), border_color=na, bgcolor=color.new(#ef5350, 82))
+        line.new(bar_index, tp2, bar_index + 20 * barsPerSig, tp2, color=color.new(#26a69a, 30), style=line.style_dashed)
+    alert((tSide > 0 ? "🟢 MUA " : "🔴 BÁN ") + syminfo.ticker + " hạng " + grade + " | Vào " + f_fmt(tEntry) + " | SL " + f_fmt(tSL) +
+         " | TP1 " + f_fmt(tTP1) + " | Trailing kích hoạt " + f_fmt(tAct) + " callback " + str.tostring(tCb * 100, "#.#") + "%",
+         alert.freq_once_per_bar)
+
+fee = tSide != 0 ? feePct / 100 * tEntry / tRisk : 0.0
+if tSide != 0
+    s = tSide
+    adv = s > 0 ? low : high
+    fav = s > 0 ? high : low
+    trail = s > 0 ? tPeak * (1 - tCb) : tPeak * (1 + tCb)
+    eff = tArmed ? (s > 0 ? math.max(tSL, trail) : math.min(tSL, trail)) : tSL
+    closed = false
+    exitPx = 0.0
+    if (eff - adv) * s >= 0
+        closed := true
+        exitPx := eff
+    else
+        rFav = (fav - tEntry) * s / tRisk
+        if not tHit and rFav >= tpR
+            tR += 0.5 * tpR
+            tRem -= 0.5
+            tHit := true
+            f_closeLabel("TP1 ✓", tTP1, #26a69a)
+        if not tArmed and rFav >= actR
+            tArmed := true
+            tPeak := fav
+        else if tArmed
+            tPeak := s > 0 ? math.max(tPeak, fav) : math.min(tPeak, fav)
+        if bar_index - tStart >= maxHold * barsPerSig
+            closed := true
+            exitPx := close
+    if closed
+        tR += tRem * (exitPx - tEntry) * s / tRisk - fee
+        nTrades += 1
+        nWins += tR > 0 ? 1 : 0
+        sumR += tR
+        eq += tR
+        peakEq := math.max(peakEq, eq)
+        maxDD := math.max(maxDD, peakEq - eq)
+        f_closeLabel((tR >= 0 ? "Đóng +" : "Đóng ") + str.tostring(tR, "#.##") + "R", exitPx, tR >= 0 ? #26a69a : #ef5350)
+        tSide := 0
+
+trailNow = tSide != 0 and tArmed ? (tSide > 0 ? math.max(tSL, tPeak * (1 - tCb)) : math.min(tSL, tPeak * (1 + tCb))) : na
+plot(tSide != 0 ? tSL : na, "SL", color=#ef5350, style=plot.style_linebr, linewidth=1)
+plot(tSide != 0 ? tTP1 : na, "TP1", color=#26a69a, style=plot.style_linebr, linewidth=1)
+plot(tSide != 0 ? tEntry : na, "Giá vào", color=color.new(color.white, 30), style=plot.style_linebr, linewidth=1)
+plot(trailNow, "Trailing stop", color=#ffb300, style=plot.style_linebr, linewidth=2)
+
+// ============ CẢNH BÁO "CHUẨN BỊ" (chưa phải tín hiệu) ============
+prepL = showPrep and sigClosed and tSide == 0 and not okL and setupL > 0 and trendL >= 15 and not pbL and scL >= threshold - 8 and scL < threshold
+prepS = showPrep and sigClosed and tSide == 0 and not okS and allowShort and setupS > 0 and trendS >= 15 and scS >= threshold - 8 and scS < threshold
+plotshape(prepL, "Chuẩn bị MUA", shape.diamond, location.belowbar, color.new(color.yellow, 20), size=size.tiny)
+plotshape(prepS, "Chuẩn bị BÁN", shape.diamond, location.abovebar, color.new(color.yellow, 20), size=size.tiny)
+alertcondition(prepL or prepS, "Chuẩn bị", "Setup đang hình thành, gần đạt chuẩn — theo dõi, CHƯA phải tín hiệu")
+
+// ============ BẢNG THỐNG KÊ ============
+tfName(sec) => sec < 3600 ? str.tostring(sec / 60) + "m" : sec < 86400 ? str.tostring(sec / 3600) + "H" : sec < 604800 ? "1D" : "1W"
+verdict = sigSec == 3600 ? "Dùng được (backtest +0.08R/lệnh)" : sigSec == 14400 ? "Khuyên dùng (backtest +0.31R/lệnh)" :
+     sigSec == 86400 ? "Chưa đủ dữ liệu kiểm chứng" : "Chưa kiểm chứng — chỉ tham khảo"
+var table tb = table.new(position.top_right, 2, 8, border_width=1)
+if showTable and barstate.islast
+    c1 = color.new(color.gray, 20)
+    c2 = color.new(#1e222d, 0)
+    table.cell(tb, 0, 0, "Khung tín hiệu", bgcolor=c1, text_color=color.white, text_size=size.small)
+    table.cell(tb, 1, 0, tfName(sigSec) + (sigSec != chartSec ? " (từ khung lớn hơn)" : ""), bgcolor=c2, text_color=color.white, text_size=size.small)
+    table.cell(tb, 0, 1, "Đánh giá khung", bgcolor=c1, text_color=color.white, text_size=size.small)
+    table.cell(tb, 1, 1, verdict, bgcolor=c2, text_color=sigSec == 14400 ? color.lime : sigSec == 3600 ? color.yellow : color.orange, text_size=size.small)
+    table.cell(tb, 0, 2, "Lệnh trên chart này", bgcolor=c1, text_color=color.white, text_size=size.small)
+    table.cell(tb, 1, 2, str.tostring(nTrades), bgcolor=c2, text_color=color.white, text_size=size.small)
+    table.cell(tb, 0, 3, "Có lời", bgcolor=c1, text_color=color.white, text_size=size.small)
+    table.cell(tb, 1, 3, nTrades > 0 ? str.tostring(100.0 * nWins / nTrades, "#") + "%" : "—", bgcolor=c2, text_color=color.white, text_size=size.small)
+    table.cell(tb, 0, 4, "TB / Tổng", bgcolor=c1, text_color=color.white, text_size=size.small)
+    table.cell(tb, 1, 4, nTrades > 0 ? str.tostring(sumR / nTrades, "+#.##;-#.##") + "R / " + str.tostring(sumR, "+#.#;-#.#") + "R" : "—",
+         bgcolor=c2, text_color=sumR >= 0 ? color.lime : color.red, text_size=size.small)
+    table.cell(tb, 0, 5, "Sụt giảm tối đa", bgcolor=c1, text_color=color.white, text_size=size.small)
+    table.cell(tb, 1, 5, str.tostring(maxDD, "#.#") + "R", bgcolor=c2, text_color=color.white, text_size=size.small)
+    table.cell(tb, 0, 6, "Dữ liệu OI", bgcolor=c1, text_color=color.white, text_size=size.small)
+    table.cell(tb, 1, 6, oiAvailable ? "Có · " + str.tostring(oiChg, "+#.#;-#.#") + "% (" + str.tostring(oiHours) + "h)" : "Không có — bỏ qua lọc OI",
+         bgcolor=c2, text_color=oiAvailable ? color.white : color.orange, text_size=size.small)
+    table.cell(tb, 0, 7, "Lệnh hiện tại", bgcolor=c1, text_color=color.white, text_size=size.small)
+    table.cell(tb, 1, 7, tSide == 0 ? "Không có" : (tSide > 0 ? "MUA" : "BÁN") + " từ " + f_fmt(tEntry) + (tArmed ? " · trailing ON" : ""),
+         bgcolor=c2, text_color=color.white, text_size=size.small)

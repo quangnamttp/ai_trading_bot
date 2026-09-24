@@ -82,3 +82,37 @@ def test_roundtrip_dict():
     t.step(T0 + H, 121, 100.5, 120, atr=2)
     t2 = Trade.from_dict(t.to_dict())
     assert t2 == t
+
+
+def pct_trade(cb=0.05) -> Trade:
+    # entry 100, SL 90 (1R = 10): kích hoạt trailing tại 110, TP1 50% tại 120, callback 5%
+    return Trade(1, 100.0, 90.0, created=T0, deadline=T0 + 100 * H, exit_mode="pct", callback=cb)
+
+
+def test_pct_trailing_arms_at_1r_and_follows_high():
+    t = pct_trade()
+    ev = t.step(T0 + H, 112, 99, 111, atr=0)
+    assert ("ARMED", 110.0) in ev and t.be_done
+    assert t.trailing_stop() == pytest.approx(112 * 0.95)
+    t.step(T0 + 2 * H, 121, 110, 120, atr=0)          # chạm TP1, đỉnh mới 121
+    assert t.hit == [0] and t.remaining == pytest.approx(0.5)
+    assert t.trailing_stop() == pytest.approx(121 * 0.95)
+    t.step(T0 + 3 * H, 118, 114, 115, atr=0)          # thủng 114.95 -> đóng phần còn lại
+    assert t.status == "CLOSED" and t.outcome == "TRAIL"
+    assert t.realized_r == pytest.approx(0.5 * 2 + 0.5 * (121 * 0.95 - 100) / 10 - fee(t))
+
+
+def test_pct_before_activation_keeps_fixed_sl():
+    t = pct_trade()
+    t.step(T0 + H, 108, 95, 100, atr=0)
+    assert not t.be_done and t.effective_stop() == 90.0
+    t.step(T0 + 2 * H, 101, 89, 90, atr=0)
+    assert t.outcome == "SL"
+    assert t.realized_r == pytest.approx(-1 - fee(t))
+
+
+def test_callback_rate_is_clamped_to_exchange_limits():
+    from app.strategy.trade import callback_rate
+    assert callback_rate(atr=1, entry=100) == pytest.approx(0.03)  # 3 x ATR
+    assert callback_rate(atr=10, entry=100) == pytest.approx(0.10)
+    assert callback_rate(atr=0.01, entry=100) == pytest.approx(0.005)

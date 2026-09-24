@@ -28,12 +28,21 @@ def trend_label(side: int, trend_pts: float) -> str:
     return "🔴 Giảm mạnh" if strong else "🔴 Giảm"
 
 
-def sizing(entry: float, sl: float, risk_pct: float) -> tuple[float, int]:
+def sizing(entry: float, sl: float, risk_pct: float, max_lev: int | None = None) -> tuple[float, int]:
     """(khối lượng lệnh theo % vốn, đòn bẩy tối đa an toàn: giá thanh lý xa gấp đôi SL)."""
     sl_frac = abs(entry - sl) / entry
     size_pct = risk_pct / sl_frac
-    safe_lev = max(1, min(settings.max_leverage, int(0.5 / sl_frac)))
+    safe_lev = max(1, min(max_lev or settings.max_leverage, int(0.5 / sl_frac)))
     return size_pct, safe_lev
+
+
+STYLE_LABEL = {"short": "⚡ Swing ngắn", "long": "🌙 Swing dài"}
+STYLE_HOLD = {"short": "giữ vài giờ → vài ngày", "long": "giữ vài ngày → vài tuần"}
+
+
+def chase_limit(sig: dict) -> float:
+    """Giá tối đa còn nên vào lệnh (quá mức này = đuổi giá, R:R xấu đi)."""
+    return sig["entry"] + sig["side"] * 0.3 * abs(sig["entry"] - sig["sl"])
 
 
 def signal_message(sig: dict, *, mode: str, risk_pct: float, stats: dict | None) -> str:
@@ -41,44 +50,59 @@ def signal_message(sig: dict, *, mode: str, risk_pct: float, stats: dict | None)
     side, mult = sig["side"], sig["multiplier"] if mode == "spot" else 1
     p = lambda v: price(v / mult)  # noqa: E731  giá spot = giá futures / hệ số (vd 1000PEPE)
     entry, sl = sig["entry"], sig["sl"]
-    sl_pct = abs(entry - sl) / entry * 100
+    risk = abs(entry - sl)
+    sl_pct = risk / entry * 100
     tp1_pct = abs(sig["tp1"] - entry) / entry * 100
+    style = sig.get("style", "short")
     emoji, action = ("🟢", "MUA") if side > 0 else ("🔴", "BÁN")
     market = "Spot" if mode == "spot" else "Futures"
-    lo, hi = (sig["zone_lo"], sig["zone_hi"]) if side > 0 else (sig["zone_hi"], sig["zone_lo"])
-    size_pct, lev = sizing(entry, sl, risk_pct)
+    tier = sig.get("tier", "A")
+    max_lev = settings.long_max_leverage if style == "long" else settings.max_leverage
+    size_pct, lev = sizing(entry, sl, risk_pct, max_lev)
 
     lines = [
         f"{emoji} <b>{escape(sig['display'])} | {action}</b> · {market} · {'LONG' if side > 0 else 'SHORT'}",
-        f"💰 Vùng vào lệnh: <b>{p(hi)} → {p(lo)}</b>",
-        f"🎯 Giá chốt lời: <b>{p(sig['tp1'])}</b> (+{tp1_pct:.1f}%, chốt 50%)",
-        f"🚀 Mục tiêu mở rộng: {p(sig['tp2'])} (phần còn lại chạy trailing)",
-        f"🛑 Giá cắt lỗ: <b>{p(sl)}</b> (-{sl_pct:.1f}%)",
+        f"{STYLE_LABEL.get(style, style)} ({STYLE_HOLD.get(style, '')}) · Hạng <b>{tier}</b>"
+        + (" <i>(dự phòng — chất lượng thấp hơn hạng A)</i>" if tier == "B" else ""),
+        "",
+        f"💰 Vào ngay: <b>{p(entry)}</b> (giá thị trường)",
+        f"⛔ Không vào nếu giá đã {'vượt' if side > 0 else 'xuống dưới'}: {p(chase_limit(sig))}",
+        f"🛑 Cắt lỗ (SL): <b>{p(sl)}</b> (-{sl_pct:.1f}%)",
+        f"🎯 Chốt 50% tại: <b>{p(sig['tp1'])}</b> (+{tp1_pct:.1f}%)",
     ]
-    if mode == "futures":
-        margin = size_pct / lev
-        lines.append(f"⚖️ Khối lượng: {size_pct:.0f}% vốn · đòn bẩy tối đa x{lev} (ký quỹ ~{margin:.0f}% vốn) · rủi ro {risk_pct:g}%")
+    if sig.get("exit_mode") == "pct" and sig.get("callback"):
+        act = entry + side * risk
+        lines.append(f"🔁 Trailing Stop (cả lệnh): kích hoạt <b>{p(act)}</b>, callback <b>{sig['callback'] * 100:.1f}%</b>")
     else:
-        lines.append(f"⚖️ Khối lượng gợi ý: {min(size_pct, 100):.0f}% vốn (rủi ro {risk_pct:g}% vốn nếu chạm SL)")
-    lines.append(f"🤖 Điểm tín hiệu: <b>{sig['score']:.0f}/100</b>")
+        lines.append(f"🚀 Mục tiêu tham khảo: {p(sig['tp2'])} (phần còn lại chạy trailing)")
+    if mode == "futures":
+        lines.append(f"⚖️ Khối lượng {size_pct:.0f}% vốn · đòn bẩy tối đa x{lev} · rủi ro {risk_pct:g}% vốn")
+    else:
+        lines.append(f"⚖️ Khối lượng gợi ý: {min(size_pct, 100):.0f}% vốn (mất {risk_pct:g}% vốn nếu chạm SL)")
+    lines.append("")
+    lines.append(f"🤖 Điểm: <b>{sig['score']:.0f}/100</b> · Xu hướng: {trend_label(side, sig.get('trend', 0))}")
     if stats:
-        lines.append(f"📊 Backtest cùng mức điểm: {stats['win_rate']:.0%} lệnh có lời · TB {stats['avg_r']:+.2f}R/lệnh ({stats['n']} lệnh)")
-    lines.append(f"📈 Xu hướng: {trend_label(side, sig.get('trend', 0))}")
-    lines.append(f"🧭 Setup: {escape(sig['setup_text'])}")
+        lines.append(f"📊 Backtest mức điểm này: {stats['win_rate']:.0%} lệnh có lời · TB {stats['avg_r']:+.2f}R ({stats['n']} lệnh)")
+    lines.append(f"🧭 {escape(sig['setup_text'])}")
     for r in sig.get("reasons", [])[:4]:
         lines.append(f"   • {escape(r)}")
-    lines.append(f"🕒 Thời gian: {vn_time(sig.get('created_at'))}")
-    lines.append("<i>📌 Giá lãi +1R → dời SL về entry. Sau TP1 bot sẽ báo dời SL theo xu hướng. "
-                 "Luôn đặt SL — tín hiệu không đảm bảo thắng.</i>")
+    lines.append(f"🕒 {vn_time(sig.get('created_at'))}")
+    if sig.get("exit_mode") == "pct":
+        lines.append("<i>📌 Đặt SL + TP1 + Trailing Stop trên sàn ngay khi vào lệnh là xong. Sàn không có Trailing Stop: "
+                     "khi giá tới mức kích hoạt thì tự dời SL về giá vào.</i>")
+    else:
+        lines.append("<i>📌 Giá lãi +1R → dời SL về giá vào. Luôn đặt SL — tín hiệu không đảm bảo thắng.</i>")
     return "\n".join(lines)
 
 
 EVENT_TEXT = {
-    "BE": "🔒 <b>{d}</b>: giá đã đi +1R — <b>dời SL về entry {px}</b> (lệnh không còn rủi ro).",
-    "TP1": "✅ <b>{d}</b>: chạm <b>TP1 {px}</b> — chốt 50% vị thế, phần còn lại để chạy.",
+    "BE": "🔒 <b>{d}</b>: giá đã đi +1R — <b>dời SL về giá vào {px}</b> (lệnh không còn rủi ro).",
+    "ARMED": "🔒 <b>{d}</b>: giá tới +1R ({px}) — Trailing Stop trên sàn đã kích hoạt. "
+             "Nếu bạn không đặt Trailing Stop: dời SL về giá vào lệnh.",
+    "TP1": "✅ <b>{d}</b>: chạm <b>TP1 {px}</b> — chốt 50% vị thế, phần còn lại để trailing chạy.",
     "TRAIL_MOVE": "📈 <b>{d}</b>: dời SL lên <b>{px}</b> để khóa lãi.",
     "SL": "❌ <b>{d}</b>: chạm cắt lỗ {px}. Kết quả: <b>{r:+.2f}R</b>.",
-    "STOPPED": "🏁 <b>{d}</b>: đóng phần còn lại tại {px}. Kết quả cả lệnh: <b>{r:+.2f}R</b>.",
+    "STOPPED": "🏁 <b>{d}</b>: đóng lệnh tại {px}. Kết quả cả lệnh: <b>{r:+.2f}R</b>.",
     "TIMEOUT": "⌛ <b>{d}</b>: hết thời gian giữ lệnh, đóng tại {px}. Kết quả: <b>{r:+.2f}R</b>.",
 }
 
@@ -103,24 +127,28 @@ def stats_message(rows: list[dict], title: str) -> str:
 
 HELP = """ℹ️ <b>Hướng dẫn sử dụng</b>
 
-<b>Bot làm gì?</b> Mỗi giờ quét top coin Binance Futures, chấm điểm 6 nhóm dữ liệu:
-xu hướng 1D/4H, động lượng, setup, dòng tiền taker (CVD), phái sinh (funding, OI, tỉ lệ long/short),
-thị trường chung (BTC, Fear &amp; Greed, thanh khoản stablecoin, tin tức). Chỉ gửi 1–5 tín hiệu/ngày tốt nhất.
-Tạm dừng quanh tin vĩ mô Mỹ (CPI, FOMC, NFP...) và khi có tin xấu nghiêm trọng về coin.
+<b>Bot làm gì?</b> Quét top 20 coin Binance Futures, chấm điểm xu hướng (1D/4H), động lượng, setup (hồi/retest),
+dòng tiền (taker, CVD), phái sinh (funding, OI, tỉ lệ long/short), thị trường chung (BTC, Fear &amp; Greed, tin tức).
+Chỉ vào lệnh khi có xác nhận: OI biến động mạnh, hoặc đám đông nghiêng hẳn về phía ngược lại, hoặc setup Retest.
 
-<b>Chế độ</b>
-• <b>Spot</b>: chỉ nhận lệnh MUA, giá theo sàn spot.
-• <b>Futures</b>: nhận cả LONG/SHORT, kèm khối lượng và đòn bẩy an toàn.
+<b>2 kiểu giao dịch</b> (chọn ở ⚙️)
+• ⚡ <b>Swing ngắn</b>: tối đa 3 tín hiệu/ngày, chỉ từ 6h đến 22h, giữ vài giờ → vài ngày.
+• 🌙 <b>Swing dài</b>: khoảng 1 tín hiệu/tuần, giữ vài ngày → vài tuần. Ban đêm vẫn gửi nhưng <b>không chuông</b>.
+Hạng A = đạt chuẩn · Hạng B = chuẩn thấp hơn, chỉ gửi sau 15h nếu cả ngày chưa có tín hiệu.
 
-<b>Cách vào lệnh</b>
-1. Vào lệnh trong vùng entry (không đuổi nếu giá đã chạy xa).
-2. Đặt SL ngay. Khối lượng theo gợi ý để mỗi lệnh chỉ mất tối đa % vốn đã chọn.
-3. Lãi +1R → dời SL về entry. Tới TP1 → chốt 50%.
-4. Phần còn lại: làm theo tin nhắn dời SL của bot.
+<b>Cách vào lệnh</b> (đặt 1 lần trên sàn là xong)
+1. Vào ngay theo giá thị trường. Không vào nếu giá đã vượt mức "Không vào".
+2. Đặt <b>SL</b> ngay. Khối lượng theo gợi ý để mỗi lệnh chỉ mất tối đa % vốn đã chọn.
+3. Đặt lệnh chốt <b>50% tại TP1</b>.
+4. Đặt <b>Trailing Stop</b> cho cả lệnh: giá kích hoạt và callback % có trong tin nhắn.
+   Sàn không có Trailing Stop: khi giá tới mức kích hoạt thì tự dời SL về giá vào.
+
+<b>Lịch tự động</b>: 07:00 thị trường 24h · 15:05 danh sách theo dõi (nếu chưa có tín hiệu) · 22:00 tổng kết lời/lỗ.
+Tạm dừng quanh tin vĩ mô Mỹ (CPI, FOMC, NFP) · cảnh báo nếu có tin xấu về coin bạn đang giữ lệnh.
 
 <b>Trung thực về rủi ro</b>
-Backtest 1 năm: chỉ khoảng 1/3 số lệnh có lời, lợi nhuận đến từ số ít lệnh chạy xa.
-Sẽ có chuỗi thua liên tiếp và tháng lỗ. Không tín hiệu nào chắc chắn thắng — chỉ dùng vốn bạn chấp nhận mất.
+Backtest 2 năm / 40 coin: khoảng 43% lệnh có lời, trung bình +0.2R/lệnh, chuỗi sụt giảm tệ nhất khoảng 16R
+(= −8% vốn nếu rủi ro 0.5%/lệnh), khoảng 1/4 số tháng bị lỗ. Không tín hiệu nào chắc chắn thắng.
 
 <b>Lệnh</b>: /start /menu /phantich SOL /thongke /mode
 Giá tham chiếu Binance Futures — giá ở sàn khác có thể lệch nhẹ."""
