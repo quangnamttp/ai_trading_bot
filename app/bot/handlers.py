@@ -47,7 +47,32 @@ def menu(user: dict | None = None) -> ReplyKeyboardMarkup:
         rows = [[BTN_OPEN, BTN_ANALYZE], [BTN_AI, BTN_WATCH], [BTN_SETTINGS, BTN_STATS], [BTN_HELP]]
     if user and is_admin(user["chat_id"]):
         rows[-1].append(BTN_ADMIN)
-    return ReplyKeyboardMarkup([[KeyboardButton(t) for t in r] for r in rows], resize_keyboard=True)
+    # is_persistent: bàn phím luôn hiện, không bị thu lại sau khi bấm
+    return ReplyKeyboardMarkup([[KeyboardButton(t) for t in r] for r in rows], resize_keyboard=True, is_persistent=True)
+
+
+# Đổi số này mỗi khi bố cục menu thay đổi -> lần khởi động sau bot tự gửi bàn phím mới cho mọi người
+MENU_VERSION = "2026-09-24-2"
+
+
+async def refresh_menus(bot) -> int:
+    """Gửi bàn phím mới cho mọi người dùng đã duyệt (1 lần cho mỗi phiên bản menu, không chuông)."""
+    if await storage.kv_get("menu_version") == MENU_VERSION:
+        return 0
+    await storage.kv_set("menu_version", MENU_VERSION)
+    n = 0
+    for u in await storage.all_users():
+        if u["banned"] or not (u.get("approved", True) or is_admin(u["chat_id"])):
+            continue
+        try:
+            await bot.send_message(u["chat_id"], "🔄 Menu đã cập nhật — các chức năng nằm ở bàn phím nút bên dưới 👇",
+                                   reply_markup=menu(u), disable_notification=True)
+            n += 1
+        except Exception as exc:  # noqa: BLE001
+            log.info("Không gửi được menu mới cho %s: %s", u["chat_id"], exc)
+        await asyncio.sleep(0.05)
+    log.info("Đã gửi menu mới cho %d người", n)
+    return n
 
 
 async def _reply(update: Update, text: str, **kw) -> None:

@@ -175,3 +175,16 @@ async def test_vi_titles_translate_and_cache(db, monkeypatch):
     assistant._vi_cache.clear()
     assert await assistant.vi_titles(titles) == ["Bitcoin vượt 100 nghìn USD", "SEC duyệt quỹ ETF Solana"]
     assert calls == ["translate"]  # lần 2 lấy bản đã lưu, không gọi AI
+
+
+async def test_refresh_menus_once_per_version(db):
+    from unittest.mock import AsyncMock, MagicMock
+    await storage.upsert_user(10, "a")
+    await storage.upsert_user(11, "b")
+    await storage.update_user(11, banned=True)
+    bot = MagicMock()
+    bot.send_message = AsyncMock()
+    assert await handlers.refresh_menus(bot) == 1  # người bị chặn không nhận
+    kb = bot.send_message.call_args.kwargs["reply_markup"]
+    assert kb.is_persistent
+    assert await handlers.refresh_menus(bot) == 0  # cùng phiên bản menu -> không gửi lại

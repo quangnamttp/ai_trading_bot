@@ -169,28 +169,22 @@ async def run() -> None:
     await http.close()
 
 
-USER_COMMANDS = [("start", "Mở menu"), ("help", "Hướng dẫn"), ("phantich", "Phân tích 1 coin, vd /phantich SOL"),
-                 ("thongke", "Thống kê kết quả")]
-ADMIN_COMMANDS = USER_COMMANDS + [("scan", "Quét ngay"), ("users", "Danh sách người dùng"), ("allow", "Duyệt ID"),
-                                  ("ban", "Chặn ID"), ("unban", "Bỏ chặn ID"), ("broadcast", "Gửi thông báo"),
-                                  ("ai_ping", "Kiểm tra AI")]
-
-
 async def set_commands(app: Application) -> None:
-    """Danh sách lệnh "/" theo vai trò: khách chỉ thấy lệnh cơ bản; admin thấy thêm lệnh quản lý;
-    trong nhóm chỉ có /lich (và /set_news cho quản trị viên nhóm)."""
-    from telegram import (BotCommand, BotCommandScopeAllChatAdministrators, BotCommandScopeAllGroupChats,
-                          BotCommandScopeAllPrivateChats, BotCommandScopeChat)
-    cmds = lambda pairs: [BotCommand(c, d) for c, d in pairs]  # noqa: E731
+    """Không dùng danh sách lệnh "/" -> Telegram ẩn nút ☰ Menu; mọi chức năng nằm trong bàn phím nút
+    (admin có thêm 👥 Quản lý). Lệnh cũ vẫn gõ tay được."""
+    from telegram import (BotCommandScopeAllChatAdministrators, BotCommandScopeAllGroupChats,
+                          BotCommandScopeAllPrivateChats, BotCommandScopeChat, BotCommandScopeDefault, MenuButtonDefault)
+    scopes = [BotCommandScopeDefault(), BotCommandScopeAllPrivateChats(), BotCommandScopeAllGroupChats(),
+              BotCommandScopeAllChatAdministrators()] + [BotCommandScopeChat(a) for a in settings.admin_ids]
+    for scope in scopes:
+        try:
+            await app.bot.delete_my_commands(scope=scope)
+        except Exception as exc:  # noqa: BLE001
+            log.debug("Xóa danh sách lệnh %s lỗi: %s", scope, exc)
     try:
-        await app.bot.set_my_commands(cmds(USER_COMMANDS), scope=BotCommandScopeAllPrivateChats())
-        await app.bot.set_my_commands(cmds([("lich", "Lịch sự kiện tuần")]), scope=BotCommandScopeAllGroupChats())
-        await app.bot.set_my_commands(cmds([("lich", "Lịch sự kiện tuần"), ("set_news", "Đặt topic này làm Tin tức")]),
-                                      scope=BotCommandScopeAllChatAdministrators())
-        for admin in settings.admin_ids:
-            await app.bot.set_my_commands(cmds(ADMIN_COMMANDS), scope=BotCommandScopeChat(admin))
+        await app.bot.set_chat_menu_button(menu_button=MenuButtonDefault())
     except Exception as exc:  # noqa: BLE001
-        log.warning("Không đặt được danh sách lệnh: %s", exc)
+        log.debug("Đặt nút menu lỗi: %s", exc)
 
 
 async def _serve(app: Application) -> None:
@@ -204,6 +198,7 @@ async def _serve(app: Application) -> None:
         await app.updater.start_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
         log.info("Chạy chế độ polling (local)")
     await set_commands(app)
+    await handlers.refresh_menus(app.bot)
     status = f"✅ Bot đã khởi động lúc {STARTED:%H:%M %d/%m}"
     try:
         await binance.last_price("BTCUSDT")

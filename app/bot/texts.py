@@ -205,5 +205,5 @@ AI không tạo tín hiệu; kế hoạch DCA là tham khảo, chưa được ba
 Backtest 2 năm / 40 coin: khoảng 43% lệnh có lời, trung bình +0.2R/lệnh, chuỗi sụt giảm tệ nhất khoảng 16R
 (= −8% vốn nếu rủi ro 0.5%/lệnh), khoảng 1/4 số tháng bị lỗ. Không tín hiệu nào chắc chắn thắng.
 
-<b>Lệnh</b>: /start /help /phantich SOL /thongke
+Mọi chức năng nằm ở bàn phím nút bên dưới ô nhập tin (bấm ⌘ nếu bị ẩn, hoặc gõ /start).
 Giá tham chiếu Binance Futures — giá ở sàn khác có thể lệch nhẹ."""

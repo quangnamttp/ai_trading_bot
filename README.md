@@ -55,7 +55,8 @@ không backtest được (bot ghi lại mỗi lần tin tức chặn tín hiệu
 - **Chế độ riêng tư** (`PRIVATE_MODE=1`, mặc định): thành viên nhóm Telegram (nhóm có topic 📰) được tự duyệt;
   người ngoài nhóm bấm Start → admin nhận nút ✅ Duyệt / ❌ Từ chối.
 - **Menu theo chế độ và vai trò**: Spot có 💼 Danh mục, Futures có 🪙 Coin theo dõi; chỉ admin thấy 👥 Quản lý
-  (duyệt, danh sách, chặn, quét ngay, kiểm tra AI) và lệnh quản trị trong danh sách "/".
+  (duyệt, danh sách, chặn, quét ngay, kiểm tra AI). Không dùng danh sách lệnh "/" (ẩn nút ☰); bàn phím luôn hiện và
+  tự gửi lại cho mọi người khi đổi `MENU_VERSION`.
 - **💼 Danh mục Spot** (tối đa 20 coin): ghi mua/bán theo số tiền → giá vốn TB, lời/lỗ; đặt vốn DCA → bot chia vào các
   vùng hỗ trợ (30/30/40%), nhắc khi giá chạm mốc (nút ✅ Đã mua tự cập nhật danh mục), cảnh báo khi thủng mức dừng;
   cảnh báo xu hướng, OI/funding, tin xấu; hiển thị USDT hoặc VNĐ. Lịch sử lưu cả sàn + đơn vị tiền để sau này hỗ trợ sàn Việt.
