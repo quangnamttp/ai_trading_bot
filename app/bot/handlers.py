@@ -8,6 +8,7 @@ from html import escape
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup, Update
 from telegram.constants import ParseMode
+from telegram.error import BadRequest
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
 
 from app import service, storage
@@ -75,28 +76,36 @@ async def help_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 def mode_keyboard(user: dict) -> InlineKeyboardMarkup:
+    """Mỗi chế độ 1 hàng, rủi ro 2 hàng x 2 nút, chữ ngắn để Telegram không cắt bớt trên màn hình hẹp."""
     mark = lambda cond: "✅ " if cond else ""  # noqa: E731
+    risk = lambda r: InlineKeyboardButton(f"{mark(user['risk_pct'] == r)}{r:g}%", callback_data=f"risk:{r}")  # noqa: E731
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton(f"{mark(user['mode'] == 'spot')}Spot (chỉ MUA)", callback_data="mode:spot"),
-         InlineKeyboardButton(f"{mark(user['mode'] == 'futures')}Futures (LONG/SHORT)", callback_data="mode:futures")],
-        [InlineKeyboardButton(f"{mark(user['risk_pct'] == r)}Rủi ro {r:g}%", callback_data=f"risk:{r}")
-         for r in (0.25, 0.5, 1.0, 2.0)],
+        [InlineKeyboardButton(f"{mark(user['mode'] == 'spot')}Spot — chỉ MUA", callback_data="mode:spot")],
+        [InlineKeyboardButton(f"{mark(user['mode'] == 'futures')}Futures — LONG & SHORT", callback_data="mode:futures")],
+        [risk(0.25), risk(0.5)],
+        [risk(1.0), risk(2.0)],
     ])
+
+
+def mode_text(user: dict) -> str:
+    mode = "Spot (chỉ MUA)" if user["mode"] == "spot" else "Futures (LONG &amp; SHORT)"
+    return ("⚙️ <b>Chế độ giao dịch &amp; rủi ro mỗi lệnh</b>\n\n"
+            f"Đang chọn: <b>{mode}</b> · rủi ro <b>{user['risk_pct']:g}%</b>/lệnh\n\n"
+            "Rủi ro = % vốn mất nếu lệnh chạm SL. Người mới nên dùng <b>0.25–0.5%</b>.\n"
+            "Bấm nút bên dưới để đổi:")
 
 
 async def mode_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     user = await _user(update)
     if user:
-        await _reply(update, "⚙️ <b>Chế độ giao dịch & rủi ro mỗi lệnh</b>\n"
-                             "Rủi ro = % vốn mất nếu lệnh chạm SL. Người mới nên dùng 0.25–0.5%.",
-                     reply_markup=mode_keyboard(user))
+        await _reply(update, mode_text(user), reply_markup=mode_keyboard(user))
 
 
 async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     q = update.callback_query
-    await q.answer()
     user = await _user(update)
     if not user:
+        await q.answer()
         return
     kind, _, value = q.data.partition(":")
     if kind == "mode":
@@ -104,7 +113,11 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     elif kind == "risk":
         await storage.update_user(user["chat_id"], risk_pct=float(value))
     user = await storage.get_user(user["chat_id"])
-    await q.edit_message_reply_markup(mode_keyboard(user))
+    await q.answer("Đã lưu ✅")
+    try:
+        await q.edit_message_text(mode_text(user), parse_mode=ParseMode.HTML, reply_markup=mode_keyboard(user))
+    except BadRequest:  # bấm lại đúng lựa chọn cũ -> nội dung không đổi
+        pass
 
 
 async def toggle_sub(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
