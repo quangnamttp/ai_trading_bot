@@ -68,8 +68,11 @@ async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     if not user:
         return
     if not user.get("approved", True) and not is_admin(user["chat_id"]):
-        await extra.request_approval(update, ctx, user)
-        return
+        if await extra.auto_approve_member(ctx.bot, user["chat_id"]):
+            user = await storage.get_user(user["chat_id"])
+        else:
+            await extra.request_approval(update, ctx, user)
+            return
     await _reply(update,
                  "👋 <b>Chào mừng đến bot tín hiệu swing crypto!</b>\n\n"
                  "Bot quét Top 20 coin (và coin bạn tự chọn) mỗi giờ, gửi tín hiệu có điểm vào, SL, TP, trailing stop, "
@@ -269,8 +272,10 @@ async def on_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     if not user:
         return
     if not user.get("approved", True) and not is_admin(user["chat_id"]):
-        await _reply(update, "⏳ Bạn đang chờ admin duyệt. Khi được duyệt, bot sẽ nhắn cho bạn.")
-        return
+        if not await extra.auto_approve_member(ctx.bot, user["chat_id"]):
+            await _reply(update, "⏳ Bạn đang chờ admin duyệt. Khi được duyệt, bot sẽ nhắn cho bạn.")
+            return
+        user = await storage.get_user(user["chat_id"])
     routes = {BTN_OPEN: open_signals, BTN_MODE: mode_cmd, BTN_STATS: stats, BTN_MARKET: market,
               BTN_WATCH: watch_list, BTN_HELP: help_cmd, BTN_SUB: toggle_sub, BTN_CAL: extra.calendar_cmd,
               BTN_AI: extra.ai_prompt}
@@ -284,10 +289,13 @@ async def on_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         await analyze(update, ctx, text)
     elif ctx.user_data.pop("await_coin", False):
         await extra.add_coin_text(update, ctx, user, text)
-    elif ctx.user_data.pop("await_ai", False):
-        await extra.ai_answer(update, ctx, text)
+    elif (reply := update.effective_message.reply_to_message) and (
+            sig := await storage.signal_by_message(user["chat_id"], reply.message_id)):
+        await extra.ai_answer(update, ctx, text, user=user, signal=sig)
+    elif ctx.user_data.pop("await_ai", False) or extra.assistant.ai.enabled():
+        await extra.ai_answer(update, ctx, text, user=user)
     else:
-        await _reply(update, "Chọn chức năng trong menu bên dưới 👇 (muốn hỏi AI thì bấm 🤖 Hỏi AI)", reply_markup=menu())
+        await _reply(update, "Chọn chức năng trong menu bên dưới 👇", reply_markup=menu())
 
 
 async def analyze_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:

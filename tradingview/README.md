@@ -4,10 +4,22 @@ Gồm 2 chỉ báo, dùng chung trên một chart (gói TradingView miễn phí 
 
 | File | Vai trò |
 |---|---|
-| `swing_entry_pro_v5.pine` (v5.1) | **Khi nào vào lệnh**: điểm vào, SL, TP1, TP2, trailing stop, hạng tín hiệu, cảnh báo "Chuẩn bị", bảng thống kê |
-| `volume_profile_pro_v3.pine` (v3.1) | **Vùng giá quan trọng**: POC, Value Area (VAH/VAL), POC chưa bị chạm, vùng thanh khoản mỏng |
+| `swing_entry_pro_v5.pine` (v5.2) | **Khi nào vào lệnh**: điểm vào, SL, TP1, TP2, trailing stop, hạng tín hiệu, cảnh báo "Chuẩn bị", bảng thống kê |
+| `volume_profile_pro_v3.pine` (v3.2) | **Vùng giá quan trọng**: POC, Value Area (VAH/VAL), POC chưa bị chạm, vùng thanh khoản mỏng |
 
 Cả 2 chỉ báo chạy 24/24, không lọc giờ, và **không repaint**: tín hiệu chỉ xuất hiện khi nến đóng, đã hiện thì không bao giờ mất.
+
+### Cập nhật v5.2 / v3.2
+- **Swing v5.2 — OI luôn lấy từ Binance**, kể cả khi mở chart MEXC, OKX, cặp USDC... (vd chart `MEXC:PEPEUSDC` tự lấy
+  OI của `BINANCE:1000PEPEUSDT.P`). Bảng ghi rõ OI lấy từ mã nào. Không tìm thấy thì nhập tay ở Cài đặt → "Mã OI tự nhập".
+- **Vì sao bản cũ hay vào lệnh ngược sóng?** Đã kiểm tra dứt điểm trên 2 năm / 20 coin: nguyên nhân chính là **thiếu dữ
+  liệu OI** (chart MEXC không có OI → bộ lọc OI bị bỏ qua). Tín hiệu có OI biến động ≥ 5% dương rõ ở cả nửa đầu và nửa sau
+  dữ liệu (4H: +0.36R / +0.14R); tín hiệu OI < 2% gần như hòa vốn. Các bộ lọc xu hướng khác (tuổi xu hướng, khoảng cách
+  EMA, xu hướng ngày, ADX, BTC) **không ổn định** giữa 2 nửa → không thêm để tránh "đẹp trên quá khứ".
+- Bảng "Đánh giá khung" chuyển màu cam khi không có OI.
+- **Volume Profile v3.2**: thêm POC / VAH / VAL **tuần trước** (xanh dương) và **tháng trước** (tím), đường VAH/VAL cuộn,
+  chế độ **"Chỉ vẽ đường"** (ẩn histogram cho chart gọn), và **cảnh báo khi giá chạm** POC / VAH / VAL / POC trinh / mốc
+  tuần-tháng: bấm đồng hồ báo thức → Condition "Volume Profile Pro v3.2" → **Any alert() function call**.
 
 ### Cập nhật v5.1 / v3.1
 - Ẩn thông số khỏi dòng trạng thái → hết chữ đè lên bảng.
@@ -29,7 +41,7 @@ Nếu Pine Editor báo lỗi (dòng chữ đỏ ở dưới), chụp màn hình 
 
 ## Dùng Swing Entry Pro v5
 
-- **Khung nên dùng**: chart **4H** (tốt nhất) hoặc **1H**. Mở chart 15m vẫn được: chỉ báo tự lấy tín hiệu từ khung 1H,
+- **Khung nên dùng**: chart **4H** (tốt nhất) hoặc **1H**, và bảng phải hiện "Dữ liệu OI" có số. Mở chart 15m vẫn được: chỉ báo tự lấy tín hiệu từ khung 1H,
   anh/chị dùng 15m để canh giá vào đẹp hơn.
 - **Nhãn MUA/BÁN**: rê chuột vào nhãn để xem đủ: giá vào, SL, TP1 (chốt 50%), TP2 tham khảo (theo Volume Profile),
   mức kích hoạt và callback của trailing stop, giá "không vào nếu đã vượt".

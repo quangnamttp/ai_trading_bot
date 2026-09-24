@@ -66,6 +66,23 @@ EXPLAIN: list[tuple[str, str, str]] = [
      "• Niềm tin giảm mạnh: lo suy thoái, tác động lẫn lộn."),
 ]
 
+# số thực tế CAO hơn dự báo thì thường thế nào với crypto (thấp hơn thì ngược lại); None = không có số dự báo rõ ràng
+HIGHER_IS = {"pce": "XẤU", "cpi": "XẤU", "ppi": "XẤU", "nfp": "XẤU (ngắn hạn)", "unemp": "TỐT", "claims": "hơi TỐT",
+             "gdp": "lẫn lộn", "retail": "hơi XẤU", "pmi": "hơi XẤU", "jolts": "hơi XẤU", "sentiment": "lẫn lộn"}
+OPPOSITE = {"XẤU": "TỐT", "TỐT": "XẤU", "hơi XẤU": "hơi TỐT", "hơi TỐT": "hơi XẤU", "XẤU (ngắn hạn)": "TỐT",
+            "lẫn lộn": "lẫn lộn"}
+
+
+def brief(kind: str, explain: str) -> tuple[str, str]:
+    """(1 dòng: tin này là gì, 1 dòng: cao/thấp hơn dự báo thì tốt/xấu) cho tin nhắn ngắn."""
+    what = explain.split("\n")[0]
+    hi = HIGHER_IS.get(kind)
+    if hi:
+        return what, f"Cao hơn dự báo → thường {hi} cho crypto · thấp hơn → thường {OPPOSITE[hi]}"
+    bullets = [b.strip("• ").strip() for b in explain.split("\n")[1:3]]
+    return what, " · ".join(bullets)
+
+
 # Ngày FOMC công bố lãi suất (lịch Fed công bố trước) — dùng để thống kê phản ứng trong quá khứ
 FOMC_DATES = [
     "2024-01-31", "2024-03-20", "2024-05-01", "2024-06-12", "2024-07-31", "2024-09-18", "2024-11-07", "2024-12-18",
@@ -180,3 +197,13 @@ async def detail_text(e: dict) -> str:
     return (f"📌 <b>{escape(e['title'])}</b> · {e['time'].astimezone(VN_TZ):%H:%M %d/%m} (giờ VN) · {level}\n"
             + (" · ".join(extra) + "\n" if extra else "") + f"\n{escape(explain)}\n\n{stats_text(await reaction_stats(kind))}\n\n"
             + ("⏸ Bot tạm dừng tín hiệu mới từ 3 giờ trước đến 1 giờ sau tin." if e.get("impact") == "High" else ""))
+
+
+async def recent_events(days: int = 7) -> list[dict]:
+    """Tin tác động mạnh đã diễn ra trong `days` ngày (bot tự lưu khi đọc lịch)."""
+    now = datetime.now(timezone.utc)
+    async with storage.engine().connect() as c:
+        rows = (await c.execute(sa.select(macro_events).where(macro_events.c.time >= now - timedelta(days=days),
+                                                              macro_events.c.time <= now)
+                                .order_by(macro_events.c.time))).all()
+    return [{"title": r.title, "kind": r.kind, "time": storage._aware(r.time)} for r in rows]

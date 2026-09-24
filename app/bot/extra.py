@@ -47,6 +47,27 @@ async def request_approval(update: Update, ctx: ContextTypes.DEFAULT_TYPE, user:
             log.warning("Không báo được admin %s: %s", admin, exc)
 
 
+async def auto_approve_member(bot, chat_id: int) -> bool:
+    """Người đã là thành viên nhóm (nhóm có topic 📰 / 💬 của bot) -> tự duyệt, không cần admin bấm."""
+    groups = {t[0] for t in [await reports.group_target("news"), await reports.group_target("ai")] if t}
+    for g in groups:
+        try:
+            m = await bot.get_chat_member(g, chat_id)
+        except TelegramError:
+            continue
+        if m.status in ("member", "administrator", "creator", "restricted"):
+            await storage.update_user(chat_id, approved=True, banned=False)
+            await storage.kv_set(f"pending:{chat_id}", "")
+            for admin in settings.admin_ids:
+                try:
+                    await bot.send_message(admin, f"✅ Tự duyệt <code>{chat_id}</code> (đã là thành viên nhóm).",
+                                           parse_mode=ParseMode.HTML)
+                except TelegramError:
+                    pass
+            return True
+    return False
+
+
 async def _set_approved(ctx: ContextTypes.DEFAULT_TYPE, chat_id: int, ok: bool) -> None:
     await storage.update_user(chat_id, approved=ok, banned=not ok)
     await storage.kv_set(f"pending:{chat_id}", "")
@@ -205,16 +226,23 @@ async def on_event(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 # ---------------------------------------------------------------- 🤖 hỏi AI
 async def ai_prompt(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     ctx.user_data["await_ai"] = True
-    await _reply(update, "🤖 Gõ câu hỏi về thị trường / tin tức (vd: <i>Tuần này có tin gì quan trọng?</i>, "
-                         "<i>CPI tối nay ảnh hưởng gì tới BTC?</i>).\n"
-                         f"Mỗi người {settings.ai_daily_limit} câu/ngày. AI không đưa ra tín hiệu vào lệnh.")
+    await _reply(update, "🤖 <b>Trợ lý giao dịch</b> — gõ câu hỏi, ví dụ:\n"
+                         "• <i>Lập kế hoạch DCA cho SOL</i> (Spot)\n"
+                         "• <i>Vùng vào lệnh đẹp cho ETH ở đâu?</i>\n"
+                         "• <i>Lệnh đang mở của tôi nên làm gì?</i>\n"
+                         "• Reply vào tin tín hiệu để hỏi về đúng lệnh đó\n\n"
+                         "Mốc giá do bot tính từ dữ liệu Binance, AI chỉ giải thích. Câu hỏi thị trường chung → topic "
+                         f"💬 Hỏi đáp AI của nhóm. {settings.ai_daily_limit} câu/ngày, câu ngoài phạm vi không tính lượt.")
 
 
-async def ai_answer(update: Update, ctx: ContextTypes.DEFAULT_TYPE, question: str) -> None:
+async def ai_answer(update: Update, ctx: ContextTypes.DEFAULT_TYPE, question: str, *, user: dict | None = None,
+                    signal: dict | None = None) -> None:
+    """user != None -> trợ lý giao dịch (chat riêng); None -> trợ lý thị trường (topic nhóm)."""
     msg = update.effective_message
     await ctx.bot.send_chat_action(msg.chat_id, ChatAction.TYPING, message_thread_id=msg.message_thread_id)
-    await msg.reply_text(await assistant.answer(update.effective_user.id, question), parse_mode=ParseMode.HTML,
-                         disable_web_page_preview=True)
+    text = await assistant.answer(update.effective_user.id, question, scope="trade" if user else "market",
+                                  user=user, signal=signal)
+    await msg.reply_text(text, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
 
 
 async def on_why(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
@@ -224,7 +252,8 @@ async def on_why(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     if not sig:
         return
     await ctx.bot.send_chat_action(q.message.chat_id, ChatAction.TYPING)
-    await q.message.reply_text(await assistant.explain_signal(q.from_user.id, sig), parse_mode=ParseMode.HTML)
+    user = await storage.get_user(q.from_user.id)
+    await q.message.reply_text(await assistant.explain_signal(q.from_user.id, sig, user), parse_mode=ParseMode.HTML)
 
 
 async def ai_ping_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
@@ -245,19 +274,16 @@ async def set_target(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     kind = "news" if msg.text.startswith("/set_news") else "ai"
     await storage.kv_set(f"{kind}_target", f"{msg.chat_id}:{msg.message_thread_id}")
     await msg.reply_text("✅ Từ giờ tin tức, lịch sự kiện và cảnh báo thị trường sẽ gửi vào topic này." if kind == "news"
-                         else "✅ Từ giờ bot sẽ trả lời mọi câu hỏi trong topic này bằng AI "
+                         else "✅ Từ giờ bot trả lời câu hỏi về thị trường crypto trong topic này bằng AI "
                               f"({settings.ai_daily_limit} câu/người/ngày).")
 
 
 async def group_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-    """Tin nhắn trong nhóm: chỉ trả lời ở topic Hỏi đáp AI; các topic khác bỏ qua."""
+    """Tin nhắn trong nhóm: chỉ trả lời ở topic Hỏi đáp AI; các topic khác bỏ qua.
+    Thành viên nhóm hỏi được luôn (đã vào nhóm = đã được admin nhóm cho phép)."""
     msg = update.effective_message
     target = await reports.group_target("ai")
     if not target or msg.chat_id != target[0] or msg.message_thread_id != target[1]:
-        return
-    user = await storage.get_user(update.effective_user.id)
-    if settings.private_mode and not is_admin(update.effective_user.id) and not (user and user.get("approved")):
-        await msg.reply_text("⏳ Bạn cần mở chat riêng với bot, bấm Start và được admin duyệt trước.")
         return
     await ai_answer(update, ctx, msg.text)
 
@@ -268,8 +294,8 @@ async def news_dm_toggle(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None
     if not user:
         await q.answer()
         return
-    await storage.update_user(user["chat_id"], news_dm=not user.get("news_dm", True))
-    await q.answer("📰 Đã TẮT tin tức ở chat riêng" if user.get("news_dm", True) else "📰 Đã BẬT tin tức ở chat riêng")
+    await storage.update_user(user["chat_id"], news_dm=not user.get("news_dm", False))
+    await q.answer("📰 Đã TẮT tin tức ở chat riêng" if user.get("news_dm", False) else "📰 Đã BẬT tin tức ở chat riêng")
     from app.bot.handlers import mode_keyboard, mode_text
     user = await storage.get_user(user["chat_id"])
     try:

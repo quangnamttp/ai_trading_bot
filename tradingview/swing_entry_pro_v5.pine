@@ -1,10 +1,11 @@
 //@version=5
-// Swing Entry Pro v5.1 — cùng chiến lược đã backtest 2 năm / 40 coin với bot Telegram.
+// Swing Entry Pro v5.2 — cùng chiến lược đã backtest 2 năm / 40 coin với bot Telegram.
 // • Tín hiệu chỉ xuất hiện khi nến khung tín hiệu ĐÃ ĐÓNG, dữ liệu khung lớn chỉ dùng nến đã đóng -> KHÔNG repaint.
 // • Điểm vào = giá đóng cửa nến tín hiệu. SL theo đáy/đỉnh 24 nến (giới hạn 0.8–2.2 ATR khung xu hướng).
 // • Chốt 50% tại 2R; Trailing Stop (như lệnh sàn) kích hoạt ở +1R, callback = 3 x ATR khung xu hướng (tối đa 10%).
-// • Lọc Open Interest: chỉ vào lệnh khi OI biến động mạnh (dữ liệu OI của TradingView cho hợp đồng Binance).
-indicator("Swing Entry Pro v5.1 — Điểm vào + SL/TP + Trailing (không repaint)", shorttitle="Swing Pro v5.1", overlay=true,
+// • Lọc Open Interest: chỉ vào lệnh khi OI biến động mạnh. OI luôn lấy từ hợp đồng Binance, kể cả khi xem chart
+//   sàn khác (MEXC, OKX...) hoặc cặp USDC — backtest cho thấy thiếu lọc OI là nguyên nhân chính khiến tín hiệu đi ngược sóng.
+indicator("Swing Entry Pro v5.2 — Điểm vào + SL/TP + Trailing (không repaint)", shorttitle="Swing Pro v5.2", overlay=true,
      max_lines_count=300, max_labels_count=300, max_boxes_count=150)
 
 // ============ CÀI ĐẶT ============
@@ -14,6 +15,8 @@ sigTfIn    = input.timeframe("", "Khung tín hiệu (để trống = tự độn
 threshold  = input.int(75, "Ngưỡng điểm", minval=50, maxval=100, group=grpSig, display=display.none)
 useOI      = input.bool(true, "Lọc theo Open Interest (khuyên dùng)", group=grpSig, display=display.none)
 oiMin      = input.float(5.0, "OI biến động tối thiểu (%)", minval=0, step=0.5, group=grpSig, display=display.none)
+oiSymIn    = input.string("", "Mã OI tự nhập (để trống = tự tìm trên Binance)", group=grpSig, display=display.none,
+     tooltip="Ví dụ: BINANCE:1000PEPEUSDT.P_OI. Chỉ cần nhập khi bảng báo không tìm thấy OI.")
 allowShort = input.bool(true, "Cho phép tín hiệu BÁN/SHORT (tắt nếu chỉ giao dịch Spot)", group=grpSig, display=display.none)
 showPrep   = input.bool(true, "Hiện cảnh báo 'Chuẩn bị' (tham khảo, chưa phải tín hiệu)", group=grpSig, display=display.none)
 btcSym     = input.symbol("BINANCE:BTCUSDT.P", "Mã BTC tham chiếu xu hướng", group=grpSig, display=display.none)
@@ -83,9 +86,19 @@ f_btc() =>
 [mC, mE20, mE50, mRsi, mAtr, mAdx, mPdi, mMdi] = request.security(syminfo.tickerid, midTf, f_mid(), lookahead=barmerge.lookahead_on)
 [hC, hE50, hSlope, hHH, hLL] = request.security(syminfo.tickerid, highTf, f_high(), lookahead=barmerge.lookahead_on)
 [bC, bE20, bE50] = request.security(btcSym, midTf, f_btc(), lookahead=barmerge.lookahead_on)
-oiSym = syminfo.prefix + ":" + syminfo.ticker + "_OI"
-oiChg = request.security(oiSym, sigTf, (close[1] / close[1 + oiBars] - 1) * 100, lookahead=barmerge.lookahead_on,
+// OI: ưu tiên mã tự nhập -> hợp đồng Binance cùng coin (BASEUSDT.P, 1000BASEUSDT.P) -> mã của chính chart
+f_oi(sym) => request.security(sym, sigTf, (close[1] / close[1 + oiBars] - 1) * 100, lookahead=barmerge.lookahead_on,
      ignore_invalid_symbol=true)
+oiBase = str.replace_all(syminfo.basecurrency, "1000", "")
+oiSymA = "BINANCE:" + oiBase + "USDT.P_OI"
+oiSymB = "BINANCE:1000" + oiBase + "USDT.P_OI"
+oiSymC = syminfo.prefix + ":" + syminfo.ticker + "_OI"
+oiChgU = f_oi(oiSymIn != "" ? oiSymIn : oiSymA)
+oiChgA = f_oi(oiSymA)
+oiChgB = f_oi(oiSymB)
+oiChgC = f_oi(oiSymC)
+oiChg = oiSymIn != "" ? oiChgU : not na(oiChgA) ? oiChgA : not na(oiChgB) ? oiChgB : oiChgC
+oiSrc = oiSymIn != "" ? oiSymIn : not na(oiChgA) ? oiSymA : not na(oiChgB) ? oiSymB : oiSymC
 oiAvailable = not na(oiChg)
 
 btcTrend = bC > bE50 and bE20 > bE50 ? 1 : bC < bE50 and bE20 < bE50 ? -1 : 0
@@ -297,7 +310,9 @@ alertcondition(prepL or prepS, "Chuẩn bị", "Setup đang hình thành, gần 
 
 // ============ BẢNG THỐNG KÊ ============
 tfName(sec) => sec < 3600 ? str.tostring(sec / 60) + "m" : sec < 86400 ? str.tostring(sec / 3600) + "H" : sec < 604800 ? "1D" : "1W"
-verdict = sigSec == 3600 ? "Dùng được (backtest +0.08R/lệnh)" : sigSec == 14400 ? "Khuyên dùng (backtest +0.31R/lệnh)" :
+oiOn = useOI and oiAvailable
+verdict = sigSec == 3600 ? (oiOn ? "Dùng được (backtest +0.08R/lệnh)" : "Không lọc OI: +0.05R/lệnh, dễ ngược sóng") :
+     sigSec == 14400 ? (oiOn ? "Khuyên dùng (backtest +0.31R/lệnh)" : "Không lọc OI: +0.09R, không ổn định") :
      sigSec == 86400 ? "Chưa đủ dữ liệu kiểm chứng" : "Chưa kiểm chứng — chỉ tham khảo"
 f_pos(p) => p == "Trên trái" ? position.top_left : p == "Dưới phải" ? position.bottom_right : p == "Dưới trái" ? position.bottom_left : position.top_right
 tSize = tableSizeIn == "Rất nhỏ" ? size.tiny : tableSizeIn == "Vừa" ? size.normal : size.small
@@ -308,7 +323,7 @@ if showTable and barstate.islast
     table.cell(tb, 0, 0, "Khung tín hiệu", bgcolor=c1, text_color=color.white, text_size=tSize)
     table.cell(tb, 1, 0, tfName(sigSec) + (sigSec != chartSec ? " (từ khung lớn hơn)" : ""), bgcolor=c2, text_color=color.white, text_size=tSize)
     table.cell(tb, 0, 1, "Đánh giá khung", bgcolor=c1, text_color=color.white, text_size=tSize)
-    table.cell(tb, 1, 1, verdict, bgcolor=c2, text_color=sigSec == 14400 ? color.lime : sigSec == 3600 ? color.yellow : color.orange, text_size=tSize)
+    table.cell(tb, 1, 1, verdict, bgcolor=c2, text_color=not oiOn and sigSec <= 14400 ? color.orange : sigSec == 14400 ? color.lime : sigSec == 3600 ? color.yellow : color.orange, text_size=tSize)
     table.cell(tb, 0, 2, "Lệnh trên chart này", bgcolor=c1, text_color=color.white, text_size=tSize)
     table.cell(tb, 1, 2, str.tostring(nTrades), bgcolor=c2, text_color=color.white, text_size=tSize)
     table.cell(tb, 0, 3, "Có lời", bgcolor=c1, text_color=color.white, text_size=tSize)
@@ -319,11 +334,11 @@ if showTable and barstate.islast
     table.cell(tb, 0, 5, "Sụt giảm tối đa", bgcolor=c1, text_color=color.white, text_size=tSize)
     table.cell(tb, 1, 5, str.tostring(maxDD, "#.#") + "R", bgcolor=c2, text_color=color.white, text_size=tSize)
     table.cell(tb, 0, 6, "Dữ liệu OI", bgcolor=c1, text_color=color.white, text_size=tSize)
-    table.cell(tb, 1, 6, oiAvailable ? "Có · " + str.tostring(oiChg, "+#.#;-#.#") + "% (" + str.tostring(oiHours) + "h)" : "Không có — bỏ qua lọc OI",
+    table.cell(tb, 1, 6, oiAvailable ? str.tostring(oiChg, "+#.#;-#.#") + "% (" + str.tostring(oiHours) + "h) · " + str.replace_all(oiSrc, "_OI", "") : "Không có — bỏ qua lọc OI",
          bgcolor=c2, text_color=oiAvailable ? color.white : color.orange, text_size=tSize)
     if not oiAvailable
         table.cell(tb, 0, 8, "Gợi ý", bgcolor=c1, text_color=color.white, text_size=tSize)
-        table.cell(tb, 1, 8, "Mở mã BINANCE:" + str.replace_all(syminfo.ticker, ".P", "") + ".P để có dữ liệu OI (lọc OI giúp tín hiệu tốt hơn)",
+        table.cell(tb, 1, 8, "Không tìm thấy OI Binance cho " + oiBase + ". Vào Cài đặt → nhập mã OI, vd BINANCE:1000" + oiBase + "USDT.P_OI",
              bgcolor=c2, text_color=color.orange, text_size=tSize)
     table.cell(tb, 0, 7, "Lệnh hiện tại", bgcolor=c1, text_color=color.white, text_size=tSize)
     table.cell(tb, 1, 7, tSide == 0 ? "Không có" : (tSide > 0 ? "MUA" : "BÁN") + " từ " + f_fmt(tEntry) + (tArmed ? " · trailing ON" : ""),

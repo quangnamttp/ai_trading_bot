@@ -20,7 +20,7 @@ users = sa.Table(
     sa.Column("risk_pct", sa.Float, nullable=False, server_default="0.5"),
     sa.Column("style", sa.String(8), nullable=False, server_default="both"),  # short | long | both
     sa.Column("coin_mode", sa.String(8), nullable=False, server_default="top"),  # top | mine | both
-    sa.Column("news_dm", sa.Boolean, nullable=False, server_default=sa.true()),  # nhận tin tức ở chat riêng
+    sa.Column("news_dm", sa.Boolean, nullable=False, server_default=sa.false()),  # nhận tin tức ở chat riêng
     sa.Column("approved", sa.Boolean, nullable=False, server_default=sa.true()),  # người cũ tự được duyệt
     sa.Column("full_name", sa.String(128)),
     sa.Column("subscribed", sa.Boolean, nullable=False, server_default=sa.true()),
@@ -139,6 +139,11 @@ async def init() -> None:
     async with engine().begin() as conn:
         await conn.run_sync(meta.create_all)
         await conn.run_sync(_add_missing_columns)
+    # v3.3: tin tức mặc định chỉ gửi vào topic 📰 của nhóm -> tắt tin tức ở chat riêng 1 lần cho người dùng cũ
+    if not await kv_get("migr:news_dm_off"):
+        async with engine().begin() as c:
+            await c.execute(users.update().values(news_dm=False))
+        await kv_set("migr:news_dm_off", "1")
 
 
 def now() -> datetime:
@@ -184,7 +189,7 @@ async def upsert_user(chat_id: int, username: str | None, full_name: str | None 
             approved = (not settings.private_mode) or chat_id in settings.admin_ids
             await c.execute(users.insert().values(chat_id=chat_id, username=username, mode="futures",
                                                   risk_pct=settings.default_risk_pct, subscribed=True,
-                                                  banned=False, approved=approved, created_at=now()))
+                                                  banned=False, approved=approved, news_dm=False, created_at=now()))
             row = (await c.execute(sa.select(users).where(users.c.chat_id == chat_id))).first()
         elif (username and row.username != username) or (full_name and row.full_name != full_name):
             await c.execute(users.update().where(users.c.chat_id == chat_id)
@@ -368,3 +373,18 @@ async def kv_incr(key: str) -> int:
     n = int(await kv_get(key) or 0) + 1
     await kv_set(key, str(n))
     return n
+
+
+async def signal_by_message(chat_id: int, message_id: int) -> dict | None:
+    """Tín hiệu ứng với tin nhắn bot đã gửi (để trả lời khi người dùng reply vào tín hiệu)."""
+    q = (sa.select(signals).join(signal_messages, signal_messages.c.signal_id == signals.c.id)
+         .where(signal_messages.c.chat_id == chat_id, signal_messages.c.message_id == message_id))
+    async with engine().connect() as c:
+        row = (await c.execute(q)).first()
+    return _row(row) if row else None
+
+
+async def kv_decr(key: str) -> None:
+    n = int(await kv_get(key) or 0)
+    if n > 0:
+        await kv_set(key, str(n - 1))

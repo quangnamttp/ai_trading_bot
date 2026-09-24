@@ -1,11 +1,13 @@
 //@version=5
-// Volume Profile Pro v3.1 — công cụ VÙNG GIÁ đi kèm Swing Entry Pro v5.
+// Volume Profile Pro v3.2 — công cụ VÙNG GIÁ đi kèm Swing Entry Pro v5.
 // • POC / VAH / VAL (cuộn 150 nến + theo phiên) và POC chưa bị chạm (naked POC) = các mốc giá biết TRƯỚC khi giá tới:
 //   dùng để đặt lệnh chờ, chốt lời (Swing Pro v5 dùng cùng công thức để đặt TP2).
 // • Dấu VP★ (nến đảo chiều tại POC/VAL/VAH) mặc định TẮT: backtest 2 năm / 20 coin cho thấy dùng riêng bị lỗ
 //   (-0.06 đến -0.23R/lệnh). Chỉ bật để tham khảo.
 // • Không repaint: mọi tín hiệu chỉ xác nhận khi nến đóng.
-indicator("Volume Profile Pro v3.1 - POC + Value Area + Phiên + Naked POC", overlay=true, max_boxes_count=250, max_lines_count=100, max_labels_count=100)
+// • v3.2: POC/VAH/VAL của TUẦN TRƯỚC và THÁNG TRƯỚC, chế độ "chỉ vẽ đường" (gọn chart), cảnh báo khi giá chạm
+//   POC / VAH / VAL / POC trinh (tạo alert → chọn "Any alert() function call").
+indicator("Volume Profile Pro v3.2 - POC + Value Area + Tuần/Tháng + Naked POC", overlay=true, max_boxes_count=250, max_lines_count=100, max_labels_count=100)
 
 // ============ NHÓM: CHẾ ĐỘ HIỂN THỊ ============
 grpMode = "Chế độ hiển thị"
@@ -13,6 +15,12 @@ showRolling = input.bool(true, "Hiện Volume Profile Cuộn (Rolling)", group=g
 showSessionIn = input.bool(true, "Hiện Volume Profile Theo Phiên (tự ẩn trên khung 4H trở lên)", group=grpMode, display=display.none)
 tablePosIn = input.string("Dưới phải", "Vị trí bảng", options=["Trên phải", "Trên trái", "Dưới phải", "Dưới trái"], group=grpMode, display=display.none)
 tableSizeIn = input.string("Nhỏ", "Cỡ chữ bảng", options=["Rất nhỏ", "Nhỏ", "Vừa"], group=grpMode, display=display.none)
+linesOnly  = input.bool(false, "Chỉ vẽ đường (ẩn histogram cho chart gọn)", group=grpMode, display=display.none)
+showWeekly = input.bool(true, "Hiện POC / VAH / VAL tuần trước", group=grpMode, display=display.none)
+showMonthly = input.bool(true, "Hiện POC / VAH / VAL tháng trước", group=grpMode, display=display.none)
+alertRoll  = input.bool(true, "Cảnh báo khi giá chạm POC / VAH / VAL (cuộn)", group=grpMode, display=display.none)
+alertHTF   = input.bool(true, "Cảnh báo khi giá chạm mốc tuần / tháng trước", group=grpMode, display=display.none)
+alertNaked = input.bool(true, "Cảnh báo khi giá chạm POC trinh", group=grpMode, display=display.none)
 chartSecVP = timeframe.in_seconds(timeframe.period)
 // Phiên Á/Âu/Mỹ chỉ có ý nghĩa trên khung nhỏ hơn 4H (khung lớn: 1 nến đã dài hơn cả phiên)
 showSession = showSessionIn and chartSecVP < 14400
@@ -262,13 +270,46 @@ if newDay and barsSinceDayStart[1] >= 5
     if array.size(nakedPOCs) > maxNakedTrack
         array.shift(nakedPOCs)
 
+float nakedHit = na
 if array.size(nakedPOCs) > 0
     chkIdx = array.size(nakedPOCs) - 1
     while chkIdx >= 0
         lvl = array.get(nakedPOCs, chkIdx)
         if low <= lvl and high >= lvl
+            nakedHit := lvl
             array.remove(nakedPOCs, chkIdx)
         chkIdx -= 1
+
+// ============ PROFILE TUẦN TRƯỚC / THÁNG TRƯỚC (tính 1 lần khi kỳ mới bắt đầu) ============
+f_periodVA(barsInPeriod) =>
+    n = math.min(barsInPeriod, 1500)
+    [bB, sB, pHi, pLo, pStep] = f_buildProfile(1, n, rollBins, 0.0)
+    comb = f_combineArr(bB, sB)
+    [pPoc, pVah, pVal, m1, t1, i1, l1, h1] = f_pocVA(comb, pLo, pStep, vaPercent)
+    [pPoc, pVah, pVal]
+
+newWeek = ta.change(time("W")) != 0
+newMonth = ta.change(time("M")) != 0
+var int barsInWeek = 0
+var int barsInMonth = 0
+barsInWeek := newWeek ? 0 : barsInWeek + 1
+barsInMonth := newMonth ? 0 : barsInMonth + 1
+var float wPOC = na
+var float wVAH = na
+var float wVAL = na
+var float mPOC = na
+var float mVAH = na
+var float mVAL = na
+if newWeek and barsInWeek[1] >= 2 and chartSecVP < 604800
+    [a1, b1, c1] = f_periodVA(barsInWeek[1] + 1)
+    wPOC := a1
+    wVAH := b1
+    wVAL := c1
+if newMonth and barsInMonth[1] >= 2 and chartSecVP < 2592000
+    [a2, b2, c2] = f_periodVA(barsInMonth[1] + 1)
+    mPOC := a2
+    mVAH := b2
+    mVAL := c2
 
 // ============ VẼ CHÍNH - NEO CỐ ĐỊNH VÀO ĐẦU VÙNG NHÌN LẠI (giống chuẩn tham khảo, đơn giản, ổn định) ============
 if barstate.islast
@@ -299,12 +340,17 @@ if barstate.islast
             sellLen = maxVolR > 0 ? math.round(sellV * maxExtend / maxVolR) : 0
             topLvl = loR + (x + 1) * binSizeR
             botLvl = loR + x * binSizeR
-            bxBuy = box.new(rollAnchor, topLvl, rollAnchor + int(buyLen), botLvl, border_width=1, border_color=color.new(color.black, 10), bgcolor=inVA ? vup_color : up_color)
-            bxSell = box.new(rollAnchor + int(buyLen), topLvl, rollAnchor + int(buyLen) + int(sellLen), botLvl, border_width=1, border_color=color.new(color.black, 10), bgcolor=inVA ? vdown_color : down_color)
-            array.push(rollBoxes, bxBuy)
-            array.push(rollBoxes, bxSell)
+            if not linesOnly
+                bxBuy = box.new(rollAnchor, topLvl, rollAnchor + int(buyLen), botLvl, border_width=1, border_color=color.new(color.black, 10), bgcolor=inVA ? vup_color : up_color)
+                bxSell = box.new(rollAnchor + int(buyLen), topLvl, rollAnchor + int(buyLen) + int(sellLen), botLvl, border_width=1, border_color=color.new(color.black, 10), bgcolor=inVA ? vdown_color : down_color)
+                array.push(rollBoxes, bxBuy)
+                array.push(rollBoxes, bxSell)
         pocLine = line.new(rollAnchor, rollPOC, rollAnchor + 1, rollPOC, extend=extend.right, color=poc_color, width=2)
         array.push(rollLines, pocLine)
+        array.push(rollLines, line.new(rollAnchor, rollVAH, rollAnchor + 1, rollVAH, extend=extend.right, color=color.new(color.blue, 20), style=line.style_dashed, width=1))
+        array.push(rollLines, line.new(rollAnchor, rollVAL, rollAnchor + 1, rollVAL, extend=extend.right, color=color.new(color.orange, 20), style=line.style_dashed, width=1))
+        array.push(rollLbls, label.new(bar_index + 8, rollVAH, "VAH " + f_fmt(rollVAH), style=label.style_label_left, color=color.new(color.blue, 40), textcolor=color.white, size=size.tiny))
+        array.push(rollLbls, label.new(bar_index + 8, rollVAL, "VAL " + f_fmt(rollVAL), style=label.style_label_left, color=color.new(color.orange, 40), textcolor=color.white, size=size.tiny))
         pocLbl = label.new(bar_index + 8, rollPOC, "POC: " + f_fmt(rollPOC), style=close >= rollPOC ? label.style_label_up : label.style_label_down, color=poc_color, textcolor=color.white, size=size.normal)
         array.push(rollLbls, pocLbl)
 
@@ -347,14 +393,33 @@ if barstate.islast
             sellLen = maxVolS > 0 ? math.round(sellV * maxExtendS / maxVolS) : 0
             topLvl = loS + (x + 1) * binSizeS
             botLvl = loS + x * binSizeS
-            bxBuy2 = box.new(sessAnchor, topLvl, sessAnchor + int(buyLen), botLvl, border_width=1, border_color=color.new(color.black, 10), bgcolor=inVA ? color.new(#00BFA5, 30) : color.new(#00BFA5, 75))
-            bxSell2 = box.new(sessAnchor + int(buyLen), topLvl, sessAnchor + int(buyLen) + int(sellLen), botLvl, border_width=1, border_color=color.new(color.black, 10), bgcolor=inVA ? color.new(#D500F9, 30) : color.new(#D500F9, 75))
-            array.push(sessBoxes, bxBuy2)
-            array.push(sessBoxes, bxSell2)
+            if not linesOnly
+                bxBuy2 = box.new(sessAnchor, topLvl, sessAnchor + int(buyLen), botLvl, border_width=1, border_color=color.new(color.black, 10), bgcolor=inVA ? color.new(#00BFA5, 30) : color.new(#00BFA5, 75))
+                bxSell2 = box.new(sessAnchor + int(buyLen), topLvl, sessAnchor + int(buyLen) + int(sellLen), botLvl, border_width=1, border_color=color.new(color.black, 10), bgcolor=inVA ? color.new(#D500F9, 30) : color.new(#D500F9, 75))
+                array.push(sessBoxes, bxBuy2)
+                array.push(sessBoxes, bxSell2)
         pocLine2 = line.new(sessAnchor, sessPOC, sessAnchor + 1, sessPOC, extend=extend.right, color=color.new(#FFD600, 0), width=1)
         array.push(sessLines, pocLine2)
         pocLbl2 = label.new(sessAnchor - 2, sessPOC, "POC Phiên: " + f_fmt(sessPOC), style=label.style_label_left, color=color.new(#FFD600, 15), textcolor=color.black, size=size.small)
         array.push(sessLbls, pocLbl2)
+
+    // ---- MỐC TUẦN TRƯỚC / THÁNG TRƯỚC ----
+    if showWeekly and not na(wPOC)
+        wCol = color.new(#2962FF, 10)
+        array.push(rollLines, line.new(bar_index - 40, wPOC, bar_index + 12, wPOC, color=wCol, width=2))
+        array.push(rollLines, line.new(bar_index - 40, wVAH, bar_index + 12, wVAH, color=wCol, style=line.style_dotted, width=1))
+        array.push(rollLines, line.new(bar_index - 40, wVAL, bar_index + 12, wVAL, color=wCol, style=line.style_dotted, width=1))
+        array.push(rollLbls, label.new(bar_index + 12, wPOC, "POC tuần trước " + f_fmt(wPOC), style=label.style_label_left, color=wCol, textcolor=color.white, size=size.tiny))
+        array.push(rollLbls, label.new(bar_index + 12, wVAH, "VAH tuần", style=label.style_label_left, color=color.new(wCol, 40), textcolor=color.white, size=size.tiny))
+        array.push(rollLbls, label.new(bar_index + 12, wVAL, "VAL tuần", style=label.style_label_left, color=color.new(wCol, 40), textcolor=color.white, size=size.tiny))
+    if showMonthly and not na(mPOC)
+        mCol = color.new(#AA00FF, 10)
+        array.push(rollLines, line.new(bar_index - 60, mPOC, bar_index + 20, mPOC, color=mCol, width=2))
+        array.push(rollLines, line.new(bar_index - 60, mVAH, bar_index + 20, mVAH, color=mCol, style=line.style_dotted, width=1))
+        array.push(rollLines, line.new(bar_index - 60, mVAL, bar_index + 20, mVAL, color=mCol, style=line.style_dotted, width=1))
+        array.push(rollLbls, label.new(bar_index + 20, mPOC, "POC tháng trước " + f_fmt(mPOC), style=label.style_label_left, color=mCol, textcolor=color.white, size=size.tiny))
+        array.push(rollLbls, label.new(bar_index + 20, mVAH, "VAH tháng", style=label.style_label_left, color=color.new(mCol, 40), textcolor=color.white, size=size.tiny))
+        array.push(rollLbls, label.new(bar_index + 20, mVAL, "VAL tháng", style=label.style_label_left, color=color.new(mCol, 40), textcolor=color.white, size=size.tiny))
 
     // ---- VẼ CÁC POC TRINH CÒN LẠI (CHƯA BỊ CHẠM) ----
     if showNaked and array.size(nakedPOCs) > 0
@@ -442,7 +507,7 @@ if showEntry and showSLTP_VP and bearZone
 // ============ BẢNG THÔNG TIN ============
 f_posVP(p) => p == "Trên trái" ? position.top_left : p == "Trên phải" ? position.top_right : p == "Dưới trái" ? position.bottom_left : position.bottom_right
 tSizeVP = tableSizeIn == "Rất nhỏ" ? size.tiny : tableSizeIn == "Vừa" ? size.normal : size.small
-var table vpInfo = table.new(f_posVP(tablePosIn), 2, 5, border_width=1)
+var table vpInfo = table.new(f_posVP(tablePosIn), 2, 7, border_width=1)
 if barstate.islast
     table.cell(vpInfo, 0, 0, "POC (Cuộn)", bgcolor=color.gray, text_color=color.white, text_size=tSizeVP)
     table.cell(vpInfo, 1, 0, na(rollPOC) ? "—" : f_fmt(rollPOC), bgcolor=color.new(color.gray, 20), text_color=color.white, text_size=tSizeVP)
@@ -454,7 +519,44 @@ if barstate.islast
     table.cell(vpInfo, 1, 3, (na(sessVAL) ? "—" : f_fmt(sessVAL)) + " - " + (na(sessVAH) ? "—" : f_fmt(sessVAH)), bgcolor=color.new(color.fuchsia, 50), text_color=color.white, text_size=tSizeVP)
     table.cell(vpInfo, 0, 4, nakedTf == "W" ? "POC Trinh (tuần) còn lại" : "POC Trinh (ngày) còn lại", bgcolor=color.gray, text_color=color.white, text_size=tSizeVP)
     table.cell(vpInfo, 1, 4, str.tostring(array.size(nakedPOCs)), bgcolor=color.new(#FF1744, 40), text_color=color.white, text_size=tSizeVP)
+    table.cell(vpInfo, 0, 5, "POC tuần trước", bgcolor=color.gray, text_color=color.white, text_size=tSizeVP)
+    table.cell(vpInfo, 1, 5, na(wPOC) ? "—" : f_fmt(wPOC) + " (" + f_fmt(wVAL) + " - " + f_fmt(wVAH) + ")", bgcolor=color.new(#2962FF, 40), text_color=color.white, text_size=tSizeVP)
+    table.cell(vpInfo, 0, 6, "POC tháng trước", bgcolor=color.gray, text_color=color.white, text_size=tSizeVP)
+    table.cell(vpInfo, 1, 6, na(mPOC) ? "—" : f_fmt(mPOC) + " (" + f_fmt(mVAL) + " - " + f_fmt(mVAH) + ")", bgcolor=color.new(#AA00FF, 40), text_color=color.white, text_size=tSizeVP)
 
 // ============ ALERT ============
 alertcondition(bullZone, "Vùng Volume Profile - MUA", "Giá chạm vùng volume mạnh (POC/VAL) + nến đảo chiều + volume xác nhận")
 alertcondition(bearZone, "Vùng Volume Profile - BÁN", "Giá chạm vùng volume mạnh (POC/VAH) + nến đảo chiều + volume xác nhận")
+
+// ============ CẢNH BÁO CHẠM MỐC (v3.2) ============
+// "Chạm" = nến vừa đóng có râu/thân đi qua mốc, nến trước đó chưa chạm (tránh báo lặp khi giá đi ngang quanh mốc).
+f_touch(lvl) => not na(lvl) and low <= lvl and high >= lvl and not (low[1] <= lvl and high[1] >= lvl)
+f_add(msg, cond, name, lvl) => cond ? msg + (msg == "" ? "" : " · ") + name + " " + f_fmt(lvl) : msg
+
+// tính ở mọi nến (không đặt trong if) để phép so sánh với nến trước luôn đúng
+tPOC = alertRoll and f_touch(rollPOC)
+tVAH = alertRoll and f_touch(rollVAH)
+tVAL = alertRoll and f_touch(rollVAL)
+tWP = alertHTF and showWeekly and f_touch(wPOC)
+tWH = alertHTF and showWeekly and f_touch(wVAH)
+tWL = alertHTF and showWeekly and f_touch(wVAL)
+tMP = alertHTF and showMonthly and f_touch(mPOC)
+tMH = alertHTF and showMonthly and f_touch(mVAH)
+tML = alertHTF and showMonthly and f_touch(mVAL)
+tNk = alertNaked and not na(nakedHit)
+string touchMsg = ""
+touchMsg := f_add(touchMsg, tPOC, "POC", rollPOC)
+touchMsg := f_add(touchMsg, tVAH, "VAH", rollVAH)
+touchMsg := f_add(touchMsg, tVAL, "VAL", rollVAL)
+touchMsg := f_add(touchMsg, tWP, "POC tuần trước", wPOC)
+touchMsg := f_add(touchMsg, tWH, "VAH tuần trước", wVAH)
+touchMsg := f_add(touchMsg, tWL, "VAL tuần trước", wVAL)
+touchMsg := f_add(touchMsg, tMP, "POC tháng trước", mPOC)
+touchMsg := f_add(touchMsg, tMH, "VAH tháng trước", mVAH)
+touchMsg := f_add(touchMsg, tML, "VAL tháng trước", mVAL)
+touchMsg := f_add(touchMsg, tNk, "POC trinh", nakedHit)
+if barstate.isconfirmed
+    if touchMsg != ""
+        alert(syminfo.ticker + " " + timeframe.period + ": giá chạm " + touchMsg + " — giá hiện tại " + f_fmt(close) +
+             ". Mốc Volume Profile hay có phản ứng; chờ tín hiệu Swing Pro / nến xác nhận trước khi vào lệnh.", alert.freq_once_per_bar_close)
+alertcondition(touchMsg != "", "Giá chạm mốc Volume Profile", "Giá chạm POC / VAH / VAL / POC trinh / mốc tuần-tháng")

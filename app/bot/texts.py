@@ -147,12 +147,17 @@ Hạng A = đạt chuẩn · Hạng B = chuẩn thấp hơn, chỉ gửi sau 15h
 Bấm 📌 cho coin đang giữ (Spot) → bot cảnh báo khi xu hướng đổi chiều, thủng vùng giá, OI/funding bất thường, tin xấu.
 
 <b>Lịch tự động</b>: 07:00 thị trường 24h + tin trong ngày (thứ 2: lịch cả tuần) · 15:05 danh sách theo dõi
-(nếu chưa có tín hiệu) · 22:00 tổng kết lời/lỗ · chủ nhật 22:05 tổng kết tuần.
-Cảnh báo: tin vĩ mô sắp ra, BTC chạy mạnh, funding cực đoan, tin xấu về coin đang có lệnh.
-Tin tức cũng gửi vào topic 📰 của nhóm — ai đã vào nhóm có thể tắt tin tức ở chat riêng trong ⚙️.
+(nếu chưa có tín hiệu) · 22:00 tổng kết lời/lỗ · chủ nhật 20:00 tổng kết thị trường tuần, 22:05 tổng kết lệnh tuần.
 
-<b>🤖 Hỏi AI</b>: hỏi về tin tức, lịch sự kiện, thị trường (20 câu/ngày). Nút 🧠 dưới tín hiệu giải thích
-vì sao bot vào lệnh. AI chỉ giải thích — không tạo tín hiệu.
+<b>📰 Topic Tin tức</b> (nhóm): tin vĩ mô Mỹ báo 4 lần — trước 1 giờ (tin là gì, cao/thấp hơn dự báo thì tốt/xấu,
+thống kê BTC), lúc ra tin, 15 phút sau và 1 giờ sau (BTC/ETH phản ứng thật + kịch bản). Muốn nhận cả ở chat riêng:
+bật trong ⚙️.
+
+<b>🤖 Hỏi AI</b> (20 câu/ngày, câu ngoài phạm vi không tính lượt):
+• Chat riêng với bot = trợ lý giao dịch: <i>Lập kế hoạch DCA cho SOL</i>, <i>Vùng vào lệnh ETH?</i>, hỏi về lệnh đang
+mở, hoặc reply vào tin tín hiệu để hỏi về đúng lệnh đó. Mốc giá do bot tính, AI chỉ giải thích.
+• Topic 💬 Hỏi đáp của nhóm = trợ lý thị trường: tin tức, lịch sự kiện, mọi coin.
+AI không tạo tín hiệu; kế hoạch DCA là tham khảo, chưa được backtest như tín hiệu.
 
 <b>Trung thực về rủi ro</b>
 Backtest 2 năm / 40 coin: khoảng 43% lệnh có lời, trung bình +0.2R/lệnh, chuỗi sụt giảm tệ nhất khoảng 16R

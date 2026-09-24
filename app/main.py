@@ -78,6 +78,11 @@ async def job_holdings(ctx: ContextTypes.DEFAULT_TYPE) -> None:
     await _safe("holdings", reports.holdings_watch(ctx.bot))
 
 
+async def job_weekly_market(ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    if datetime.now(VN_TZ).weekday() == 6:  # chủ nhật: tổng kết thị trường tuần vào topic 📰
+        await _safe("weekly_market", reports.weekly_market(ctx.bot))
+
+
 async def job_weekly(ctx: ContextTypes.DEFAULT_TYPE) -> None:
     if datetime.now(VN_TZ).weekday() == 6:  # chủ nhật
         await _safe("weekly", reports.weekly_report(ctx.bot))
@@ -90,11 +95,12 @@ def schedule(app: Application) -> None:
     jq.run_repeating(job_scan, interval=3600, first=next_scan, name="scan")
     jq.run_repeating(job_track, interval=300, first=30, name="track")
     jq.run_repeating(job_news, interval=900, first=120, name="news")
-    jq.run_repeating(job_macro, interval=600, first=60, name="macro")
+    jq.run_repeating(job_macro, interval=300, first=60, name="macro")
     jq.run_repeating(job_health, interval=1800, first=600, name="health")
     jq.run_daily(job_morning, time=time(7, 0, tzinfo=VN_TZ), name="morning")
     jq.run_daily(job_watch, time=time(settings.watch_report_hour, 5, tzinfo=VN_TZ), name="watch")
     jq.run_daily(job_evening, time=time(settings.quiet_start, 0, tzinfo=VN_TZ), name="evening")
+    jq.run_daily(job_weekly_market, time=time(20, 0, tzinfo=VN_TZ), name="weekly_market")
     jq.run_daily(job_weekly, time=time(settings.quiet_start, 5, tzinfo=VN_TZ), name="weekly")
     jq.run_repeating(job_alerts, interval=900, first=180, name="alerts")
     jq.run_repeating(job_holdings, interval=3600, first=next_scan + timedelta(minutes=4), name="holdings")

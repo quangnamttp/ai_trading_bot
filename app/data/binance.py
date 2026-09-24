@@ -224,3 +224,15 @@ async def oi_change_24h(symbol: str) -> tuple[float, float] | None:
     except Exception as exc:  # noqa: BLE001
         log.debug("OI %s: %s", symbol, exc)
         return None
+
+
+async def oi_change(symbol: str, period: str = "1d", bars: int = 7) -> float | None:
+    """% thay đổi OI (giá trị USD) sau `bars` kỳ `period` (Binance giữ tối đa 30 ngày)."""
+    try:
+        rows = await get_json(f"{FAPI[0]}/futures/data/openInterestHist",
+                              {"symbol": symbol, "period": period, "limit": bars + 1}, ttl=1800)
+        first, last = float(rows[0]["sumOpenInterestValue"]), float(rows[-1]["sumOpenInterestValue"])
+        return (last - first) / first if first else None
+    except Exception as exc:  # noqa: BLE001
+        log.debug("OI %s: %s", symbol, exc)
+        return None
