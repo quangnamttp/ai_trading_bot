@@ -256,8 +256,9 @@ async def on_coin(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 # ---------------------------------------------------------------- 📅 lịch sự kiện
 async def calendar_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     from app import events
-    evs = await events.week_events()
-    text, markup = reports.calendar_message(evs, "📅 <b>Lịch sự kiện kinh tế Mỹ tuần này</b>")
+    from datetime import datetime, timedelta, timezone
+    evs = [e for e in await events.week_events() if e["time"] >= datetime.now(timezone.utc) - timedelta(hours=2)]
+    text, markup = reports.calendar_message(evs, "📅 <b>Lịch sự kiện kinh tế Mỹ sắp tới (tuần này)</b>")
     await _reply(update, text, reply_markup=markup)
 
 

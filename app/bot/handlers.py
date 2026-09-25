@@ -100,6 +100,7 @@ def normalize_symbol(text: str) -> str:
 async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     user = await _user(update, allow_pending=True)
     if not user:
+        await _reply(update, "⛔ Tài khoản này không dùng được bot.")
         return
     if not user.get("approved", True) and not is_admin(user["chat_id"]):
         if await extra.auto_approve_member(ctx.bot, user["chat_id"]):
@@ -221,8 +222,7 @@ async def open_signals(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     if not user:
         return
     got = {s["id"] for s in await storage.user_signals(user["chat_id"], 45)}
-    sigs = [s for s in await storage.open_signals()
-            if (s.get("source") != "ind" and service.receives(user, s)) or s["id"] in got]
+    sigs = [s for s in await storage.open_signals() if s["id"] in got]  # chỉ lệnh bot đã gửi cho người này
     if not sigs:
         await _reply(update, "📊 Hiện không có lệnh nào đang chạy.")
         return
@@ -372,10 +372,8 @@ async def on_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     elif (reply := update.effective_message.reply_to_message) and (
             sig := await storage.signal_by_message(user["chat_id"], reply.message_id)):
         await extra.ai_answer(update, ctx, text, user=user, signal=sig)
-    elif extra.assistant.ai.enabled():
-        await extra.ai_answer(update, ctx, text, user=user, kind=ctx.user_data.pop("await_ai", None) or "personal")
     else:
-        await _reply(update, "Chọn chức năng trong menu bên dưới 👇", reply_markup=menu(user))
+        await extra.ai_answer(update, ctx, text, user=user, kind=ctx.user_data.pop("await_ai", None) or "personal")
 
 
 async def analyze_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:

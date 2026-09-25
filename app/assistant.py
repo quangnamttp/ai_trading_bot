@@ -153,7 +153,9 @@ def _signal_lines(s: dict) -> str:
         extra.append("đã chốt 50% ở TP1")
     reasons = _reasons(s)
     return (f"Tín hiệu #{s['id']} {s['display']} {side} (swing {'ngắn' if s.get('style') == 'short' else 'dài'}, "
-            f"trạng thái {s['status']}): vào {s['entry']:.6g}, SL ban đầu {s['sl']:.6g}, TP1 {s['tp1']:.6g}, điểm "
+            f"trạng thái {s['status']}): vào {s['entry']:.6g}, SL ban đầu {s['sl']:.6g}, "
+            f"{'TP1 (chốt 50%)' if st.get('partials') else 'mục tiêu tham khảo 2R (không chốt cố định, trailing chốt lời)'} "
+            f"{s['tp1']:.6g}, điểm "
             f"{s['score']:.0f}/100" + (f", {', '.join(extra)}" if extra else "")
             + (f". Lý do bot: {'; '.join(reasons)}" if reasons else ""))
 
@@ -170,7 +172,10 @@ async def signal_context(s: dict) -> str:
         lines.append(f"- Giá hiện tại {px:.6g} → đang {'LỜI' if r_now >= 0 else 'LỖ'} {r_now:+.2f}R")
         if r_now < 0:
             lines.append(f"- Về bờ (hòa vốn) khi giá quay lại {s['entry']:.6g}, cách {abs(s['entry'] / px - 1):.2%}")
-        lines.append(f"- Cách SL {stop:.6g}: {abs(stop / px - 1):.2%} · cách TP1 {s['tp1']:.6g}: {abs(s['tp1'] / px - 1):.2%}")
+        tgt = "TP1" if st.get("partials") else "mục tiêu 2R"
+        lines.append(f"- Cách SL {stop:.6g}: {abs(stop / px - 1):.2%} · cách {tgt} {s['tp1']:.6g}: {abs(s['tp1'] / px - 1):.2%}")
+        if not st.get("be_done"):
+            lines.append(f"- Trailing stop kích hoạt khi giá tới {s['entry'] + s['side'] * abs(s['entry'] - s['sl']):.6g} (+1R)")
         lines.append(f"- Lãi lớn nhất lệnh từng đạt: {st.get('max_r', 0):+.2f}R")
     except Exception as exc:  # noqa: BLE001
         log.debug("signal ctx: %s", exc)
@@ -319,6 +324,17 @@ async def answer_personal(user: dict, question: str, signal: dict | None = None)
     if not open_:
         return NO_SIGNAL.format(coins="Hiện bạn chưa có lệnh nào đang mở. "), [market_button()]
     if len(open_) > 1:
+        # nhiều lệnh mở, câu hỏi không nêu coin: AI xem tất cả lệnh (vẫn từ chối câu ngoài chủ đề);
+        # AI không trả lời được -> cho chọn lệnh bằng nút
+        ctx = "\n\n".join([await signal_context(s) for s in open_[:4]] + ["\n".join(await _brief_market())])
+        text, _ = await ai.ask(question, ctx, "futures")
+        if text == ai.OUT_OF_SCOPE:
+            return OUT_TEXT, []
+        if text == ai.OTHER_PLACE:
+            return TO_MARKET, [market_button()]
+        if text:
+            await _consume(uid)
+            return f"🤖 {escape(text)}{FOOTER}", []
         return PICK_SIGNAL, [(f"{'🟢' if s['side'] > 0 else '🔴'} {s['display']} #{s['id']}", f"aisig:{s['id']}")
                              for s in open_[:8]]
     return await answer_personal(user, question, open_[0])

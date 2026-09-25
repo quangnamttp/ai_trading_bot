@@ -143,7 +143,7 @@ def close_summary(sig: dict, trade, *, risk_pct: float, hours: float, btc_chg: f
     lesson = []
     against = btc_chg is not None and btc_chg * sig["side"] < -0.02
     if r > 0.05:
-        lesson.append("Lệnh đi đúng hướng; chốt 50% ở TP1 và để trailing chạy là đúng quy tắc.")
+        lesson.append("Lệnh đi đúng hướng; để trailing stop chốt lời là đúng quy tắc.")
     elif trade.outcome == "TIMEOUT":
         lesson.append("Giá đi ngang quá lâu — bot đóng để giải phóng vốn cho cơ hội khác.")
     elif trade.max_r >= 1:
@@ -187,9 +187,9 @@ Hạng A = đạt chuẩn · Hạng B = chuẩn thấp hơn, chỉ gửi sau 15h
 <b>Cách vào lệnh</b> (đặt 1 lần trên sàn là xong)
 1. Vào ngay theo giá thị trường. Không vào nếu giá đã vượt mức "Không vào".
 2. Đặt <b>SL</b> ngay. Khối lượng theo gợi ý để mỗi lệnh chỉ mất tối đa % vốn đã chọn.
-3. Đặt lệnh chốt <b>50% tại TP1</b>.
-4. Đặt <b>Trailing Stop</b> cho cả lệnh: giá kích hoạt và callback % có trong tin nhắn.
-   Sàn không có Trailing Stop: khi giá tới mức kích hoạt thì tự dời SL về giá vào.
+3. Đặt <b>Trailing Stop</b> cho cả lệnh: giá kích hoạt (+1R) và callback % có trong tin nhắn. Không đặt chốt cố định —
+   trailing tự chốt lời (backtest 9 năm: lời nhiều hơn và sụt giảm ít hơn chốt 50% ở 2R).
+   Sàn không có Trailing Stop: khi giá tới mức kích hoạt thì dời SL về giá vào rồi dời theo giá.
 
 <b>⚙️ Cài đặt</b>: Spot (chỉ MUA) / Futures (LONG &amp; SHORT), % rủi ro, kiểu swing, bật/tắt tín hiệu, đơn vị USDT/VNĐ.
 Menu tự đổi theo chế độ đang chọn.
@@ -214,8 +214,9 @@ tổng kết lệnh tuần · lệnh đóng → 📋 Tổng kết lệnh. Tin t�
 • Futures: hỏi về tín hiệu bot đã gửi và còn mở (vì sao LONG/SHORT, khi nào về bờ) — hoặc reply vào tin tín hiệu.
 
 <b>Trung thực về rủi ro</b>
-Backtest 2 năm / 40 coin: khoảng 43% lệnh có lời, trung bình +0.2R/lệnh, chuỗi sụt giảm tệ nhất khoảng 16R
-(= −8% vốn nếu rủi ro 0.5%/lệnh), khoảng 1/4 số tháng bị lỗ. Không tín hiệu nào chắc chắn thắng.
+Backtest 2 năm gần nhất / 40 coin: swing ngắn 45% lệnh có lời, TB +0.2R/lệnh, sụt giảm tệ nhất ~15R (= −7.5% vốn
+nếu rủi ro 0.5%/lệnh), khoảng 1/4 số tháng lỗ; swing dài TB +0.43R/lệnh. Kiểm tra thêm 9 năm / 50 coin: không năm nào
+lỗ với khung 1H. Không tín hiệu nào chắc chắn thắng.
 
 Mọi chức năng nằm ở bàn phím nút bên dưới ô nhập tin (bấm ⌘ nếu bị ẩn, hoặc gõ /start).
 Giá tham chiếu Binance Futures — giá ở sàn khác có thể lệch nhẹ."""

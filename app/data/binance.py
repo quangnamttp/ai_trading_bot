@@ -92,7 +92,8 @@ async def universe(top_n: int, min_quote_volume: float, extra: list[str] | None 
         return Coin(sym, base, mult, vol.get(sym, 0.0), spot if spot in spots else None)
 
     ranked = sorted(
-        (s for s in perps if split_symbol(s)[0] not in STABLES and vol.get(s, 0) >= min_quote_volume),
+        (s for s in perps if split_symbol(s)[0] not in STABLES and split_symbol(s)[0].isascii()
+         and split_symbol(s)[0].isalnum() and vol.get(s, 0) >= min_quote_volume),
         key=lambda s: -vol[s],
     )
     chosen = ranked[:top_n]

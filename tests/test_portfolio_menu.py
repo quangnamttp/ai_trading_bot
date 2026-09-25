@@ -292,3 +292,28 @@ async def test_backup_roundtrip(db):
     assert added["users"] == 1 and added["portfolio"] == 1 and added["portfolio_tx"] == 1
     assert (await storage.position(70, "SOLUSDT"))["qty"] == 2
     assert (await storage.import_data(dump))["users"] == 0  # chạy lại không nhân đôi
+
+
+async def test_offtopic_with_many_open_signals_is_refused(db, monkeypatch):
+    async def perps():
+        return {"SOLUSDT", "ETHUSDT"}
+
+    async def ask(q, ctx, scope):
+        return assistant.ai.OUT_OF_SCOPE, "x"
+
+    async def no_ctx(s):
+        return "ctx"
+    monkeypatch.setattr(assistant.binance, "perpetual_symbols", perps)
+    monkeypatch.setattr(assistant.ai, "ask", ask)
+    monkeypatch.setattr(assistant, "signal_context", no_ctx)
+    user = await storage.upsert_user(80, "d")
+    now = storage.now()
+    for sym in ("SOLUSDT", "ETHUSDT"):
+        t = Trade(1, 100, 90, created=now, deadline=now + timedelta(days=7))
+        sid = await storage.insert_signal(symbol=sym, display=f"{sym[:3]}/USDT", side=1, spot_symbol=sym, multiplier=1,
+                                          score=80, setup="retest", entry=100, sl=90, tp1=120, tp2=130, zone_lo=99,
+                                          zone_hi=100, reasons=storage.dumps([]), status="ACTIVE", created_at=now,
+                                          state=storage.dumps({"trade": t.to_dict(), "last_ts": now}))
+        await storage.add_message(sid, 80, 900 + sid)
+    text, buttons = await assistant.answer_personal(user, "hôm nay thời tiết thế nào")
+    assert text == assistant.OUT_TEXT and buttons == []

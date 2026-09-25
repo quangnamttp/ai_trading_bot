@@ -1,6 +1,6 @@
 # 🤖 Bot tín hiệu swing crypto (v3)
 
-Bot Telegram quét top 20 coin Binance Futures và gửi tín hiệu có điểm vào, SL, TP1, trailing stop và biểu đồ
+Bot Telegram quét top 20 coin Binance Futures và gửi tín hiệu có điểm vào, SL, trailing stop và biểu đồ
 kiểu TradingView. Bot theo dõi từng lệnh tới khi đóng. Có 2 kiểu giao dịch: **⚡ Swing ngắn** (1–3 tín hiệu/ngày, 6h–22h)
 và **🌙 Swing dài** (khoảng 1 tín hiệu/tuần). Chế độ **Spot** chỉ nhận lệnh MUA; **Futures** nhận LONG/SHORT kèm đòn bẩy
 an toàn. Toàn bộ dữ liệu miễn phí.
@@ -25,8 +25,13 @@ an toàn. Toàn bộ dữ liệu miễn phí.
   tin xấu nghiêm trọng, và **3 giờ trước đến 1 giờ sau** tin vĩ mô Mỹ.
 - Tối đa 2 lệnh cùng chiều mở cùng lúc. Bỏ coin niêm yết dưới 90 ngày. Mỗi coin nghỉ 12h (ngắn) / 72h (dài) sau tín hiệu.
 
-**Quản lý lệnh (đặt 1 lần trên sàn)**: SL cố định · chốt 50% tại 2R · **Trailing Stop của sàn** cho cả lệnh,
-kích hoạt ở +1R, callback = 3×ATR khung xu hướng (tối đa 10%).
+**Quản lý lệnh (đặt 1 lần trên sàn)**: SL cố định · **Trailing Stop của sàn** cho cả lệnh, kích hoạt ở +1R,
+callback = 2.5×ATR khung xu hướng (tối đa 10%). Không chốt cố định (v6). Swing ngắn chỉ vào lệnh ở phía thuận POC
+Volume Profile 150 nến.
+
+**Nghiên cứu v6 (9 năm 2017–2026, 50 coin, luôn chọn 20 coin thanh khoản nhất ở từng thời điểm)**: trailing cho cả
+lệnh thay cho chốt 50% ở 2R làm lời TB/lệnh cao hơn 30–60% ở mọi khung; lọc phía POC bỏ ~15% lệnh gần như không có lời.
+Chi tiết: [tradingview/README.md](tradingview/README.md).
 Bot dùng đúng cách này để mô phỏng và theo dõi lệnh, nên số liệu thống kê khớp với cách anh/chị đặt lệnh.
 
 ## Kết quả backtest 2 năm (09/2024 → 09/2026, 40 coin)
@@ -36,10 +41,10 @@ tính là chạm SL. Top N được xếp hạng lại mỗi ngày theo khối l
 
 | | Lệnh | Có lời | TB/lệnh | 60% đầu | 40% sau | Sụt giảm tối đa | Tháng lỗ |
 |---|---|---|---|---|---|---|---|
-| ⚡ Swing ngắn · Futures | 595 (~0.8/ngày) | 43% | **+0.20R** | +0.20 | +0.22 | 16.5R | 5/25 |
-| ⚡ Swing ngắn · Spot | 260 | 43% | **+0.21R** | +0.26 | +0.12 | 12.5R | 11/25 |
-| 🌙 Swing dài · Futures | 92 (~1/tuần) | 44% | **+0.27R** | +0.16 | +0.44 | 10.7R | 10/25 |
-| 🌙 Swing dài · Spot | 47 | 45% | +0.07R | +0.17 | **−0.17** | 7.6R | → **không gửi cho Spot** |
+| ⚡ Swing ngắn · Futures | 636 (~0.85/ngày) | 45% | **+0.21R** | +0.21 | +0.20 | 14.9R | 6/25 |
+| ⚡ Swing ngắn · Spot | 275 | 50% | **+0.20R** | +0.32 | +0.02 | 13.8R | 12/25 |
+| 🌙 Swing dài · Futures | 93 (~1/tuần) | 42% | **+0.43R** | +0.34 | +0.56 | 10.9R | 12/25 |
+| 🌙 Swing dài · Spot | 48 | 44% | +0.10R | +0.18 | **−0.13** | 8.0R | → **không gửi cho Spot** |
 
 Các ý tưởng đã thử nhưng không đưa vào vì **không cải thiện ở cả 2 phần dữ liệu**:
 - Quét và vào lệnh theo khung 15m: lỗ ở mọi cấu hình.
@@ -78,7 +83,7 @@ không backtest được (bot ghi lại mỗi lần tin tức chặn tín hiệu
 | Giờ | Việc |
 |---|---|
 | Mỗi giờ :01 | Quét ⚡ Swing ngắn (6h–22h); khi nến 4H đóng thì quét thêm 🌙 Swing dài |
-| Mỗi 5 phút | Theo dõi lệnh đang mở (trailing, TP1, đóng lệnh + 📋 Tổng kết lệnh) · tin vĩ mô 4 mốc |
+| Mỗi 5 phút | Theo dõi lệnh đang mở (trailing, đóng lệnh + 📋 Tổng kết lệnh) · tin vĩ mô 4 mốc |
 | Mỗi 15 phút | Nhắc DCA khi giá chạm mốc · BTC chạy ≥ 3%/giờ, funding cực đoan · tin xấu về coin đang có lệnh |
 | 07:00 | Thị trường 24h + tin kinh tế hôm nay (topic 📰); thứ 2: gửi và ghim lịch cả tuần, các ngày khác cập nhật tin ghim |
 | 15:05 | Nếu cả ngày chưa có tín hiệu: danh sách coin đang hình thành setup (không phải tín hiệu) |

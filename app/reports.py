@@ -288,9 +288,7 @@ async def evening(bot: Bot) -> None:
 
     for u in await storage.subscribers():
         got = {s["id"] for s in await storage.user_signals(u["chat_id"], 31)}
-        mine = lambda rows: [s for s in rows if (  # noqa: E731
-            s["id"] in got if s.get("source") == "ind"  # 🎯 chỉ báo: chỉ lệnh người này đã nhận
-            else (u["mode"] == "futures" or s["side"] > 0) and u.get("style", "both") in ("both", s.get("style", "short")))]
+        mine = lambda rows: [s for s in rows if s["id"] in got]  # noqa: E731  chỉ lệnh bot đã gửi cho người này
         mult = lambda s: texts.disp_mult(s, u["mode"], u.get("exchange"))  # noqa: E731
         lines = [f"🌙 <b>Tổng kết ngày {vn_now():%d/%m}</b>", ""]
         t = mine(today)
