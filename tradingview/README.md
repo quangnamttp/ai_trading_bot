@@ -4,10 +4,17 @@ Gồm 2 chỉ báo, dùng chung trên một chart (gói TradingView miễn phí 
 
 | File | Vai trò |
 |---|---|
-| `swing_entry_pro_v5.pine` (v5.2) | **Khi nào vào lệnh**: điểm vào, SL, TP1, TP2, trailing stop, hạng tín hiệu, cảnh báo "Chuẩn bị", bảng thống kê |
+| `swing_entry_pro_v5.pine` (v5.3) | **Khi nào vào lệnh**: điểm vào, SL, TP1, TP2, trailing stop, hạng tín hiệu, cảnh báo "Chuẩn bị", bảng thống kê |
 | `volume_profile_pro_v3.pine` (v3.2) | **Vùng giá quan trọng**: POC, Value Area (VAH/VAL), POC chưa bị chạm, vùng thanh khoản mỏng |
 
 Cả 2 chỉ báo chạy 24/24, không lọc giờ, và **không repaint**: tín hiệu chỉ xuất hiện khi nến đóng, đã hiện thì không bao giờ mất.
+
+### Cập nhật v5.3
+- Mỗi nến tín hiệu chỉ quyết định **1 lần, khi OI của đúng nến đó đã có**. TradingView đôi khi cập nhật OI trễ vài phút:
+  bản cũ có thể tính bằng OI cũ rồi sau đó tín hiệu "mọc ra" trong lịch sử (vd PEPE 18/09 OI +6.4%, sát ngưỡng 5%).
+  Giờ bảng hiện "Đang chờ OI…" trong lúc chờ (tối đa 20 phút), tín hiệu đã hiện/không hiện thì giữ nguyên.
+- Kiểm tra lại PEPE 1H 18–22/09 bằng bản Python: 2 lệnh MUA 18/09 22:00 (+1.39R) và 21/09 23:00 (−0.25R) trùng với
+  chart, không phụ thuộc lịch sử chart bắt đầu từ đâu.
 
 ### Cập nhật v5.2 / v3.2
 - **Swing v5.2 — OI luôn lấy từ Binance**, kể cả khi mở chart MEXC, OKX, cặp USDC... (vd chart `MEXC:PEPEUSDC` tự lấy

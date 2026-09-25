@@ -164,7 +164,7 @@ async def analyze_symbol(symbol: str, style_key: str = "short") -> dict:
 
 
 async def _open_state() -> tuple[list[dict], dict[int, int]]:
-    open_now = await storage.open_signals()
+    open_now = [s for s in await storage.open_signals() if s.get("source") != "ind"]  # 🎯 chỉ báo tính riêng
     by_side: dict[int, int] = {1: 0, -1: 0}
     for s in open_now:
         by_side[s["side"]] = by_side.get(s["side"], 0) + 1

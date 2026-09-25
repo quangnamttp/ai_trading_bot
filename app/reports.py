@@ -275,8 +275,10 @@ async def evening(bot: Bot) -> None:
         return f"{len(r)} lệnh · {sum(v > 0 for v in r) / len(r):.0%} có lời · tổng <b>{sum(r):+.2f}R</b>"
 
     for u in await storage.subscribers():
-        mine = lambda rows: [s for s in rows if (u["mode"] == "futures" or s["side"] > 0)  # noqa: E731
-                             and u.get("style", "both") in ("both", s.get("style", "short"))]
+        got = {s["id"] for s in await storage.user_signals(u["chat_id"], 31)}
+        mine = lambda rows: [s for s in rows if (  # noqa: E731
+            s["id"] in got if s.get("source") == "ind"  # 🎯 chỉ báo: chỉ lệnh người này đã nhận
+            else (u["mode"] == "futures" or s["side"] > 0) and u.get("style", "both") in ("both", s.get("style", "short")))]
         mult = lambda s: s["multiplier"] if u["mode"] == "spot" else 1  # noqa: E731
         lines = [f"🌙 <b>Tổng kết ngày {vn_now():%d/%m}</b>", ""]
         t = mine(today)

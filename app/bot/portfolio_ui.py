@@ -11,7 +11,7 @@ from telegram.error import BadRequest, TelegramError
 from telegram.ext import Application, CallbackQueryHandler, ContextTypes
 
 from app import portfolio as pf, reports, storage
-from app.bot import texts
+from app.bot import extra, texts
 from app.config import settings
 from app.data import binance
 
@@ -53,11 +53,12 @@ async def list_view(user: dict) -> tuple[str, InlineKeyboardMarkup]:
         lines.append("<i>Chưa lấy được tỉ giá USDT/VND — tạm hiển thị USDT.</i>")
     mode = user.get("coin_mode", "top")
     lines += ["", f"Tín hiệu Spot nhận từ: <b>{ {'top': 'Top 20', 'mine': 'chỉ coin trong danh mục', 'both': 'Top 20 + danh mục'}[mode] }</b>",
-              "<i>Bấm tên coin để ghi mua/bán, đặt vốn DCA, xem lịch sử.</i>"]
+              extra.ind_line(user), "<i>Bấm tên coin để ghi mua/bán, đặt vốn DCA, xem lịch sử.</i>"]
     btns = [B(pf.base_of(p["symbol"]), callback_data=f"pf:v:{p['symbol']}") for p in pos]
     rows = [btns[i:i + 3] for i in range(0, len(btns), 3)]
     rows.append([B("➕ Thêm coin", callback_data="pf:add"),
                  B("💱 Đổi sang " + ("USDT" if cur == "VND" else "VNĐ"), callback_data="pf:cur")])
+    rows += extra.ind_rows(user)
     if pos:
         rows.append([B(("✅ " if mode == k else "") + t, callback_data=f"cmode:{k}")
                      for k, t in (("top", "Top 20"), ("mine", "Chỉ danh mục"), ("both", "Cả hai"))])
@@ -93,7 +94,7 @@ async def coin_view(user: dict, symbol: str) -> tuple[str, InlineKeyboardMarkup]
             lines.append(f"{NUM[i]} {texts.price(lv['price'])} — {pf.money(lv['amount'], cur, fx)} · "
                          f"{STATUS[lv['status']]}{dist}\n     <i>{escape(lv['name'])}</i>")
         lines.append(f"⛔ Dừng DCA / xem lại nếu nến ngày đóng dưới <b>{texts.price(plan['stop'])}</b>")
-        lines.append("<i>Bot nhắc khi giá chạm mốc. Kế hoạch tham khảo từ vùng hỗ trợ, chưa được backtest như tín hiệu.</i>")
+        lines.append("<i>Bot nhắc khi giá chạm mốc.</i>")
     else:
         lines += ["", "🎯 Chưa có kế hoạch DCA — bấm <b>Đặt vốn DCA</b>, nhập số tiền dự kiến mua thêm, bot chia vào "
                       "các vùng hỗ trợ và nhắc khi giá chạm."]

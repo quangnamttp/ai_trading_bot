@@ -22,7 +22,7 @@ from app.strategy import levels
 
 log = logging.getLogger(__name__)
 
-FOOTER = "\n\n<i>Trả lời tự động từ dữ liệu bot · không phải lời khuyên đầu tư.</i>"
+FOOTER = ""
 OUT_TEXT = ("🙅 Mình chỉ trả lời câu hỏi về crypto và giao dịch thôi nhé. "
             "Ví dụ: <i>Nên DCA SOL thế nào?</i>, <i>Khi nào lệnh ETH về bờ?</i>")
 TO_MARKET = "🌍 Câu này về thị trường chung — bấm nút bên dưới để hỏi ở mục <b>Thị trường chung</b>."

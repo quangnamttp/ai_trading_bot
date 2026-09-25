@@ -109,6 +109,54 @@ async def allow_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     await _reply(update, f"✅ Đã duyệt <code>{uid}</code>")
 
 
+# ---------------------------------------------------------------- 🎯 tín hiệu chỉ báo (nút dùng chung 🪙 / 💼)
+IND_TF_NEXT = {None: "4h", "4h": "1h", "1h": None}
+
+
+def ind_rows(user: dict) -> list[list[InlineKeyboardButton]]:
+    tf = user.get("ind_tf")
+    rows = [[B(f"🎯 Tín hiệu chỉ báo Swing: {tf.upper() if tf else 'TẮT'}", callback_data="ind:tf")]]
+    if tf:
+        rows.append([B("🔕 Không chuông" if user.get("ind_silent") else "🔔 Có chuông", callback_data="ind:snd"),
+                     B(f"Tối đa {user.get('ind_max') or 3} tin/ngày", callback_data="ind:max")])
+    return rows
+
+
+def ind_line(user: dict) -> str:
+    tf = user.get("ind_tf")
+    return (f"🎯 Chỉ báo Swing: <b>{tf.upper()}</b> · tối đa {user.get('ind_max') or 3} tin/ngày"
+            + (" · không chuông" if user.get("ind_silent") else "")) if tf else "🎯 Chỉ báo Swing: TẮT"
+
+
+async def on_ind(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    from app.bot import portfolio_ui
+    q = update.callback_query
+    user = await storage.get_user(q.from_user.id)
+    if not user or not user.get("approved") or user.get("banned"):
+        await q.answer()
+        return
+    op = q.data.split(":")[1]
+    if op == "tf":
+        tf = IND_TF_NEXT.get(user.get("ind_tf"))
+        await storage.update_user(user["chat_id"], ind_tf=tf)
+        await q.answer(f"🎯 Tín hiệu chỉ báo: {tf.upper() if tf else 'TẮT'}")
+    elif op == "snd":
+        await storage.update_user(user["chat_id"], ind_silent=not user.get("ind_silent"))
+        await q.answer("Đã đổi")
+    elif op == "max":
+        await storage.update_user(user["chat_id"], ind_max=(user.get("ind_max") or 3) % 5 + 1)
+        await q.answer("Đã đổi")
+    user = await storage.get_user(user["chat_id"])
+    if user["mode"] == "spot":
+        await portfolio_ui.show_list(update, ctx, user, edit=True)
+        return
+    text, markup = await coins_view(user)
+    try:
+        await q.edit_message_text(text, parse_mode=ParseMode.HTML, reply_markup=markup)
+    except BadRequest:
+        pass
+
+
 # ---------------------------------------------------------------- 🪙 coin của tôi
 async def coins_view(user: dict) -> tuple[str, InlineKeyboardMarkup]:
     coins = await storage.user_coins_of(user["chat_id"])
@@ -118,11 +166,13 @@ async def coins_view(user: dict) -> tuple[str, InlineKeyboardMarkup]:
         lines += [f"• {escape(binance.split_symbol(c['symbol'])[0])}" for c in coins]
     else:
         lines.append("Chưa có coin nào — đang nhận tín hiệu Top 20.")
-    lines += ["", f"Tối đa {settings.max_user_coins} coin. Bot quét thêm các coin này mỗi giờ bằng cùng chiến lược.",
-              "<i>Coin ngoài Top 20 chưa được backtest riêng. Coin đang giữ Spot: chuyển sang chế độ Spot → 💼 Danh mục.</i>"]
+    lines += ["", ind_line(user),
+              f"Tối đa {settings.max_user_coins} coin. Bot quét thêm các coin này mỗi giờ bằng cùng chiến lược.",
+              "<i>Coin đang giữ Spot: chuyển sang chế độ Spot → 💼 Danh mục.</i>"]
     rows = [[B("🗑 " + binance.split_symbol(c["symbol"])[0], callback_data=f"coin:del:{c['symbol']}")
              for c in coins[i:i + 3]] for i in range(0, len(coins), 3)]
     rows.append([B("➕ Thêm coin", callback_data="coin:add")])
+    rows += ind_rows(user)
     if coins:
         rows.append([B(("✅ " if mode == k else "") + t, callback_data=f"cmode:{k}")
                      for k, t in (("top", "Top 20"), ("mine", "Chỉ coin của tôi"), ("both", "Cả hai"))])
@@ -334,4 +384,5 @@ def register(app: Application) -> None:
     app.add_handler(CallbackQueryHandler(on_coin, pattern=r"^(coin|cmode):"))
     app.add_handler(CallbackQueryHandler(on_event, pattern=r"^(ev|evai):"))
     app.add_handler(CallbackQueryHandler(on_why, pattern=r"^why:"))
+    app.add_handler(CallbackQueryHandler(on_ind, pattern=r"^ind:"))
     app.add_handler(CallbackQueryHandler(on_ai, pattern=r"^(aimode|aisig|aimkt)"))

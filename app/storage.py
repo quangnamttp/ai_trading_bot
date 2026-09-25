@@ -26,6 +26,9 @@ users = sa.Table(
     sa.Column("currency", sa.String(8), nullable=False, server_default="USDT"),  # đơn vị hiển thị: USDT | VND
     sa.Column("subscribed", sa.Boolean, nullable=False, server_default=sa.true()),
     sa.Column("admin_muted", sa.Boolean, nullable=False, server_default=sa.false()),  # admin tạm dừng tín hiệu
+    sa.Column("ind_tf", sa.String(4)),  # 🎯 tín hiệu chỉ báo Swing cho coin tự chọn: None = tắt | 1h | 4h
+    sa.Column("ind_silent", sa.Boolean, nullable=False, server_default=sa.false()),  # gửi không chuông
+    sa.Column("ind_max", sa.Integer, nullable=False, server_default="3"),  # tối đa tin chỉ báo / ngày
     sa.Column("banned", sa.Boolean, nullable=False, server_default=sa.false()),
     sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
 )
@@ -317,9 +320,11 @@ async def recent_signals(limit: int = 10) -> list[dict]:
 
 
 async def last_signal_time(symbol: str) -> datetime | None:
+    """Lần gần nhất bot (không tính 🎯 chỉ báo) mở/đóng tín hiệu coin này — để giãn cách tín hiệu."""
+    cond = (signals.c.symbol == symbol) & (signals.c.source != "ind")
     async with engine().connect() as c:
-        v = (await c.execute(sa.select(sa.func.max(signals.c.closed_at)).where(signals.c.symbol == symbol))).scalar()
-        opened = (await c.execute(sa.select(sa.func.max(signals.c.created_at)).where(signals.c.symbol == symbol))).scalar()
+        v = (await c.execute(sa.select(sa.func.max(signals.c.closed_at)).where(cond))).scalar()
+        opened = (await c.execute(sa.select(sa.func.max(signals.c.created_at)).where(cond))).scalar()
     return max((x for x in (_aware(v), _aware(opened)) if x), default=None)
 
 

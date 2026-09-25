@@ -36,8 +36,9 @@ def sizing(entry: float, sl: float, risk_pct: float, max_lev: int | None = None)
     return size_pct, safe_lev
 
 
-STYLE_LABEL = {"short": "⚡ Swing ngắn", "long": "🌙 Swing dài"}
-STYLE_HOLD = {"short": "giữ vài giờ → vài ngày", "long": "giữ vài ngày → vài tuần"}
+STYLE_LABEL = {"short": "⚡ Swing ngắn", "long": "🌙 Swing dài", "ind1h": "🎯 Chỉ báo Swing 1H", "ind4h": "🎯 Chỉ báo Swing 4H"}
+STYLE_HOLD = {"short": "giữ vài giờ → vài ngày", "long": "giữ vài ngày → vài tuần",
+              "ind1h": "giữ tối đa 7 ngày", "ind4h": "giữ tối đa 4 tuần"}
 
 
 def chase_limit(sig: dict) -> float:
@@ -63,7 +64,7 @@ def signal_message(sig: dict, *, mode: str, risk_pct: float, stats: dict | None)
     lines = [
         f"{emoji} <b>{escape(sig['display'])} | {action}</b> · {market} · {'LONG' if side > 0 else 'SHORT'}",
         f"{STYLE_LABEL.get(style, style)} ({STYLE_HOLD.get(style, '')}) · Hạng <b>{tier}</b>"
-        + (" <i>(dự phòng — chất lượng thấp hơn hạng A)</i>" if tier == "B" else ""),
+        + (" <i>(dự phòng — chất lượng thấp hơn hạng A)</i>" if tier == "B" and not style.startswith("ind") else ""),
         "",
         f"💰 Vào ngay: <b>{p(entry)}</b> (giá thị trường)",
         f"⛔ Không vào nếu giá đã {'vượt' if side > 0 else 'xuống dưới'}: {p(chase_limit(sig))}",
@@ -199,7 +200,6 @@ chạm vùng</b>. Mua trên sàn xong bấm ✅ Đã mua là danh mục tự c�
 • Spot: hỏi về coin trong danh mục (DCA bao nhiêu, ở đâu, giá vốn, lời/lỗ).
 • Futures: hỏi về tín hiệu bot đã gửi và còn mở (vì sao LONG/SHORT, khi nào về bờ) — hoặc reply vào tin tín hiệu.
 • 🌍 Thị trường chung: tin tức, lịch sự kiện, mọi coin.
-AI không tạo tín hiệu; kế hoạch DCA là tham khảo, chưa được backtest như tín hiệu.
 
 <b>Trung thực về rủi ro</b>
 Backtest 2 năm / 40 coin: khoảng 43% lệnh có lời, trung bình +0.2R/lệnh, chuỗi sụt giảm tệ nhất khoảng 16R

@@ -33,6 +33,12 @@ async def job_scan(ctx: ContextTypes.DEFAULT_TYPE) -> None:
         await service.run_scan(ctx.bot, styles)
     except Exception:  # noqa: BLE001
         log.exception("Quét lỗi")
+    # 🎯 tín hiệu chỉ báo cho coin tự chọn: 1H mỗi giờ, 4H khi nến 4H vừa đóng
+    for tf in ("1h", "4h") if datetime.now(timezone.utc).hour % 4 == 0 else ("1h",):
+        try:
+            log.info(await asyncio.wait_for(service.run_indicator(ctx.bot, tf), 240))
+        except Exception:  # noqa: BLE001
+            log.exception("Chỉ báo %s lỗi", tf)
 
 
 async def _safe(name: str, coro) -> None:

@@ -79,7 +79,8 @@ def _chart(h1: pd.DataFrame, sig: dict, mult: int) -> bytes:
     if mult != 1:
         df[["open", "high", "low", "close"]] = df[["open", "high", "low", "close"]] / mult
     k = 1 / mult
-    tf = STYLES[sig.get("style", "short")].tfs[0].upper()
+    style = sig.get("style", "short")
+    tf = STYLES[style].tfs[0].upper() if style in STYLES else style.removeprefix("ind").upper()
     return chart.render(df, title=f"{sig['display']} · {tf} · Binance {'Spot' if mult != 1 else 'Futures'}",
                         subtitle=f"Điểm {sig['score']:.0f}/100 · Hạng {sig.get('tier', 'A')} · {sig['setup_text']} · "
                                  f"{texts.vn_time(sig['created_at'])}",
@@ -124,7 +125,7 @@ async def publish(bot: Bot, found: Found) -> int:
             photos[mult] = await asyncio.to_thread(_chart, found.h1, sig, mult)
         text = texts.signal_message(sig, mode=user["mode"], risk_pct=user["risk_pct"], stats=stats)
         if found.source == "user":
-            text = "🪙 <i>Coin bạn tự chọn — chưa backtest riêng, dùng cùng chiến lược với Top 20.</i>\n" + text
+            text = "🪙 <i>Coin bạn chọn</i>\n" + text
         if found.silent:
             text = "🌙 <i>Tín hiệu ban đêm (gửi không chuông) — sáng ra kiểm tra giá chưa vượt mức \"Không vào\" rồi hãy vào.</i>\n" + text
         mid = await _send(bot, user["chat_id"], text, photo=photos[mult], url=tv_url(sig, user["mode"]),
@@ -175,6 +176,104 @@ async def run_scan(bot: Bot, styles: tuple[str, ...] = ("short",), *, force: boo
             log.info("Quét xong trong %.0fs: %s, phát %d tín hiệu", secs, note, len(found))
             notes.append(f"{note}. Phát {len(found)} tín hiệu ({secs:.0f}s).")
     return "\n".join(notes)
+
+
+# ---------------------------------------------------------------- 🎯 tín hiệu chỉ báo Swing (coin tự chọn)
+_ind_lock = asyncio.Lock()
+
+
+async def _ind_recipients(tf: str) -> dict[str, list[dict]]:
+    """{symbol: [người dùng]} — người bật 🎯 đúng khung `tf`, coin nằm trong danh sách tự chọn theo chế độ của họ."""
+    users = {u["chat_id"]: u for u in await storage.subscribers() if u.get("ind_tf") == tf}
+    out: dict[str, list[dict]] = {}
+    for r in await storage.all_user_coins():
+        if r["chat_id"] in users:
+            out.setdefault(r["symbol"], []).append(users[r["chat_id"]])
+    return out
+
+
+async def run_indicator(bot: Bot, tf: str) -> str:
+    """Nến khung `tf` vừa đóng -> tính chỉ báo trên các coin có người bật 🎯, đủ điều kiện thì gửi."""
+    from app.strategy import indicator
+    if _ind_lock.locked():
+        return "đang chạy"
+    async with _ind_lock:
+        targets = await _ind_recipients(tf)
+        if not targets:
+            return "không có ai bật 🎯"
+        style = f"ind{tf}"
+        busy = {s["symbol"] for s in await storage.open_signals() if s.get("style") == style}
+        btc_mid = await binance.klines("BTCUSDT", indicator.TFS[tf][1], 300)
+        coins = {c.symbol: c for c in await binance.universe(1000, 0)}
+        sent = 0
+        for sym, users in targets.items():
+            if sym in busy or sym not in coins:
+                continue  # đang có lệnh 🎯 cùng khung trên coin này (chỉ báo cũng chỉ mở 1 lệnh 1 lúc)
+            try:
+                s = await asyncio.wait_for(indicator.check(sym, tf, btc_mid), 60)
+            except Exception as exc:  # noqa: BLE001
+                log.info("Chỉ báo %s %s lỗi: %s", sym, tf, exc)
+                continue
+            if s:
+                sent += await publish_indicator(bot, s, coins[sym], users)
+        return f"🎯 {tf}: {len(targets)} coin, gửi {sent} tin"
+
+
+async def publish_indicator(bot: Bot, s, coin: binance.Coin, users: list[dict]) -> int:
+    from app.strategy import indicator
+    row, created = s.row, storage.now()
+    style = f"ind{s.tf}"
+    hours = indicator.HOLD_BARS * (1 if s.tf == "1h" else 4)
+    cb = callback_rate(float(row["atr4"]), float(row["entry"]))
+    trade = Trade(s.side, row["entry"], row["sl"], created=created, deadline=created + timedelta(hours=hours),
+                  exit_mode="pct", callback=cb)
+    setup_text = "Setup hồi về EMA20" if row["setup_type"] == "pullback" else "Retest mốc vừa phá (volume lớn)"
+    reasons = [f"Xu hướng {row['trend']:.0f}/30 · Động lượng {row['momentum']:.0f}/15 · Dòng tiền {row['flow']:.0f}/15"]
+    if s.oi is not None:
+        reasons.append(f"OI Binance {'24h' if s.tf == '1h' else '72h'} {s.oi:+.1%}")
+    values = dict(symbol=coin.symbol, display=coin.display, side=s.side, spot_symbol=coin.spot_symbol,
+                  multiplier=coin.multiplier, score=s.score, setup=row["setup_type"] or "retest", style=style,
+                  tier=s.grade, source="ind", entry=row["entry"], sl=row["sl"], tp1=row["tp1"], tp2=row["tp2"],
+                  zone_lo=row["zone_lo"], zone_hi=row["zone_hi"], reasons=storage.dumps(reasons), status="ACTIVE",
+                  created_at=created,
+                  state=storage.dumps({"trade": trade.to_dict(), "last_ts": created, "notified_stop": row["sl"]}))
+    today = datetime.now(VN_TZ).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
+    bot_open = {(x["symbol"], x["side"]) for x in await storage.open_signals() if x.get("source") != "ind"}
+    receivers = []
+    for u in users:
+        if u["mode"] == "spot" and (s.side < 0 or not coin.spot_symbol):
+            continue  # Spot chỉ MUA coin có trên sàn spot
+        got = [m for m in await storage.messages_since(u["chat_id"], today) if str(m.get("style", "")).startswith("ind")]
+        if len(got) >= (u.get("ind_max") or 3):
+            continue
+        if (coin.symbol, s.side) in bot_open:
+            continue  # bot đã có lệnh cùng coin cùng chiều -> không gửi trùng
+        receivers.append(u)
+    if not receivers:
+        return 0
+    sig_id = await storage.insert_signal(**values)
+    sig = {**values, "id": sig_id, "trend": row["trend"], "setup_text": setup_text, "reasons": reasons,
+           "exit_mode": "pct", "callback": cb}
+    photos: dict[int, bytes] = {}
+    for u in receivers:
+        mult = coin.multiplier if u["mode"] == "spot" else 1
+        if mult not in photos:
+            photos[mult] = await asyncio.to_thread(_chart, s.base, sig, mult)
+        text = texts.signal_message(sig, mode=u["mode"], risk_pct=u["risk_pct"], stats=None)
+        url = tv_url(sig, u["mode"]).replace("interval=60", f"interval={'60' if s.tf == '1h' else '240'}")
+        mid = await _send(bot, u["chat_id"], text, photo=photos[mult], url=url,
+                          silent=bool(u.get("ind_silent")) or is_quiet_now(), why_id=sig_id)
+        if mid:
+            await storage.add_message(sig_id, u["chat_id"], mid)
+        await asyncio.sleep(0.05)
+    log.info("🎯 Chỉ báo %s %s %s điểm %.0f -> %d người", s.tf, coin.symbol, "LONG" if s.side > 0 else "SHORT",
+             s.score, len(receivers))
+    return len(receivers)
+
+
+def is_quiet_now() -> bool:
+    from app.reports import is_quiet
+    return is_quiet()
 
 
 async def track(bot: Bot) -> None:

@@ -1,11 +1,13 @@
 //@version=5
-// Swing Entry Pro v5.2 — cùng chiến lược đã backtest 2 năm / 40 coin với bot Telegram.
+// Swing Entry Pro v5.3 — cùng chiến lược đã backtest 2 năm / 40 coin với bot Telegram.
 // • Tín hiệu chỉ xuất hiện khi nến khung tín hiệu ĐÃ ĐÓNG, dữ liệu khung lớn chỉ dùng nến đã đóng -> KHÔNG repaint.
 // • Điểm vào = giá đóng cửa nến tín hiệu. SL theo đáy/đỉnh 24 nến (giới hạn 0.8–2.2 ATR khung xu hướng).
 // • Chốt 50% tại 2R; Trailing Stop (như lệnh sàn) kích hoạt ở +1R, callback = 3 x ATR khung xu hướng (tối đa 10%).
 // • Lọc Open Interest: chỉ vào lệnh khi OI biến động mạnh. OI luôn lấy từ hợp đồng Binance, kể cả khi xem chart
+//   (v5.3: chờ OI của ĐÚNG nến tín hiệu có dữ liệu rồi mới quyết định -> tín hiệu không tự mọc ra / biến mất khi
+//   TradingView cập nhật OI trễ vài phút)
 //   sàn khác (MEXC, OKX...) hoặc cặp USDC — backtest cho thấy thiếu lọc OI là nguyên nhân chính khiến tín hiệu đi ngược sóng.
-indicator("Swing Entry Pro v5.2 — Điểm vào + SL/TP + Trailing (không repaint)", shorttitle="Swing Pro v5.2", overlay=true,
+indicator("Swing Entry Pro v5.3 — Điểm vào + SL/TP + Trailing (không repaint)", shorttitle="Swing Pro v5.3", overlay=true,
      max_lines_count=300, max_labels_count=300, max_boxes_count=150)
 
 // ============ CÀI ĐẶT ============
@@ -100,9 +102,29 @@ oiChgC = f_oi(oiSymC)
 oiChg = oiSymIn != "" ? oiChgU : not na(oiChgA) ? oiChgA : not na(oiChgB) ? oiChgB : oiChgC
 oiSrc = oiSymIn != "" ? oiSymIn : not na(oiChgA) ? oiSymA : not na(oiChgB) ? oiSymB : oiSymC
 oiAvailable = not na(oiChg)
+// thời điểm nến OI mới nhất đã có so với nến tín hiệu vừa đóng: OI trễ -> chưa quyết định, chờ OI về
+f_oiT(sym) => request.security(sym, sigTf, time[1], lookahead=barmerge.lookahead_on, ignore_invalid_symbol=true)
+// (mã OI phải là chuỗi cố định cho request.security -> lấy thời gian của cả 4 nguồn rồi chọn giống oiChg)
+oiTU = f_oiT(oiSymIn != "" ? oiSymIn : oiSymA)
+oiTA = f_oiT(oiSymA)
+oiTB = f_oiT(oiSymB)
+oiTC = f_oiT(oiSymC)
+oiTime = oiSymIn != "" ? oiTU : not na(oiChgA) ? oiTA : not na(oiChgB) ? oiTB : oiTC
+sigBarTime = request.security(syminfo.tickerid, sigTf, time[1], lookahead=barmerge.lookahead_on)
+oiFresh = not useOI or not oiAvailable or na(oiTime) or oiTime >= sigBarTime
 
 btcTrend = bC > bE50 and bE20 > bE50 ? 1 : bC < bE50 and bE20 < bE50 ? -1 : 0
 sigClosed = ta.change(time(sigTf)) != 0     // nến đầu tiên của kỳ mới = nến khung tín hiệu vừa đóng
+// Mỗi nến tín hiệu chỉ được quyết định 1 lần, ngay khi OI của nến đó đã có (thường là ngay lúc đóng nến).
+// Lịch sử: OI luôn đủ -> quyết định ngay. Thời gian thực: chờ OI tối đa 20 phút rồi quyết định với dữ liệu đang có.
+var bool sigPending = false
+var int pendSince = 0
+if sigClosed
+    sigPending := true
+    pendSince := time
+evalNow = sigPending and (oiFresh or not barstate.isrealtime or timenow - pendSince > 20 * 60 * 1000)
+if evalNow
+    sigPending := false
 
 // ============ CHẤM ĐIỂM (giống bot, bản không có funding / Fear&Greed / long-short) ============
 above(a, b, s) => (a - b) * s > 0      // a "thuận hướng" so với b
@@ -147,8 +169,8 @@ f_side(s, lvl, since) =>
 [scS, setupS, pbS, vetoS, entryS, riskS, trendS] = f_side(-1, sLvlS, sSinceS)
 
 oiOk = not useOI or not oiAvailable or math.abs(oiChg) >= oiMin
-okL = sigClosed and not vetoL and scL >= threshold and not pbL and oiOk          // bỏ Pullback LONG (backtest kém)
-okS = sigClosed and allowShort and not vetoS and scS >= threshold and oiOk
+okL = evalNow and not vetoL and scL >= threshold and not pbL and oiOk          // bỏ Pullback LONG (backtest kém)
+okS = evalNow and allowShort and not vetoS and scS >= threshold and oiOk
 
 // ============ VOLUME PROFILE (cùng công thức với Volume Profile Pro v3) ============
 get_vol(y11, y12, y21, y22, height, vol) =>
@@ -302,8 +324,8 @@ plot(tSide != 0 ? tEntry : na, "Giá vào", color=color.new(color.white, 30), st
 plot(trailNow, "Trailing stop", color=#ffb300, style=plot.style_linebr, linewidth=2)
 
 // ============ CẢNH BÁO "CHUẨN BỊ" (chưa phải tín hiệu) ============
-prepL = showPrep and sigClosed and tSide == 0 and not okL and setupL > 0 and trendL >= 15 and not pbL and scL >= threshold - 8 and scL < threshold
-prepS = showPrep and sigClosed and tSide == 0 and not okS and allowShort and setupS > 0 and trendS >= 15 and scS >= threshold - 8 and scS < threshold
+prepL = showPrep and evalNow and tSide == 0 and not okL and setupL > 0 and trendL >= 15 and not pbL and scL >= threshold - 8 and scL < threshold
+prepS = showPrep and evalNow and tSide == 0 and not okS and allowShort and setupS > 0 and trendS >= 15 and scS >= threshold - 8 and scS < threshold
 plotshape(prepL, "Chuẩn bị MUA", shape.diamond, location.belowbar, color.new(color.yellow, 20), size=size.tiny)
 plotshape(prepS, "Chuẩn bị BÁN", shape.diamond, location.abovebar, color.new(color.yellow, 20), size=size.tiny)
 alertcondition(prepL or prepS, "Chuẩn bị", "Setup đang hình thành, gần đạt chuẩn — theo dõi, CHƯA phải tín hiệu")
@@ -334,7 +356,7 @@ if showTable and barstate.islast
     table.cell(tb, 0, 5, "Sụt giảm tối đa", bgcolor=c1, text_color=color.white, text_size=tSize)
     table.cell(tb, 1, 5, str.tostring(maxDD, "#.#") + "R", bgcolor=c2, text_color=color.white, text_size=tSize)
     table.cell(tb, 0, 6, "Dữ liệu OI", bgcolor=c1, text_color=color.white, text_size=tSize)
-    table.cell(tb, 1, 6, oiAvailable ? str.tostring(oiChg, "+#.#;-#.#") + "% (" + str.tostring(oiHours) + "h) · " + str.replace_all(oiSrc, "_OI", "") : "Không có — bỏ qua lọc OI",
+    table.cell(tb, 1, 6, not oiFresh ? "Đang chờ OI nến mới cập nhật..." : oiAvailable ? str.tostring(oiChg, "+#.#;-#.#") + "% (" + str.tostring(oiHours) + "h) · " + str.replace_all(oiSrc, "_OI", "") : "Không có — bỏ qua lọc OI",
          bgcolor=c2, text_color=oiAvailable ? color.white : color.orange, text_size=tSize)
     if not oiAvailable
         table.cell(tb, 0, 8, "Gợi ý", bgcolor=c1, text_color=color.white, text_size=tSize)

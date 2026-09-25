@@ -213,7 +213,9 @@ async def open_signals(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     user = await _user(update)
     if not user:
         return
-    sigs = [s for s in await storage.open_signals() if service.receives(user, s)]
+    got = {s["id"] for s in await storage.user_signals(user["chat_id"], 45)}
+    sigs = [s for s in await storage.open_signals()
+            if (s.get("source") != "ind" and service.receives(user, s)) or s["id"] in got]
     if not sigs:
         await _reply(update, "📊 Hiện không có lệnh nào đang chạy.")
         return
@@ -221,7 +223,7 @@ async def open_signals(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     for s in sigs:
         st = storage.loads(s["state"])["trade"]
         mult = s["multiplier"] if user["mode"] == "spot" else 1
-        emoji = "🟢" if s["side"] > 0 else "🔴"
+        emoji = ("🎯" if s.get("source") == "ind" else "") + ("🟢" if s["side"] > 0 else "🔴")
         flags = " · đã về hòa vốn" if st["be_done"] else ""
         flags += " · đã TP1" if st["hit"] else ""
         lines.append(f"{emoji} <b>{escape(s['display'])}</b> entry {texts.price(s['entry'] / mult)} · "
@@ -232,8 +234,13 @@ async def open_signals(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 async def stats(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     if not await _user(update):
         return
-    parts = [texts.stats_message(await storage.closed_signals(days=d), t)
-             for d, t in ((7, "7 ngày"), (30, "30 ngày"), (None, "Từ đầu"))]
+    parts = []
+    for d, t in ((7, "7 ngày"), (30, "30 ngày"), (None, "Từ đầu")):
+        rows = await storage.closed_signals(days=d)
+        parts.append(texts.stats_message([r for r in rows if r.get("source") != "ind"], f"Tín hiệu bot · {t}"))
+    ind = [r for r in await storage.closed_signals(days=None) if r.get("source") == "ind"]
+    if ind:
+        parts.append(texts.stats_message(ind, "🎯 Tín hiệu chỉ báo · từ đầu"))
     cal = calibration()
     names = {"short": "⚡ Swing ngắn", "long": "🌙 Swing dài"}
     for key, st in cal.get("styles", {}).items():
@@ -323,7 +330,6 @@ def analysis_text(res: dict) -> str:
         best = max(rows.values(), key=lambda r: r["raw"])
         lines.append(f"\n⏸ <b>Chưa có điểm vào đạt chuẩn</b> (ngưỡng {th:.0f}). "
                      + ("Chưa có setup hồi/retest hợp lệ." if best["setup"] == 0 else "Dòng tiền hoặc bộ lọc chưa ủng hộ."))
-    lines.append("\n<i>Phân tích tự động, không phải lời khuyên đầu tư.</i>")
     return "\n".join(lines)
 
 

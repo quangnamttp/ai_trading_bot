@@ -204,3 +204,33 @@ async def test_admin_mute_and_delete_user(db, monkeypatch):
     u = await storage.upsert_user(20, "a")  # quay lại -> phải chờ duyệt, không tự duyệt qua nhóm
     assert not u["approved"]
     assert await extra.auto_approve_member(None, 20) is False
+
+
+def test_indicator_pick_rules():
+    import pandas as pd
+    from app.strategy import indicator
+
+    def frame(score, setup):
+        return pd.DataFrame([{"score": score, "setup_type": setup, "entry": 1.0}])
+    scores = {1: frame(80, "retest"), -1: frame(78, "retest")}
+    assert indicator.pick(scores, 0.06)[0] == 1           # chọn phía điểm cao hơn
+    assert indicator.pick(scores, 0.02) is None           # OI chưa biến động đủ 5%
+    assert indicator.pick(scores, None)[0] == 1           # không có OI -> bỏ qua lọc OI (như chỉ báo)
+    assert indicator.pick({1: frame(90, "pullback"), -1: frame(70, "retest")}, 0.1) is None  # bỏ Pullback LONG, SHORT dưới ngưỡng
+
+
+async def test_indicator_settings_and_separation(db):
+    await storage.upsert_user(30, "a")
+    u = await storage.get_user(30)
+    assert u["ind_tf"] is None and u["ind_max"] == 3 and not u["ind_silent"]
+    now = storage.now()
+    t = Trade(1, 100, 90, created=now, deadline=now + timedelta(days=7))
+    await storage.insert_signal(symbol="SOLUSDT", display="SOL/USDT", side=1, spot_symbol="SOLUSDT", multiplier=1,
+                                score=80, setup="retest", style="ind1h", source="ind", entry=100, sl=90, tp1=120,
+                                tp2=130, zone_lo=99, zone_hi=100, reasons=storage.dumps([]), status="ACTIVE",
+                                created_at=now, state=storage.dumps({"trade": t.to_dict(), "last_ts": now}))
+    # lệnh 🎯 không làm bot giãn cách / không chiếm giới hạn lệnh mở của bot
+    assert await storage.last_signal_time("SOLUSDT") is None
+    from app.strategy import scanner
+    open_now, _ = await scanner._open_state()
+    assert open_now == []
