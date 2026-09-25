@@ -274,7 +274,7 @@ async def publish_indicator(bot: Bot, s, coin: binance.Coin, users: list[dict]) 
     cb = callback_rate(float(row["atr4"]), float(row["entry"]))
     trade = Trade(s.side, row["entry"], row["sl"], created=created, deadline=created + timedelta(hours=hours),
                   exit_mode="pct", callback=cb)
-    setup_text = "Setup hồi về EMA20" if row["setup_type"] == "pullback" else "Retest mốc vừa phá (volume lớn)"
+    setup_text = "Setup hồi về EMA20" if row["setup_type"] == "pullback" else "Retest mốc vừa phá (khối lượng lớn)"
     reasons = [f"Xu hướng {row['trend']:.0f}/30 · Động lượng {row['momentum']:.0f}/15 · Dòng tiền {row['flow']:.0f}/15"]
     if s.oi is not None:
         reasons.append(f"OI Binance {'24h' if s.tf == '1h' else '72h'} {s.oi:+.1%}")

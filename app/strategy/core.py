@@ -344,7 +344,7 @@ def apply_live_context(c: Candidate, deriv: dict, *, coin_news: dict | None, mar
 def describe(c: Candidate) -> list[str]:
     r = c.row
     out = []
-    out.append("Setup hồi về EMA20 4H" if r["setup_type"] == "pullback" else "Retest mốc vừa phá (volume lớn)")
+    out.append("Setup hồi về EMA20 4H" if r["setup_type"] == "pullback" else "Retest mốc vừa phá (khối lượng lớn)")
     out.append(f"Xu hướng {r['trend']:.0f}/30 · Động lượng {r['momentum']:.0f}/15 · Dòng tiền {r['flow']:.0f}/15")
     if r["btc_pts"] >= 5:
         out.append("BTC cùng xu hướng")

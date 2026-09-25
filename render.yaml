@@ -14,6 +14,8 @@ services:
         value: "3.12.7"
       - key: TELEGRAM_BOT_TOKEN
         sync: false
+      - key: NEWS_BOT_TOKEN      # 📰 Bot Tin tức (bot thứ 2, chạy chung dịch vụ)
+        sync: false
       - key: ADMIN_IDS
         sync: false
       - key: DATABASE_URL        # Postgres miễn phí của Neon (neon.tech) — ổ đĩa Render bị xóa khi khởi động lại

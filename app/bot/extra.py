@@ -278,6 +278,19 @@ async def on_coin(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         await q.message.reply_text("✍️ Gõ tên coin muốn thêm (có thể nhiều coin, vd: <code>SOL PEPE LINK</code>):",
                                    parse_mode=ParseMode.HTML)
         return
+    elif parts[1] == "watch":  # nút ➕ Theo dõi ở kết quả 🔍 phân tích
+        base = binance.split_symbol(parts[2])[0]
+        if len(await storage.user_coins_of(user["chat_id"])) >= settings.max_user_coins:
+            await q.answer(f"Đã đủ {settings.max_user_coins} coin theo dõi — xóa bớt ở 🪙 Coin theo dõi", show_alert=True)
+            return
+        await storage.add_user_coin(user["chat_id"], parts[2])
+        if user.get("coin_mode", "top") == "top":  # đang chỉ nhận Top 20 -> nhận thêm coin tự chọn
+            await storage.update_user(user["chat_id"], coin_mode="both")
+        await q.answer(f"Đã theo dõi {base}")
+        await q.edit_message_reply_markup(None)
+        await q.message.reply_text(f"✅ Đã thêm <b>{escape(base)}</b> vào 🪙 Coin theo dõi. Khi {escape(base)} đạt chuẩn vào "
+                                   "lệnh, bot sẽ gửi tín hiệu kèm giá vào, SL, trailing.", parse_mode=ParseMode.HTML)
+        return
     elif parts[1] == "del":
         await storage.remove_user_coin(user["chat_id"], parts[2])
         await q.answer("Đã xóa")

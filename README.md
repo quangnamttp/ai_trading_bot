@@ -5,7 +5,10 @@ kiểu TradingView. Bot theo dõi từng lệnh tới khi đóng. Có 2 kiểu g
 và **🌙 Swing dài** (khoảng 1 tín hiệu/tuần). Chế độ **Spot** chỉ nhận lệnh MUA; **Futures** nhận LONG/SHORT kèm đòn bẩy
 an toàn. Toàn bộ dữ liệu miễn phí.
 
-> Code cũ nằm ở tag `legacy-v2` / `legacy-final`. Hai chỉ báo TradingView: xem [tradingview/README.md](tradingview/README.md).
+> 📘 **Hướng dẫn**: [cài đặt & vận hành bot](docs/HUONG_DAN_CAI_DAT_BOT.md) (admin) ·
+> [sử dụng 2 bot](docs/HUONG_DAN_SU_DUNG_BOT.md) (người dùng) · 2 chỉ báo TradingView: [tradingview/README.md](tradingview/README.md).
+>
+> Code cũ nằm ở tag `legacy-v2` / `legacy-final`.
 
 ## Bot quyết định thế nào
 
@@ -68,15 +71,15 @@ không backtest được (bot ghi lại mỗi lần tin tức chặn tín hiệu
 - **🪙 Coin theo dõi** (Futures, tối đa 20): chọn nhận tín hiệu *Top 20* / *chỉ coin của tôi* / *cả hai*. Tín hiệu coin
   tự chọn không chiếm giới hạn Top 20; mỗi người tối đa 3 tín hiệu swing ngắn/ngày. Tổng số coin quét tối đa 60.
 - **📰 Bot Tin tức** (tùy chọn, đặt `NEWS_BOT_TOKEN` trên Render — chạy chung service, webhook `/telegram-news`):
-  chat riêng từng người; 7h thị trường 24h, tin vĩ mô Mỹ 4 mốc, 🚀 coin biến động mạnh (≥5%/1h hoặc ≥10%/4h kèm
-  volume), BTC ±3%/h, funding cực đoan, tổng kết tuần, lịch tuần ghim đầu chat; mỗi người tự bật/tắt từng loại tin;
-  hỏi AI crypto 100 câu/ngày. Dùng chung danh sách người dùng với Bot Tín hiệu. Chưa có token -> tin gửi qua Bot Tín hiệu.
+  chat riêng từng người; 7h thị trường 24h, tin vĩ mô Mỹ (trước 1h / sau 1h), tin gấp ⚡ 💰 🆕, 🚀 dấu hiệu sớm,
+  coin Top 20 chạy mạnh, BTC ±3%/h, tổng kết tuần, lịch tuần ghim đầu chat; bấm tin bất kỳ → tóm tắt tiếng Việt +
+  nút mở bài gốc; mỗi người tự bật/tắt từng loại tin; hỏi AI crypto 100 câu/ngày. Dùng chung danh sách người dùng với Bot Tín hiệu. Chưa có token -> tin gửi qua Bot Tín hiệu.
 - **🎯 Tín hiệu chỉ báo Swing**: bot chạy đúng công thức Swing Entry Pro (1H/4H) trên coin người dùng tự chọn, gửi và
   theo dõi như tín hiệu thường; tính riêng, không chiếm giới hạn tín hiệu của bot.
 - **🤖 AI** (tùy chọn): đặt `GEMINI_API_KEY`, `GROQ_API_KEY`, `OPENROUTER_API_KEY` trên Render. Thử lần lượt
   Gemini → Groq → OpenRouter, tự dò model còn dùng được, bỏ câu trả lời lặp / bịa số. Theo chế độ: Spot chỉ hỏi coin
   trong danh mục, Futures chỉ hỏi tín hiệu đang mở (lệnh đóng → 📋 Tổng kết lệnh), thêm mục 🌍 Thị trường chung.
-  20 câu/người/ngày (`AI_DAILY_LIMIT`), câu ngoài phạm vi không tính lượt.
+  50 câu/người/ngày (`AI_DAILY_LIMIT`), câu ngoài phạm vi không tính lượt.
 
 ## Lịch tự động (giờ VN)
 

@@ -212,8 +212,10 @@ chạm vùng</b>. Mua trên sàn xong bấm ✅ Đã mua là danh mục tự c�
 
 <b>🪙 Coin theo dõi</b> (Futures, tối đa 20): thêm coin muốn nhận tín hiệu ngoài Top 20.
 
+<b>🔍 Phân tích coin</b>: gõ tên coin → bot KẾT LUẬN có thể vào LONG/SHORT (kèm giá vào, SL, trailing) hay chưa nên vào; chưa nên thì bấm ➕ Theo dõi để bot tự báo khi đạt chuẩn.
+
 <b>🎯 Tín hiệu chỉ báo Swing</b> (bật trong 🪙 / 💼): nến 1H hoặc 4H đóng mà coin bạn chọn đủ điều kiện chỉ báo
-Swing Entry Pro → bot gửi giống nhãn MUA/BÁN trên TradingView và theo dõi lệnh. Chọn không chuông, tối đa 1–5 tin/ngày.
+Swing Entry Pro → bot gửi giống nhãn MUA/BÁN trên TradingView và theo dõi lệnh. Nên chọn khung 4H (backtest 9 năm tốt hơn 1H rõ rệt). Chọn không chuông, tối đa 1–5 tin/ngày.
 
 🧱 Mỗi tín hiệu có dòng kháng cự / hỗ trợ gần nhất để biết giá sắp gặp vùng nào — chỉ để tham khảo, không cần bỏ lệnh vì vùng cản gần.
 

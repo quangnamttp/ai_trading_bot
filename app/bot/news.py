@@ -37,9 +37,10 @@ HELP = (
     "• 07:00 thị trường 24h + funding cực đoan · lịch kinh tế trong ngày chỉ khi có tin mạnh (lịch tuần ghim đầu chat)\n"
     "• Tin vĩ mô Mỹ: trước 1 giờ và 1 giờ sau khi ra tin (BTC/ETH phản ứng thật)\n"
     "• Tin gấp, báo ngay: ⚡ tin nóng ảnh hưởng xu hướng · 💰 tiền lớn vào/ra (stablecoin) · 🆕 coin niêm yết Binance/Upbit\n"
-    "• 🚀 Dấu hiệu sớm (kèm ảnh): coin đang được gom hàng / sắp ép short — trước khi chạy. Bấm nút để hỏi Bot Tín hiệu "
-    "có nên vào không\n"
+    "• 🚀 Dấu hiệu sớm (kèm ảnh): coin sắp biến động mạnh (gom hàng / ép short), chưa rõ hướng — bấm nút để Bot Tín "
+    "hiệu kết luận có nên vào LONG/SHORT không\n"
     "• 📈 Coin Top 20 chạy mạnh (tối đa 1 tin / 4 giờ) · BTC ±3%/giờ · Chủ nhật 20:00 tổng kết tuần\n\n"
+    "<b>📖 Đọc tin</b>: bấm vào tin bất kỳ → bản tóm tắt tiếng Việt, có nút mở bài gốc.\n\n"
     f"<b>🤖 Hỏi AI</b>: gõ câu hỏi bất kỳ về crypto — coin nào đang mạnh, tin tức, vĩ mô… "
     f"({settings.ai_news_daily_limit} câu/ngày, câu ngoài chủ đề không tính lượt).\n"
     "Tín hiệu vào lệnh, danh mục, 🔍 phân tích coin: ở 🤖 Bot Tín hiệu."
@@ -84,8 +85,27 @@ async def _member(update: Update, ctx: ContextTypes.DEFAULT_TYPE | None = None) 
 
 async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     user = await _member(update, ctx)
-    if user:
-        await _reply(update, "👋 <b>Chào mừng đến Bot Tin tức!</b>\n\n" + HELP, reply_markup=menu(user))
+    if not user:
+        return
+    if ctx.args and ctx.args[0].startswith("nw_"):  # bấm tiêu đề tin -> tóm tắt tiếng Việt
+        await read_news(update, ctx.args[0][3:])
+        return
+    await _reply(update, "👋 <b>Chào mừng đến Bot Tin tức!</b>\n\n" + HELP, reply_markup=menu(user))
+
+
+async def read_news(update: Update, nid: str) -> None:
+    from app import newsread
+    msg = await update.effective_message.reply_text("⏳ Đang tóm tắt tin bằng tiếng Việt...")
+    got = await newsread.summary(nid)
+    if not got:
+        await msg.edit_text("Tin này đã cũ, không còn trong bộ nhớ. Bấm 📰 Tin mới nhất để xem tin mới.")
+        return
+    text, url = got
+    markup = InlineKeyboardMarkup([[B("🔗 Đọc bài gốc (tiếng Anh)", url=url)]]) if url else None
+    try:
+        await msg.edit_text(text, parse_mode=ParseMode.HTML, reply_markup=markup, disable_web_page_preview=True)
+    except TelegramError as exc:
+        log.warning("Gửi tóm tắt tin lỗi: %s", exc)
 
 
 # ---------------------------------------------------------------- ⚙️ cài đặt tin

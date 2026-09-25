@@ -111,14 +111,21 @@ async def _send_early(bot: Bot, c, kind: str, k, oi, ls: float | None, funding: 
     volx = float(k["volume"].iloc[-4:].sum()) / max(1e-9, float(k["volume"].iloc[-124:-4].mean()) * 4)
     if kind == "early":
         head = f"🚀 <b>{escape(c.base)}</b> · dấu hiệu gom hàng"
-        body = f"OI +{oi4:.0%} trong 4 giờ · volume x{volx:.1f} · giá mới {ch4:+.1%} (24h {ch24:+.1%})"
-        stat = "📊 2 năm qua: 43% lần giá chạy ≥10% trong 24h sau dấu hiệu này (bình thường 15%)"
+        body = f"Hợp đồng mở (OI) +{oi4:.0%} trong 4 giờ · khối lượng giao dịch gấp {volx:.1f} lần · giá 4 giờ {ch4:+.1%}"
+        mean = "👉 Tiền lớn đang mở vị thế mới trong khi giá chưa chạy → thường sắp có biến động mạnh."
+        stat = ("📊 2 năm qua, 24h sau dấu hiệu này: <b>33%</b> lần giá tăng ≥10%, <b>16%</b> lần giảm ≥10% "
+                "(bình thường 9% / 7%) → nghiêng về tăng nhưng chưa chắc.")
     else:
         head = f"🚀 <b>{escape(c.base)}</b> · dễ bị ép short"
-        body = f"Funding {funding:.3%} (phe short trả phí) · OI 24h +{oi24:.0%} · giá 24h {ch24:+.1%}"
-        stat = "📊 2 năm qua: 42% lần giá chạy ≥10% trong 24h sau dấu hiệu này (bình thường 15%)"
-    extra = [f"Giá {texts.price(px)}"] + ([f"Long/Short {ls:.2f}"] if ls else [])
-    text = "\n".join([head, body, " · ".join(extra), stat])
+        body = f"Funding {funding:.3%} (phe bán khống đang trả phí) · OI 24h +{oi24:.0%} · giá 24h {ch24:+.1%}"
+        mean = ("👉 Rất nhiều người đang cược giá giảm; giá chỉ cần nhích lên là họ phải mua lại để cắt lỗ → giá có "
+                "thể vọt mạnh.")
+        stat = ("📊 2 năm qua, 24h sau dấu hiệu này: <b>46%</b> lần giá tăng ≥10%, nhưng <b>32%</b> lần giảm ≥10% "
+                "(bình thường 9% / 7%) → biến động rất mạnh cả 2 chiều.")
+    extra = [f"Giá {texts.price(px)}", f"24h {ch24:+.1%}"] + ([f"tỉ lệ Long/Short {ls:.2f}"] if ls else [])
+    text = "\n".join([head, body, " · ".join(extra), "", mean, stat,
+                      "⚠️ <b>Chưa phải lệnh vào.</b> Bấm nút bên dưới: Bot Tín hiệu kiểm tra ngay có điểm vào "
+                      "LONG/SHORT đạt chuẩn chưa (giá vào, SL, trailing)."])
     try:  # OI dài hơn cho ảnh (4 ngày)
         now = int(time.time() * 1000)
         oi_img = await bybit.open_interest(c.symbol, now - 100 * 3_600_000, now, "1h")
@@ -163,8 +170,11 @@ async def listings(bot: Bot) -> None:
         if not await _quota("listing"):
             return
         sym = f"{tick}USDT" if f"{tick}USDT" in perps else f"1000{tick}USDT" if f"1000{tick}USDT" in perps else None
-        text = (f"🆕 <b>{escape(tick)} sắp niêm yết trên {ex}</b>\n{escape(title[:140])}\n"
-                "Tin niêm yết sàn lớn thường làm giá biến động rất mạnh trong vài phút đến vài giờ.")
+        from app.assistant import vi_titles
+        vi = (await vi_titles([title]))[0]
+        text = (f"🆕 <b>{escape(tick)} sắp niêm yết trên {ex}</b>\n"
+                + (f"{escape(vi[:160])}\n" if vi != title else "")
+                + "Tin niêm yết sàn lớn thường làm giá biến động rất mạnh trong vài phút đến vài giờ.")
         photo = None
         if sym:
             try:
@@ -244,13 +254,18 @@ async def breaking_news(bot: Bot) -> None:
     if not items:
         return
     rated = await rate_headlines(items)
+    from app import newsread
     for h in items:
-        if rated.get(h.title, 0) < 5 or not await _once(f"breaking:{_hid(h.title[:60])}"):
+        key = f"breaking:{_hid(h.title[:60])}"
+        if rated.get(h.title, 0) < 5 or await storage.kv_get(key):
+            continue
+        # khách không đọc tiếng Anh: chỉ gửi khi AI đã tóm tắt được bằng tiếng Việt (lỗi -> lần quét sau thử lại)
+        got = await newsread.summary(await newsread.ref(h), require_ai=True)
+        if not got:
             continue
         if not await _quota("breaking"):
             return
-        from app.assistant import vi_titles
-        vi = (await vi_titles([h.title]))[0]
-        await reports.broadcast_news(bot, f"⚡ <b>Tin nóng</b> · {h.time.astimezone(VN_TZ):%H:%M}\n"
-                                          f"<a href=\"{escape(h.link)}\">{escape(vi[:160])}</a>",
-                                     category="breaking", silent=False)
+        await storage.kv_set(key, "1")
+        body = got[0]
+        markup = InlineKeyboardMarkup([[InlineKeyboardButton("🔗 Đọc bài gốc (tiếng Anh)", url=h.link)]]) if h.link else None
+        await reports.broadcast_news(bot, f"⚡ <b>Tin nóng</b>\n{body}", markup, category="breaking", silent=False)

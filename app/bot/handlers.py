@@ -301,15 +301,25 @@ async def analyze(update: Update, ctx: ContextTypes.DEFAULT_TYPE, symbol_text: s
         log.exception("analyze")
         await msg.edit_text(f"❌ Lỗi lấy dữ liệu: {exc}")
         return
-    await msg.edit_text(analysis_text(res), parse_mode=ParseMode.HTML)
+    text = analysis_text(res, user["mode"])
+    cand = res["candidate"]
+    ready = cand and not cand.vetoed and cand.score >= res["threshold"]
+    markup = None
+    if not ready and user["mode"] == "futures":
+        sym = res["coin"].symbol
+        mine = {c["symbol"] for c in await storage.user_coins_of(user["chat_id"])}
+        if sym not in mine:
+            markup = InlineKeyboardMarkup([[InlineKeyboardButton(f"➕ Theo dõi {res['coin'].base}: bot tự báo khi đạt chuẩn",
+                                                                 callback_data=f"coin:watch:{sym}")]])
+    await msg.edit_text(text, parse_mode=ParseMode.HTML, reply_markup=markup)
 
 
-def analysis_text(res: dict) -> str:
+def analysis_text(res: dict, mode: str = "futures") -> str:
     coin, cand, rows, th = res["coin"], res["candidate"], res["rows"], res["threshold"]
     lines = [f"🔍 <b>{coin.display}</b> · giá {texts.price(rows[1]['entry'])}"]
     for side, name in ((1, "LONG"), (-1, "SHORT")):
         r = rows[side]
-        lines.append(f"\n<b>{name}</b>: điểm thô {r['raw']:.0f}/100 — xu hướng {r['trend']:.0f}/30, "
+        lines.append(f"\n<b>{name}</b>: {r['raw']:.0f}/100 điểm — xu hướng {r['trend']:.0f}/30, "
                      f"động lượng {r['momentum']:.0f}/15, setup {r['setup']:.0f}/20, dòng tiền {r['flow']:.0f}/15")
     d = res["deriv"]
     if d:
@@ -323,21 +333,35 @@ def analysis_text(res: dict) -> str:
                      "hoặc setup Retest.</i>")
     n = res["news"]
     if n["count"]:
-        lines.append(f"📰 Tin 24h: {n['count']} bài, sentiment {n['sentiment']:+.2f}")
-    if cand and not cand.vetoed and cand.score >= th:
+        mood = "nghiêng TỐT" if n["sentiment"] > 0.2 else "nghiêng XẤU" if n["sentiment"] < -0.2 else "trung lập"
+        lines.append(f"📰 Tin 24h về coin này: {n['count']} bài, {mood}")
+    if cand and not cand.vetoed and cand.score >= th and not (mode == "spot" and cand.side < 0):
+        from app.strategy.trade import callback_rate
         stats = bucket_stats(cand.score)
-        lines.append(f"\n✅ <b>Có setup {cand.side_name}</b> điểm {cand.score:.0f} (ngưỡng {th:.0f})")
-        lines += [f"• {escape(x)}" for x in describe(cand)]
         r = cand.row
-        lines.append(f"Entry {texts.price(r['entry'])} · SL {texts.price(r['sl'])} · TP1 {texts.price(r['tp1'])}")
+        entry, sl = float(r["entry"]), float(r["sl"])
+        risk = abs(entry - sl)
+        cb = callback_rate(float(r["atr4"]), entry) if r.get("atr4") else None
+        lines.append(f"\n✅ <b>KẾT LUẬN: CÓ THỂ VÀO {'MUA' if mode == 'spot' else cand.side_name}</b> "
+                     f"(điểm {cand.score:.0f}, ngưỡng {th:.0f})")
+        lines += [f"• {escape(x)}" for x in describe(cand)]
+        lines.append(f"💰 Vào: <b>{texts.price(entry)}</b> · 🛑 SL: <b>{texts.price(sl)}</b> (-{risk / entry:.1%})")
+        if cb:
+            lines.append(f"🔁 Trailing Stop cả lệnh: kích hoạt <b>{texts.price(entry + cand.side * risk)}</b>, "
+                         f"callback <b>{cb * 100:.1f}%</b>")
+        lines.append(f"⛔ Không vào nếu giá đã {'vượt' if cand.side > 0 else 'xuống dưới'} "
+                     f"{texts.price(entry + cand.side * 0.3 * risk)}")
         if stats:
-            lines.append(f"Backtest mức điểm này: {stats['win_rate']:.0%} có lời, TB {stats['avg_r']:+.2f}R")
+            lines.append(f"📊 Backtest mức điểm này: {stats['win_rate']:.0%} lệnh có lời, TB {stats['avg_r']:+.2f}R")
     elif cand and cand.vetoed:
-        lines.append(f"\n⛔ Có setup {cand.side_name} nhưng bị chặn: {escape(cand.vetoed)}")
+        lines.append(f"\n⛔ <b>KẾT LUẬN: CHƯA NÊN VÀO.</b> Có setup {cand.side_name} nhưng bị chặn: {escape(cand.vetoed)}")
+    elif cand and mode == "spot" and cand.side < 0:
+        lines.append("\n⏸ <b>KẾT LUẬN: CHƯA NÊN MUA.</b> Coin đang có xu hướng GIẢM (setup SHORT) — Spot nên đứng ngoài.")
     else:
         best = max(rows.values(), key=lambda r: r["raw"])
-        lines.append(f"\n⏸ <b>Chưa có điểm vào đạt chuẩn</b> (ngưỡng {th:.0f}). "
-                     + ("Chưa có setup hồi/retest hợp lệ." if best["setup"] == 0 else "Dòng tiền hoặc bộ lọc chưa ủng hộ."))
+        lines.append(f"\n⏸ <b>KẾT LUẬN: CHƯA NÊN VÀO.</b> Chưa có điểm vào đạt chuẩn (ngưỡng {th:.0f}). "
+                     + ("Chưa có nhịp hồi / retest hợp lệ." if best["setup"] == 0 else "Dòng tiền hoặc bộ lọc chưa ủng hộ."))
+        lines.append("Vào lệnh lúc này là đoán hướng — nên chờ bot báo tín hiệu.")
     return "\n".join(lines)
 
 

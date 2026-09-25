@@ -228,11 +228,11 @@ async def morning_text() -> str:
         lines.append(f"💵 Cung stablecoin 7 ngày: {stable:+.2%} ({'tiền đang vào' if stable > 0 else 'tiền đang rút'})")
 
     start, end = vn_midnight_utc(), vn_midnight_utc() + timedelta(days=1)
-    events = [e for e in await macro.high_impact_events() if start <= e["time"] < end]
+    today_ev = [e for e in await macro.high_impact_events() if start <= e["time"] < end]  # (không đặt tên `events`: trùng module)
     lines.append("")
-    if events:
+    if today_ev:
         lines.append("📅 <b>Tin vĩ mô Mỹ hôm nay</b> (bot tạm dừng 3h trước → 1h sau):")
-        lines += [f"• {e['time'].astimezone(VN_TZ):%H:%M} — {escape(events.vi_title(e['title']))}" for e in events]
+        lines += [f"• {e['time'].astimezone(VN_TZ):%H:%M} — {escape(events.vi_title(e['title']))}" for e in today_ev]
     else:
         lines.append("📅 Hôm nay không có tin vĩ mô Mỹ quan trọng.")
 
@@ -242,7 +242,9 @@ async def morning_text() -> str:
         top = sorted(items, key=lambda h: -abs(h.score))[:3]
         vi = await vi_titles([h.title for h in top])
         lines += ["", "🗞 <b>Tin đáng chú ý</b>:"]
-        lines += [f"• <a href=\"{escape(h.link)}\">{escape(t[:120])}</a>" for h, t in zip(top, vi)]
+        from app import newsread
+        lines += [f"• <a href=\"{escape(await newsread.link_for(h))}\">{escape(t[:120])}</a>" for h, t in zip(top, vi)]
+        lines.append("<i>👉 Bấm vào tin để đọc tóm tắt tiếng Việt</i>")
 
     watch = await scanner.watch_candidates(5)
     if watch:
@@ -357,10 +359,11 @@ async def news_alerts(bot: Bot) -> None:
             if await storage.kv_get(key):
                 continue
             await storage.kv_set(key, "1")
+            from app import newsread
             from app.assistant import vi_titles
             vi = (await vi_titles([h.title]))[0]
             text = (f"⚠️ <b>{escape(s['display'])}</b>: có tin có thể đi NGƯỢC lệnh "
-                    f"{'LONG' if s['side'] > 0 else 'SHORT'} của bạn:\n<a href=\"{escape(h.link)}\">{escape(vi)}</a>\n"
+                    f"{'LONG' if s['side'] > 0 else 'SHORT'} của bạn:\n<a href=\"{escape(await newsread.link_for(h))}\">{escape(vi)}</a>\n"
                     "Cân nhắc giảm vị thế hoặc dời SL sát hơn.")
             for m in await storage.messages_for(s["id"]):
                 if m["chat_id"] in users and not users[m["chat_id"]]["banned"]:
@@ -635,7 +638,7 @@ async def big_moves(bot: Bot) -> None:
         extra = " · ".join(filter(None, [f"OI 24h {d['oi_chg']:+.0%}" if "oi_chg" in d else "",
                                          f"funding {d['funding']:.3%}" if "funding" in d else ""]))
         lines.append(f"\n{'🟢' if up else '🔴'} <b>{escape(c.base)}</b> {ch1:+.1%} (1 giờ) · {ch4:+.1%} (4 giờ) · "
-                     f"volume x{vol_x:.1f}\nGiá {texts.price(px / c.multiplier)}" + (f" · {extra}" if extra else ""))
+                     f"khối lượng x{vol_x:.1f}\nGiá {texts.price(px / c.multiplier)}" + (f" · {extra}" if extra else ""))
         cn = news.coin_news(c.base, items)
         heads = (cn.get("severe_negative") or []) + (cn.get("severe_positive") or [])
         if heads:
@@ -649,6 +652,7 @@ async def big_moves(bot: Bot) -> None:
 
 
 async def latest_news_text(limit: int = 8) -> str:
+    from app import newsread
     from app.alerts import rate_headlines
     from app.assistant import vi_titles
     all_items = await news.headlines(24)
@@ -662,7 +666,9 @@ async def latest_news_text(limit: int = 8) -> str:
              f"{all_items[0].time.astimezone(VN_TZ):%H:%M})"]
     for h, t in zip(items, vi):
         icon = "🟢" if h.score > 0.2 else "🔴" if h.score < -0.2 else "⚪"
-        lines.append(f"{icon} {h.time.astimezone(VN_TZ):%H:%M} <a href=\"{escape(h.link)}\">{escape(t[:120])}</a>")
+        lines.append(f"{icon} {h.time.astimezone(VN_TZ):%H:%M} <a href=\"{escape(await newsread.link_for(h))}\">"
+                     f"{escape(t[:120])}</a>")
+    lines.append("\n<i>👉 Bấm vào tin để đọc tóm tắt tiếng Việt (có nút mở bài gốc)</i>")
     return "\n".join(lines)
 
 
@@ -738,7 +744,8 @@ async def holdings_watch(bot: Bot) -> None:
                     await storage.kv_set(k, "1")
                     from app.assistant import vi_titles
                     vi = (await vi_titles([h.title]))[0]
-                    alerts.append(f"📰 Tin xấu: <a href=\"{escape(h.link)}\">{escape(vi[:120])}</a>")
+                    from app import newsread
+                    alerts.append(f"📰 Tin xấu: <a href=\"{escape(await newsread.link_for(h))}\">{escape(vi[:120])}</a>")
         except Exception as exc:  # noqa: BLE001
             log.warning("Theo dõi coin giữ %s lỗi: %s", sym, exc)
             continue

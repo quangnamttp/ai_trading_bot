@@ -54,6 +54,7 @@ class Headline:
     link: str
     time: datetime
     score: float  # -1..1
+    summary: str = ""  # đoạn mô tả trong RSS (dùng khi không tải được bài gốc để tóm tắt)
 
 
 def score_text(text: str) -> float:
@@ -82,7 +83,9 @@ async def _rss(url: str) -> list[Headline]:
         if not ts:
             continue
         title = html.unescape(html.unescape(e.get("title", "")))  # một số RSS mã hóa 2 lần (&amp;#x27;)
-        out.append(Headline(title, e.get("link", ""), datetime.fromtimestamp(timegm(ts), timezone.utc), score_text(title)))
+        desc = re.sub(r"<[^>]+>", " ", e.get("summary", "") or "")
+        out.append(Headline(title, e.get("link", ""), datetime.fromtimestamp(timegm(ts), timezone.utc), score_text(title),
+                            re.sub(r"\s+", " ", html.unescape(desc)).strip()[:1500]))
     return out
 
 

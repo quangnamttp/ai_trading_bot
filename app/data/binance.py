@@ -65,14 +65,32 @@ async def perpetual_symbols() -> set[str]:
         info = await get_json(f"{FAPI[0]}/fapi/v1/exchangeInfo", ttl=6 * 3600)
     except Exception as exc:  # noqa: BLE001
         log.info("Binance exchangeInfo lỗi (%s) -> dùng Bybit", exc)
+        known = _last_perps or await _saved_perps()
         bybit = {i["symbol"] for i in await _bybit_instruments()}
-        return (bybit & _last_perps) or bybit  # Bybit có cả mã cổ phiếu -> ưu tiên danh sách Binance đã biết
-    _last_perps = {
+        # Bybit/MEXC có cả mã cổ phiếu (SOXL, TSLA...) -> chỉ giữ coin nằm trong danh sách Binance đã biết
+        return (bybit & known) or known or bybit
+    perps = {
         s["symbol"] for s in info["symbols"]
         if s["status"] == "TRADING" and s["contractType"] == "PERPETUAL"
         and s["quoteAsset"] == "USDT" and s.get("underlyingType") == "COIN"
     }
+    if perps and perps != _last_perps:
+        _last_perps = perps
+        try:  # lưu vào DB để lần khởi động sau (Binance đang chặn) vẫn biết đâu là coin
+            from app import storage
+            await storage.kv_set("binance_perps", ",".join(sorted(perps)))
+        except Exception as exc:  # noqa: BLE001
+            log.debug("Lưu danh sách coin Binance lỗi: %s", exc)
     return _last_perps
+
+
+async def _saved_perps() -> set[str]:
+    try:
+        from app import storage
+        raw = await storage.kv_get("binance_perps")
+        return set(raw.split(",")) if raw else set()
+    except Exception:  # noqa: BLE001
+        return set()
 
 
 async def spot_symbols() -> set[str]:
@@ -94,7 +112,7 @@ async def universe(top_n: int, min_quote_volume: float, extra: list[str] | None 
     ranked = sorted(
         (s for s in perps if split_symbol(s)[0] not in STABLES and split_symbol(s)[0].isascii()
          and split_symbol(s)[0].isalnum() and vol.get(s, 0) >= min_quote_volume),
-        key=lambda s: -vol[s],
+        key=lambda s: -vol.get(s, 0),  # nguồn dự phòng (Bybit/MEXC) có thể thiếu coin
     )
     chosen = ranked[:top_n]
     for sym in extra or []:
