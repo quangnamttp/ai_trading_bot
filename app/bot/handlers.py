@@ -381,8 +381,8 @@ def admin_only(fn):
 
 @admin_only
 async def scan_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-    await _reply(update, "⏳ Đang quét thị trường...")
-    await _reply(update, escape(await service.run_scan(ctx.bot, ("short", "long"), force=True)))
+    await _reply(update, "⏳ Đang quét thị trường, có kết quả bot sẽ báo...")
+    _bg(_scan_in_background(ctx.bot, update.effective_chat.id))
 
 
 @admin_only
@@ -534,8 +534,8 @@ async def on_admin(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
                 pass
         await q.edit_message_text("🗑 Đã xóa người dùng khỏi danh sách nhận tín hiệu.")
     elif op == "scan":
-        await q.message.reply_text("⏳ Đang quét thị trường...")
-        await q.message.reply_text(escape(await service.run_scan(ctx.bot, ("short", "long"), force=True)))
+        await q.message.reply_text("⏳ Đang quét thị trường, có kết quả bot sẽ báo (thường dưới 1 phút)...")
+        _bg(_scan_in_background(ctx.bot, q.message.chat_id))
     elif op == "ai":
         await q.message.reply_text(await extra.assistant.ping(), parse_mode=ParseMode.HTML)
     elif op == "market":
@@ -567,7 +567,40 @@ async def broadcast_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def on_error(update: object, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    """Có lỗi -> người dùng luôn nhận được phản hồi (không im lặng), admin nhận chi tiết lỗi."""
     log.error("Lỗi xử lý update: %s", ctx.error, exc_info=ctx.error)
+    if isinstance(update, Update):
+        try:
+            if update.callback_query:
+                await update.callback_query.answer("⚠️ Có lỗi, thử lại sau ít phút.", show_alert=True)
+            elif update.effective_message and update.effective_chat and update.effective_chat.type == "private":
+                await update.effective_message.reply_text("⚠️ Có lỗi, thử lại sau ít phút.")
+        except Exception:  # noqa: BLE001
+            pass
+    what = update.callback_query.data if isinstance(update, Update) and update.callback_query else (
+        update.effective_message.text if isinstance(update, Update) and update.effective_message else "")
+    await service.notify_admins(ctx.bot, f"🐞 Lỗi khi xử lý «{escape(str(what)[:60])}»: "
+                                         f"<code>{escape(type(ctx.error).__name__)}: {escape(str(ctx.error)[:300])}</code>",
+                                key=f"err:{type(ctx.error).__name__}", every_minutes=30)
+
+
+_tasks: set[asyncio.Task] = set()
+
+
+def _bg(coro) -> None:
+    """Chạy nền, giữ tham chiếu để task không bị dọn giữa chừng."""
+    t = asyncio.create_task(coro)
+    _tasks.add(t)
+    t.add_done_callback(_tasks.discard)
+
+
+async def _scan_in_background(bot, chat_id: int) -> None:
+    """Quét ngay chạy nền: bot vẫn trả lời người khác trong lúc quét, xong thì báo kết quả."""
+    try:
+        note = await service.run_scan(bot, ("short", "long"), force=True)
+    except Exception as exc:  # noqa: BLE001
+        note = f"Lỗi khi quét: {exc}"
+    await bot.send_message(chat_id, "🔍 " + escape(note), parse_mode=ParseMode.HTML)
 
 
 def register(app: Application) -> None:

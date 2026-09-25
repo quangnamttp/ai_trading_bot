@@ -144,7 +144,8 @@ async def run() -> None:
         raise SystemExit("Thiếu TELEGRAM_BOT_TOKEN")
 
     await storage.init()
-    builder = Application.builder().token(settings.telegram_token)
+    # concurrent_updates: 1 người hỏi AI (vài giây) không bắt người khác phải chờ
+    builder = Application.builder().token(settings.telegram_token).concurrent_updates(True)
     if settings.public_url:
         builder = builder.updater(None)
     app = builder.build()

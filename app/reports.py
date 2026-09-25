@@ -533,7 +533,18 @@ async def weekly_market(bot: Bot) -> None:
 
 
 async def health_check(bot: Bot) -> None:
-    """Quá N giờ không quét được thị trường (ngoài giờ yên lặng) -> báo admin."""
+    """Sàn vừa giới hạn tần suất -> báo admin (bot đã tự chuyển nguồn). Quá N giờ không quét được -> báo admin."""
+    import time
+    from app.data import http
+    from app.service import notify_admins
+    recent = [h for h, t in http.last_block.items() if time.time() - t < 1800]
+    if recent:
+        await notify_admins(bot, f"ℹ️ Sàn giới hạn tần suất: {', '.join(recent)} — bot đang tạm lấy dữ liệu từ Bybit, "
+                                 "vẫn quét và báo tín hiệu bình thường.", key="rate_limit", every_minutes=360)
+    await _stale_scan_check(bot)
+
+
+async def _stale_scan_check(bot: Bot) -> None:
     last = await storage.kv_get("last_scan_ok")
     if is_quiet() or not last:
         return

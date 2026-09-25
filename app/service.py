@@ -137,17 +137,43 @@ async def publish(bot: Bot, found: Found) -> int:
     return sig_id
 
 
+SCAN_TIMEOUT = 180  # giây — quá thì dừng lần quét này, lần sau vẫn chạy bình thường
+
+
+async def notify_admins(bot: Bot, text: str, *, key: str | None = None, every_minutes: int = 60) -> None:
+    """Nhắn admin (tối đa 1 lần / `every_minutes` cho cùng `key` để không dội tin)."""
+    if key:
+        k = f"admin_note:{key}:{int(datetime.now(timezone.utc).timestamp() // (every_minutes * 60))}"
+        if await storage.kv_get(k):
+            return
+        await storage.kv_set(k, "1")
+    for admin in settings.admin_ids:
+        try:
+            await bot.send_message(admin, text, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+        except TelegramError as exc:
+            log.warning("Không nhắn được admin %s: %s", admin, exc)
+
+
 async def run_scan(bot: Bot, styles: tuple[str, ...] = ("short",), *, force: bool = False) -> str:
     if _scan_lock.locked():
         return "Đang quét, thử lại sau."
     notes = []
     async with _scan_lock:
         for key in styles:
-            found, note = await scan(key, force=force)
+            t0 = datetime.now(timezone.utc)
+            try:
+                found, note = await asyncio.wait_for(scan(key, force=force), SCAN_TIMEOUT)
+            except asyncio.TimeoutError:
+                log.error("Quét %s quá %ss -> dừng lần này", key, SCAN_TIMEOUT)
+                await notify_admins(bot, f"⚠️ Quét {key} quá {SCAN_TIMEOUT // 60} phút nên đã dừng lần này "
+                                         "(nguồn dữ liệu chậm / bị giới hạn). Lần quét sau vẫn chạy.", key="scan_timeout")
+                notes.append(f"{key}: quá thời gian, bỏ qua lần này.")
+                continue
             for f in found:
                 await publish(bot, f)
-            log.info("Quét xong: %s, phát %d tín hiệu", note, len(found))
-            notes.append(f"{note}. Phát {len(found)} tín hiệu.")
+            secs = (datetime.now(timezone.utc) - t0).total_seconds()
+            log.info("Quét xong trong %.0fs: %s, phát %d tín hiệu", secs, note, len(found))
+            notes.append(f"{note}. Phát {len(found)} tín hiệu ({secs:.0f}s).")
     return "\n".join(notes)
 
 
