@@ -291,7 +291,7 @@ async def evening(bot: Bot) -> None:
         mine = lambda rows: [s for s in rows if (  # noqa: E731
             s["id"] in got if s.get("source") == "ind"  # 🎯 chỉ báo: chỉ lệnh người này đã nhận
             else (u["mode"] == "futures" or s["side"] > 0) and u.get("style", "both") in ("both", s.get("style", "short")))]
-        mult = lambda s: s["multiplier"] if u["mode"] == "spot" else 1  # noqa: E731
+        mult = lambda s: texts.disp_mult(s, u["mode"], u.get("exchange"))  # noqa: E731
         lines = [f"🌙 <b>Tổng kết ngày {vn_now():%d/%m}</b>", ""]
         t = mine(today)
         lines.append(f"📨 Tín hiệu hôm nay: <b>{len(t)}</b>" + (": " + ", ".join(
@@ -565,17 +565,10 @@ async def _stale_scan_check(bot: Bot) -> None:
     age = datetime.now(timezone.utc) - datetime.fromisoformat(last)
     if age < timedelta(hours=settings.health_alert_hours):
         return
-    now = datetime.now(timezone.utc)
-    key = f"health:{now:%Y%m%d}:{now.hour // 6}"  # tối đa 1 cảnh báo mỗi 6 giờ
-    if await storage.kv_get(key):
-        return
-    await storage.kv_set(key, "1")
-    for admin in settings.admin_ids:
-        try:
-            await bot.send_message(admin, f"🚨 Bot chưa quét được thị trường {age.total_seconds() / 3600:.1f} giờ. "
-                                          "Kiểm tra Logs trên Render (có thể Binance lỗi hoặc bị chặn).")
-        except Exception:  # noqa: BLE001
-            log.warning("Không gửi được cảnh báo sức khỏe cho %s", admin)
+    from app.service import notify_admins
+    await notify_admins(bot, f"🚨 Bot chưa quét được thị trường {age.total_seconds() / 3600:.1f} giờ "
+                             "(cả Binance, Bybit, MEXC đều lỗi?). Bot sẽ tự khởi động lại nếu còn kẹt.",
+                        key="stale_scan", every_minutes=360)
 
 
 # ---------------------------------------------------------------- cảnh báo thị trường
@@ -756,6 +749,21 @@ async def holdings_watch(bot: Bot) -> None:
                     + "\n".join(f"• {a}" for a in alerts))
             for chat in chats:
                 await _send(bot, chat, text)
+
+
+# ---------------------------------------------------------------- sao lưu dữ liệu (tối chủ nhật + nút của admin)
+async def send_backup(bot: Bot, chat_id: int | None = None) -> None:
+    """File JSON dữ liệu người dùng gửi riêng cho admin (không gửi vào nhóm vì là dữ liệu cá nhân)."""
+    import io
+    data = storage.dumps(await storage.export_data()).encode()
+    name = f"backup_{vn_now():%Y%m%d_%H%M}.json"
+    for admin in [chat_id] if chat_id else settings.admin_ids:
+        try:
+            await bot.send_document(admin, io.BytesIO(data), filename=name,
+                                    caption="📦 Sao lưu dữ liệu người dùng (cài đặt, coin theo dõi, danh mục, lịch sử "
+                                            "mua bán). Cần khôi phục: gửi lại file này cho bot.")
+        except TelegramError as exc:
+            log.warning("Gửi sao lưu cho %s lỗi: %s", admin, exc)
 
 
 # ---------------------------------------------------------------- báo cáo tuần (tối chủ nhật)

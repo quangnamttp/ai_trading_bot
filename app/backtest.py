@@ -29,7 +29,7 @@ import pandas as pd
 
 from app.data import binance, bybit, macro
 from app.data.http import get_json
-from app.strategy.core import build_features, quality_gate, score_frame
+from app.strategy.core import build_features, poc_veto, quality_gate, score_frame
 from app.strategy.trade import BE_AT_R, CALLBACK_ATR, FEE_RATE, MAX_CALLBACK, MIN_CALLBACK, PARTIALS
 
 log = logging.getLogger("backtest")
@@ -109,7 +109,7 @@ def simulate(H, L, C, A, i: int, side: int, entry: float, sl: float, hold: int) 
     s, risk = side, abs(entry - sl)
     fee = FEE_RATE * entry / risk
     cb = min(MAX_CALLBACK, max(MIN_CALLBACK, CALLBACK_ATR * A[i] / entry))
-    tp_r, part = PARTIALS[0]
+    tp_r, part = PARTIALS[0] if PARTIALS else (float("inf"), 0.0)
     stop, rem, R, hit, armed, peak = sl, 1.0, 0.0, False, False, entry
     end = min(i + 1 + hold, len(H))
     for j in range(i + 1, end):
@@ -171,6 +171,9 @@ def candidates_for(args: tuple) -> pd.DataFrame | None:
             gate = quality_gate(side, r["setup_type"], None if np.isnan(oi_chg[i]) else float(oi_chg[i] * side),
                                 None if np.isnan(ls[i]) else float(ls[i]), style)
             if gate:
+                continue
+            pos = d[b].index.get_indexer([f.index[i]])[0]
+            if style == "short" and pos >= 0 and poc_veto(d[b], side, float(r["entry"]), upto=pos):  # POC: swing ngắn
                 continue
             R, bars, out = simulate(H, L, C, A, i, side, r["entry"], r["sl"], cfg["hold"])
             rows.append({"sym": sym, "ts": f.index[i], "side": side, "score": r["score"], "setup": r["setup_type"],

@@ -24,9 +24,22 @@ _scan_lock = asyncio.Lock()
 CAPTION_LIMIT = 1024
 
 
-def tv_url(sig: dict, mode: str) -> str:
-    sym = f"BINANCE:{sig['spot_symbol']}" if mode == "spot" and sig.get("spot_symbol") else f"BINANCE:{sig['symbol']}.P"
-    return f"https://www.tradingview.com/chart/?symbol={sym}&interval=60"
+def tv_url(sig: dict, mode: str, exchange: str | None = "Binance", interval: str = "60") -> str:
+    """Link chart TradingView đúng sàn người dùng giao dịch (MEXC: giá theo 1 coin, vd MEXC:PEPEUSDT.P)."""
+    if exchange == "MEXC":
+        base = sig["display"].split("/")[0]
+        sym = f"MEXC:{base}USDT" if mode == "spot" else f"MEXC:{base}USDT.P"
+    else:
+        sym = f"BINANCE:{sig['spot_symbol']}" if mode == "spot" and sig.get("spot_symbol") else f"BINANCE:{sig['symbol']}.P"
+    return f"https://www.tradingview.com/chart/?symbol={sym}&interval={interval}"
+
+
+async def _ex_price(symbol: str, users: list[dict]) -> float | None:
+    """Giá MEXC (1 coin) — chỉ lấy khi có người dùng MEXC nhận tin."""
+    if not any(u.get("exchange") == "MEXC" for u in users):
+        return None
+    from app.data import mexc
+    return await mexc.price(symbol)
 
 
 def receives(user: dict, sig: dict, my_coins: set[str] | None = None) -> bool:
@@ -105,7 +118,7 @@ async def publish(bot: Bot, found: Found) -> int:
                   state=storage.dumps({"trade": trade.to_dict(), "last_ts": created, "notified_stop": row["sl"]}))
     sig_id = await storage.insert_signal(**values)
     sig = {**values, "id": sig_id, "trend": row["trend"], "setup_text": setup_text, "reasons": reasons[1:],
-           "exit_mode": "pct", "callback": cb}
+           "exit_mode": "pct", "callback": cb, "partials": trade.partials}
     stats = bucket_stats(c.score, style.key)
 
     photos: dict[int, bytes] = {}
@@ -113,22 +126,25 @@ async def publish(bot: Bot, found: Found) -> int:
     for r in await storage.all_user_coins():
         coins_by_user.setdefault(r["chat_id"], set()).add(r["symbol"])
     today = datetime.now(VN_TZ).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
-    for user in await storage.subscribers():
+    subs = await storage.subscribers()
+    ex_px = await _ex_price(coin.symbol, subs)
+    for user in subs:
         if not receives(user, sig, coins_by_user.get(user["chat_id"])):
             continue
         if style.key == "short":  # mỗi người tối đa N tín hiệu swing ngắn/ngày (kể cả coin tự chọn)
             got = [m for m in await storage.messages_since(user["chat_id"], today) if m["style"] == "short"]
             if len(got) >= settings.max_signals_per_day:
                 continue
-        mult = coin.multiplier if user["mode"] == "spot" else 1
+        mult = texts.disp_mult(sig, user["mode"], user.get("exchange"))
         if mult not in photos:
             photos[mult] = await asyncio.to_thread(_chart, found.h1, sig, mult)
-        text = texts.signal_message(sig, mode=user["mode"], risk_pct=user["risk_pct"], stats=stats)
+        text = texts.signal_message(sig, mode=user["mode"], risk_pct=user["risk_pct"], stats=stats,
+                                    exchange=user.get("exchange"), ex_price=ex_px)
         if found.source == "user":
             text = "🪙 <i>Coin bạn chọn</i>\n" + text
         if found.silent:
             text = "🌙 <i>Tín hiệu ban đêm (gửi không chuông) — sáng ra kiểm tra giá chưa vượt mức \"Không vào\" rồi hãy vào.</i>\n" + text
-        mid = await _send(bot, user["chat_id"], text, photo=photos[mult], url=tv_url(sig, user["mode"]),
+        mid = await _send(bot, user["chat_id"], text, photo=photos[mult], url=tv_url(sig, user["mode"], user.get("exchange")),
                           silent=found.silent, why_id=sig_id)
         if mid:
             await storage.add_message(sig_id, user["chat_id"], mid)
@@ -148,6 +164,15 @@ async def notify_admins(bot: Bot, text: str, *, key: str | None = None, every_mi
         if await storage.kv_get(k):
             return
         await storage.kv_set(k, "1")
+    raw = await storage.kv_get("log_target") or await storage.kv_get("news_target")  # topic nhật ký của admin
+    if raw:
+        chat, _, thread = raw.partition(":")
+        try:
+            await bot.send_message(int(chat), text, parse_mode=ParseMode.HTML, disable_web_page_preview=True,
+                                   message_thread_id=int(thread) if thread and thread != "None" else None)
+            return
+        except TelegramError as exc:
+            log.warning("Không gửi được vào topic nhật ký (%s) -> nhắn riêng admin", exc)
     for admin in settings.admin_ids:
         try:
             await bot.send_message(admin, text, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
@@ -253,14 +278,16 @@ async def publish_indicator(bot: Bot, s, coin: binance.Coin, users: list[dict]) 
         return 0
     sig_id = await storage.insert_signal(**values)
     sig = {**values, "id": sig_id, "trend": row["trend"], "setup_text": setup_text, "reasons": reasons,
-           "exit_mode": "pct", "callback": cb}
+           "exit_mode": "pct", "callback": cb, "partials": trade.partials}
     photos: dict[int, bytes] = {}
+    ex_px = await _ex_price(coin.symbol, receivers)
     for u in receivers:
-        mult = coin.multiplier if u["mode"] == "spot" else 1
+        mult = texts.disp_mult(sig, u["mode"], u.get("exchange"))
         if mult not in photos:
             photos[mult] = await asyncio.to_thread(_chart, s.base, sig, mult)
-        text = texts.signal_message(sig, mode=u["mode"], risk_pct=u["risk_pct"], stats=None)
-        url = tv_url(sig, u["mode"]).replace("interval=60", f"interval={'60' if s.tf == '1h' else '240'}")
+        text = texts.signal_message(sig, mode=u["mode"], risk_pct=u["risk_pct"], stats=None,
+                                    exchange=u.get("exchange"), ex_price=ex_px)
+        url = tv_url(sig, u["mode"], u.get("exchange"), "60" if s.tf == "1h" else "240")
         mid = await _send(bot, u["chat_id"], text, photo=photos[mult], url=url,
                           silent=bool(u.get("ind_silent")) or is_quiet_now(), why_id=sig_id)
         if mid:
@@ -344,7 +371,8 @@ async def _track_one(bot: Bot, sig: dict) -> None:
             continue
         for ev, px in events:
             r = trade.realized_r if ev in ("SL", "STOPPED", "TIMEOUT") else 0.0
-            await _send(bot, m["chat_id"], texts.event_message(sig, ev, px, r, u["mode"]), reply_to=m["message_id"])
+            await _send(bot, m["chat_id"], texts.event_message(sig, ev, px, r, u["mode"], u.get("exchange")),
+                        reply_to=m["message_id"])
         if trade.status != "ACTIVE":
             summary = await _close_summary(sig, trade, u["risk_pct"])
             await _send(bot, m["chat_id"], summary, reply_to=m["message_id"])

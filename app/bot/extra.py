@@ -361,6 +361,15 @@ async def ai_ping_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 # ---------------------------------------------------------------- nhóm có Topic
+async def set_log(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    """/set_log gõ trong topic của nhóm (chỉ admin): báo lỗi / sự cố của bot sẽ gửi vào topic này."""
+    msg = update.effective_message
+    if not is_admin(update.effective_user.id) or msg.chat.type == "private":
+        return
+    await storage.kv_set("log_target", f"{msg.chat_id}:{msg.message_thread_id}")
+    await msg.reply_text("✅ Từ giờ báo lỗi, sự cố, cảnh báo nguồn dữ liệu của bot sẽ gửi vào topic này.")
+
+
 async def set_target(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     """/set_news gõ trong nhóm Telegram (chỉ admin): thành viên nhóm này được tự duyệt dùng bot."""
     msg = update.effective_message
@@ -377,6 +386,7 @@ async def set_target(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 def register(app: Application) -> None:
     private = filters.ChatType.PRIVATE
     app.add_handler(CommandHandler("set_news", set_target))
+    app.add_handler(CommandHandler("set_log", set_log))
     app.add_handler(CommandHandler("allow", allow_cmd, filters=private))
     app.add_handler(CommandHandler(["lich", "calendar"], calendar_cmd))
     app.add_handler(CommandHandler("ai_ping", ai_ping_cmd, filters=private))

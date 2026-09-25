@@ -8,8 +8,12 @@ T0 = datetime(2026, 1, 1, tzinfo=timezone.utc)
 H = timedelta(hours=1)
 
 
+OLD = [(2.0, 0.5)]  # lệnh tạo trước v6 (chốt 50% ở 2R) — vẫn phải chạy đúng khi đọc lại từ DB
+
+
 def long_trade(**kw) -> Trade:
     # entry 100, SL 90 -> 1R = 10; TP1 (2R) = 120
+    kw.setdefault("partials", list(OLD))
     return Trade(1, 100.0, 90.0, created=T0, deadline=T0 + 100 * H, **kw)
 
 
@@ -63,7 +67,7 @@ def test_trailing_only_updates_on_hour_close():
 
 
 def test_short_mirror():
-    t = Trade(-1, 100.0, 110.0, created=T0, deadline=T0 + 100 * H)
+    t = Trade(-1, 100.0, 110.0, created=T0, deadline=T0 + 100 * H, partials=list(OLD))
     ev = t.step(T0 + H, 99, 79, 80, atr=2)  # TP1 short = 80
     assert ("TP1", 80.0) in ev and t.be_done
     assert t.stop == pytest.approx(85.0)  # 80 + 2.5*2
@@ -86,7 +90,7 @@ def test_roundtrip_dict():
 
 def pct_trade(cb=0.05) -> Trade:
     # entry 100, SL 90 (1R = 10): kích hoạt trailing tại 110, TP1 50% tại 120, callback 5%
-    return Trade(1, 100.0, 90.0, created=T0, deadline=T0 + 100 * H, exit_mode="pct", callback=cb)
+    return Trade(1, 100.0, 90.0, created=T0, deadline=T0 + 100 * H, exit_mode="pct", callback=cb, partials=list(OLD))
 
 
 def test_pct_trailing_arms_at_1r_and_follows_high():
@@ -113,6 +117,18 @@ def test_pct_before_activation_keeps_fixed_sl():
 
 def test_callback_rate_is_clamped_to_exchange_limits():
     from app.strategy.trade import callback_rate
-    assert callback_rate(atr=1, entry=100) == pytest.approx(0.03)  # 3 x ATR
+    assert callback_rate(atr=1, entry=100) == pytest.approx(0.025)  # 2.5 x ATR (v6)
     assert callback_rate(atr=10, entry=100) == pytest.approx(0.10)
     assert callback_rate(atr=0.01, entry=100) == pytest.approx(0.005)
+
+
+def test_v6_trailing_only_whole_position():
+    """v6: không chốt từng phần — trailing stop sàn chốt toàn bộ vị thế."""
+    t = Trade(1, 100.0, 90.0, created=T0, deadline=T0 + 100 * H, exit_mode="pct", callback=0.05)
+    assert t.partials == []
+    assert t.step(T0 + H, 111, 100, 110, atr=5) == [("ARMED", 110.0)]  # +1R -> trailing kích hoạt
+    assert t.step(T0 + 2 * H, 140, 125, 138, atr=5) == []               # vượt 2R: không có TP1
+    assert t.remaining == 1.0
+    ev = t.step(T0 + 3 * H, 139, 130, 131, atr=5)                       # 140 x 0.95 = 133 -> dừng
+    assert ev == [("STOPPED", pytest.approx(133.0))]
+    assert t.realized_r == pytest.approx(3.3 - fee(t))

@@ -46,9 +46,16 @@ def chase_limit(sig: dict) -> float:
     return sig["entry"] + sig["side"] * 0.3 * abs(sig["entry"] - sig["sl"])
 
 
-def signal_message(sig: dict, *, mode: str, risk_pct: float, stats: dict | None) -> str:
-    """`sig`: bản ghi tín hiệu (giá theo hợp đồng futures). `mode`: spot | futures."""
-    side, mult = sig["side"], sig["multiplier"] if mode == "spot" else 1
+def disp_mult(sig: dict, mode: str, exchange: str | None = "Binance") -> int:
+    """Hệ số chia giá khi hiển thị: Spot và sàn MEXC tính giá theo 1 coin (Binance Futures: 1000PEPE = 1000 coin)."""
+    return (sig.get("multiplier") or 1) if (mode == "spot" or exchange == "MEXC") else 1
+
+
+def signal_message(sig: dict, *, mode: str, risk_pct: float, stats: dict | None, exchange: str | None = "Binance",
+                   ex_price: float | None = None) -> str:
+    """`sig`: bản ghi tín hiệu (giá theo hợp đồng futures). `mode`: spot | futures. `exchange`: sàn người dùng giao
+    dịch — MEXC thì thêm dòng giá MEXC lúc báo (`ex_price`, giá 1 coin) để biết lệch bao nhiêu."""
+    side, mult = sig["side"], disp_mult(sig, mode, exchange)
     p = lambda v: price(v / mult)  # noqa: E731  giá spot = giá futures / hệ số (vd 1000PEPE)
     entry, sl = sig["entry"], sig["sl"]
     risk = abs(entry - sl)
@@ -66,14 +73,20 @@ def signal_message(sig: dict, *, mode: str, risk_pct: float, stats: dict | None)
         f"{STYLE_LABEL.get(style, style)} ({STYLE_HOLD.get(style, '')}) · Hạng <b>{tier}</b>"
         + (" <i>(dự phòng — chất lượng thấp hơn hạng A)</i>" if tier == "B" and not style.startswith("ind") else ""),
         "",
-        f"💰 Vào ngay: <b>{p(entry)}</b> (giá thị trường)",
+        f"💰 Vào ngay: <b>{p(entry)}</b> (giá thị trường)"
+        + (f"\n🏦 Giá MEXC lúc báo: <b>{price(ex_price)}</b> (lệch {ex_price / (entry / mult) - 1:+.2%})"
+           if exchange == "MEXC" and ex_price else ""),
         f"⛔ Không vào nếu giá đã {'vượt' if side > 0 else 'xuống dưới'}: {p(chase_limit(sig))}",
         f"🛑 Cắt lỗ (SL): <b>{p(sl)}</b> (-{sl_pct:.1f}%)",
-        f"🎯 Chốt 50% tại: <b>{p(sig['tp1'])}</b> (+{tp1_pct:.1f}%)",
     ]
+    partial = bool(sig.get("partials")) or sig.get("exit_mode") != "pct"  # lệnh trước v6 có chốt 50% ở TP1
+    if partial:
+        lines.append(f"🎯 Chốt 50% tại: <b>{p(sig['tp1'])}</b> (+{tp1_pct:.1f}%)")
     if sig.get("exit_mode") == "pct" and sig.get("callback"):
         act = entry + side * risk
         lines.append(f"🔁 Trailing Stop (cả lệnh): kích hoạt <b>{p(act)}</b>, callback <b>{sig['callback'] * 100:.1f}%</b>")
+        if not partial:
+            lines.append(f"🎯 Mục tiêu tham khảo: {p(sig['tp1'])} (+{tp1_pct:.1f}%) — không đặt chốt cố định, trailing tự chốt lời")
     else:
         lines.append(f"🚀 Mục tiêu tham khảo: {p(sig['tp2'])} (phần còn lại chạy trailing)")
     if mode == "futures":
@@ -89,8 +102,8 @@ def signal_message(sig: dict, *, mode: str, risk_pct: float, stats: dict | None)
         lines.append(f"   • {escape(r)}")
     lines.append(f"🕒 {vn_time(sig.get('created_at'))}")
     if sig.get("exit_mode") == "pct":
-        lines.append("<i>📌 Đặt SL + TP1 + Trailing Stop trên sàn ngay khi vào lệnh là xong. Sàn không có Trailing Stop: "
-                     "khi giá tới mức kích hoạt thì tự dời SL về giá vào.</i>")
+        lines.append("<i>📌 Đặt SL + " + ("TP1 + " if partial else "") + "Trailing Stop trên sàn ngay khi vào lệnh là xong. "
+                     "Sàn không có Trailing Stop: khi giá tới mức kích hoạt thì dời SL về giá vào rồi dời theo giá.</i>")
     else:
         lines.append("<i>📌 Giá lãi +1R → dời SL về giá vào. Luôn đặt SL — tín hiệu không đảm bảo thắng.</i>")
     return "\n".join(lines)
@@ -108,8 +121,8 @@ EVENT_TEXT = {
 }
 
 
-def event_message(sig: dict, event: str, px: float, r: float, mode: str) -> str:
-    mult = sig["multiplier"] if mode == "spot" else 1
+def event_message(sig: dict, event: str, px: float, r: float, mode: str, exchange: str | None = "Binance") -> str:
+    mult = disp_mult(sig, mode, exchange)
     return EVENT_TEXT[event].format(d=escape(sig["display"]), px=price(px / mult), r=r)
 
 

@@ -2,9 +2,10 @@
 
 Hai cách quản lý phần lệnh sau khi có lãi (`exit_mode`):
 
-- "pct" (mặc định, chọn theo backtest 2 năm / 40 coin): mô phỏng đúng lệnh đặt SẴN trên sàn —
-    SL cố định · TP1 chốt 50% tại 2R (lệnh limit) · Trailing Stop của sàn cho toàn bộ vị thế:
+- "pct" (mặc định): mô phỏng đúng lệnh đặt SẴN trên sàn — SL cố định · Trailing Stop của sàn cho TOÀN BỘ vị thế:
     kích hoạt khi giá đi được +1R, sau đó bám giá cao nhất (LONG) / thấp nhất (SHORT) cách `callback` %.
+    v6 (backtest 9 năm / 50 coin): bỏ chốt 50% cố định ở 2R — để trailing chốt toàn bộ cho lời TB cao hơn 30–60%
+    và sụt giảm thấp hơn ở mọi khung; callback 2.5 x ATR ổn định nhất. Lệnh cũ đã lưu vẫn chạy theo `partials` cũ.
     Người dùng đặt 1 lần rồi không cần theo dõi — bot chỉ báo khi có sự kiện.
 - "atr" (cách cũ): +1R dời SL về entry, chốt 50% tại 2R, phần còn lại trailing = giá đóng cửa tốt nhất -/+ 2.5 x ATR.
 
@@ -16,9 +17,10 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime
 
 BE_AT_R = 1.0          # mốc kích hoạt (pct) / dời SL về entry (atr)
-PARTIALS: list[tuple[float, float]] = [(2.0, 0.5)]  # (bội số R, tỉ lệ vị thế) — chốt 50% tại 2R
+PARTIALS: list[tuple[float, float]] = []  # (bội số R, tỉ lệ vị thế) — v6: không chốt từng phần
+TARGET_R = 2.0         # mục tiêu tham khảo hiển thị trên tin nhắn / chart (không đặt lệnh chốt)
 TRAIL_ATR = 2.5        # atr: khoảng trailing theo ATR khung xu hướng
-CALLBACK_ATR = 3.0     # pct: callback = 3 x ATR(khung xu hướng) / giá vào lệnh (tốt nhất trong backtest)
+CALLBACK_ATR = 2.5     # pct: callback = 2.5 x ATR(khung xu hướng) / giá vào (ổn định nhất, backtest 9 năm)
 MIN_CALLBACK, MAX_CALLBACK = 0.005, 0.10   # giới hạn callback của sàn (Binance Futures: 0.1% - 10%)
 FEE_RATE = 0.001       # phí khứ hồi ~0.1% giá trị lệnh
 

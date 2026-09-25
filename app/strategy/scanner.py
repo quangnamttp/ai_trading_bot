@@ -19,7 +19,7 @@ import pandas as pd
 from app import storage
 from app.config import VN_TZ, settings
 from app.data import binance, bybit, macro, news
-from app.strategy.core import Candidate, apply_live_context, best_candidate, build_features, score_frame
+from app.strategy.core import Candidate, apply_live_context, best_candidate, build_features, poc_veto, score_frame
 
 log = logging.getLogger(__name__)
 CALIBRATION = Path(__file__).parent / "calibration.json"
@@ -117,7 +117,10 @@ async def _analyze(coin: binance.Coin, style: Style, btc_mid: pd.DataFrame | Non
     # tính toán nặng (pandas) chạy ở luồng riêng để bot vẫn trả lời tin nhắn / health check trong lúc quét
     scores = await asyncio.to_thread(
         lambda: score_frame(build_features(base, mid, high, btc_h4=btc_mid, fng=fng, funding=funding)))
-    return best_candidate(coin.symbol, scores), base, scores
+    cand = best_candidate(coin.symbol, scores)
+    if cand is not None and style.key == "short":  # v6: swing ngắn chỉ vào lệnh ở phía thuận của POC Volume Profile
+        cand.vetoed = poc_veto(base, cand.side, float(cand.row["entry"]))
+    return cand, base, scores
 
 
 async def _eligible_coins(with_user: bool = False) -> tuple[list[binance.Coin], set[str]]:

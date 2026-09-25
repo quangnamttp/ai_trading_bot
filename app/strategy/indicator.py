@@ -14,13 +14,15 @@ import pandas as pd
 
 from app.data import binance
 from app.data.http import get_json
-from app.strategy.core import build_features, score_frame
+from app.strategy.core import build_features, poc_veto, score_frame
 
 log = logging.getLogger(__name__)
 
 THRESHOLD = 75.0
 OI_MIN = 0.05
 TFS = {"1h": ("1h", "4h", "1d", 24), "4h": ("4h", "1d", "1w", 72)}  # (khung tín hiệu, giữa, lớn, giờ tính OI)
+# v6 (backtest 9 năm / 50 coin): 1H cần OI >= 5% (tốt hơn 6/6 năm); 4H ngưỡng 70, không lọc OI (OI không ổn định ở 4H)
+RULES = {"1h": (75.0, True), "4h": (70.0, False)}  # khung -> (ngưỡng điểm, có lọc OI)
 HOLD_BARS = 168  # giữ lệnh tối đa 168 nến khung tín hiệu (như chỉ báo)
 
 
@@ -56,14 +58,15 @@ class IndSignal:
     base: pd.DataFrame
 
 
-def pick(scores: dict[int, pd.DataFrame], oi: float | None) -> tuple[int, dict] | None:
+def pick(scores: dict[int, pd.DataFrame], oi: float | None, threshold: float = THRESHOLD,
+         use_oi: bool = True) -> tuple[int, dict] | None:
     """Nến vừa đóng có tín hiệu không (điều kiện giống chỉ báo). Trả (phía, dòng điểm) hoặc None."""
-    if oi is not None and abs(oi) < OI_MIN:
+    if use_oi and oi is not None and abs(oi) < OI_MIN:
         return None
     best = None
     for side, df in scores.items():
         row = df.iloc[-1].to_dict()
-        if row["score"] < THRESHOLD or (side > 0 and row["setup_type"] == "pullback"):
+        if row["score"] < threshold or (side > 0 and row["setup_type"] == "pullback"):
             continue
         if best is None or row["score"] > best[1]["score"]:
             best = (side, row)
@@ -80,9 +83,12 @@ async def check(symbol: str, tf: str, btc_mid: pd.DataFrame | None) -> IndSignal
         return None  # dữ liệu chưa có nến vừa đóng
     f = build_features(ohlc_flow(base), mid, high, btc_h4=None if symbol == "BTCUSDT" else btc_mid)
     oi = await oi_change(symbol, oi_hours)
-    got = pick(score_frame(f), oi)
+    th, use_oi = RULES[tf]
+    got = pick(score_frame(f), oi, th, use_oi)
     if not got:
         return None
     side, row = got
+    if poc_veto(base, side, float(row["entry"])):
+        return None
     grade = "A" if row["score"] >= 85 or (oi is not None and abs(oi) >= 0.10) else "B"
     return IndSignal(symbol, tf, side, float(row["score"]), grade, row, oi, base)

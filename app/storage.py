@@ -24,6 +24,7 @@ users = sa.Table(
     sa.Column("approved", sa.Boolean, nullable=False, server_default=sa.true()),  # người cũ tự được duyệt
     sa.Column("full_name", sa.String(128)),
     sa.Column("currency", sa.String(8), nullable=False, server_default="USDT"),  # đơn vị hiển thị: USDT | VND
+    sa.Column("exchange", sa.String(16), nullable=False, server_default="Binance"),  # sàn người dùng giao dịch
     sa.Column("subscribed", sa.Boolean, nullable=False, server_default=sa.true()),
     sa.Column("admin_muted", sa.Boolean, nullable=False, server_default=sa.false()),  # admin tạm dừng tín hiệu
     sa.Column("ind_tf", sa.String(4)),  # 🎯 tín hiệu chỉ báo Swing cho coin tự chọn: None = tắt | 1h | 4h
@@ -561,3 +562,37 @@ async def news_users() -> list[dict]:
     async with engine().connect() as c:
         rows = (await c.execute(sa.select(users).where(users.c.news_started, users.c.approved, ~users.c.banned))).all()
     return [_row(r) for r in rows]
+
+
+BACKUP_TABLES = ("users", "user_coins", "portfolio", "portfolio_tx", "watchlist")
+
+
+async def export_data() -> dict:
+    """Toàn bộ dữ liệu người dùng (cài đặt, coin theo dõi, danh mục + lịch sử mua bán, danh sách admin thêm)."""
+    out = {"version": 1, "exported_at": now()}
+    async with engine().connect() as c:
+        for name in BACKUP_TABLES:
+            t = meta.tables[name]
+            out[name] = [dict(r._mapping) for r in (await c.execute(sa.select(t))).all()]
+    return out
+
+
+async def import_data(data: dict) -> dict[str, int]:
+    """Khôi phục từ file sao lưu: chỉ THÊM dòng còn thiếu (không ghi đè dữ liệu đang có). Trả số dòng đã thêm."""
+    added = {}
+    async with engine().begin() as c:
+        for name in BACKUP_TABLES:
+            t = meta.tables[name]
+            keys = [col.name for col in t.primary_key.columns]
+            if keys == ["id"]:  # id tự tăng (Postgres dùng sequence) -> bỏ id, so trùng theo nội dung
+                keys = ["chat_id", "symbol", "side", "qty", "created_at"]
+            n = 0
+            for row in data.get(name, []):
+                row = {k: v for k, v in row.items() if k in t.c and not (k == "id" and "id" not in keys)}
+                cond = sa.and_(*[t.c[k] == row[k] for k in keys if k in row])
+                if keys and all(k in row for k in keys) and (await c.execute(sa.select(t).where(cond))).first():
+                    continue
+                await c.execute(t.insert().values(**row))
+                n += 1
+            added[name] = n
+    return added

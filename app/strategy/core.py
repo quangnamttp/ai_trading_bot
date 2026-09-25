@@ -24,7 +24,7 @@ import pandas as pd
 from app import indicators as ta
 from app.strategy import custom
 from app.strategy.tv_indicators import tv_features
-from app.strategy.trade import BE_AT_R, PARTIALS
+from app.strategy.trade import BE_AT_R, TARGET_R
 
 MIN_FLOW = 8      # điểm dòng tiền tối thiểu
 FNG_PANIC = 13    # Fear & Greed <= mức này thì đứng ngoài
@@ -210,7 +210,7 @@ def _side_scores(f: pd.DataFrame, side: int) -> pd.DataFrame:
         "setup_type": np.where(pullback, "pullback", np.where(retest, "retest", "")),
         "zone_lo": np.minimum(zone_a, zone_b), "zone_hi": np.maximum(zone_a, zone_b),
         "entry": entry, "sl": sl, "risk": risk, "atr4": atr4,
-        "tp1": entry + s * PARTIALS[0][0] * risk, "tp2": entry + s * 3.0 * risk,  # tp2: mục tiêu tham khảo
+        "tp1": entry + s * TARGET_R * risk, "tp2": entry + s * 3.0 * risk,  # mục tiêu tham khảo (không đặt lệnh chốt)
         "be": entry + s * BE_AT_R * risk,
         "fund_pts": d_fund, "btc_pts": mk_btc, "fng_pts": mk_fng,
     }, index=f.index)
@@ -230,7 +230,7 @@ def quality_gate(side: int, setup: str, oi_chg: float | None, ls: float | None, 
 
     - Cả 2 kiểu: bỏ Pullback LONG (kém ở mọi giai đoạn).
     - Swing ngắn: cần ít nhất 1 xác nhận — OI biến động mạnh (24h), hoặc đám đông ngược phía, hoặc setup Retest.
-    - Swing dài: bắt buộc OI biến động mạnh (72h) — không có OI xác nhận thì setup 4H kém ổn định.
+    - Swing dài: bắt buộc OI biến động mạnh (72h) — 2 năm gần nhất không có OI xác nhận thì setup 4H kém hẳn.
     """
     if setup == "pullback" and side > 0:
         return "Pullback LONG (backtest kém)"
@@ -241,6 +241,36 @@ def quality_gate(side: int, setup: str, oi_chg: float | None, ls: float | None, 
     crowd_ok = contra is not None and contra >= GATE_CROWD
     if not (oi_ok or crowd_ok or setup == "retest"):
         return "Chưa có xác nhận OI / đám đông"
+    return None
+
+
+# ---------------------------------------------------------------- Volume Profile: lọc phía POC
+VP_BARS, VP_BINS = 150, 24
+
+
+def poc(high: np.ndarray, low: np.ndarray, close: np.ndarray, volume: np.ndarray, bins: int = VP_BINS) -> float | None:
+    """POC (mức giá nhiều khối lượng nhất) — cùng công thức chỉ báo Volume Profile Pro (giá điển hình, 24 mức)."""
+    lo, hi = float(np.min(low)), float(np.max(high))
+    if not hi > lo:
+        return None
+    edges = np.linspace(lo, hi, bins + 1)
+    idx = np.clip(np.searchsorted(edges, (high + low + close) / 3, side="right") - 1, 0, bins - 1)
+    prof = np.bincount(idx, weights=volume, minlength=bins)
+    k = int(prof.argmax())
+    return float((edges[k] + edges[k + 1]) / 2)
+
+
+def poc_veto(base: pd.DataFrame, side: int, entry: float, upto: int | None = None) -> str | None:
+    """Chỉ vào lệnh khi giá ở phía thuận của POC 150 nến khung tín hiệu (LONG trên POC, SHORT dưới POC).
+    Backtest 9 năm / 50 coin: lệnh phía nghịch POC gần như không có lời (còn ~85% lệnh). Dùng cho swing ngắn và
+    chỉ báo; swing dài (đã lọc OI) thì không dùng — backtest 2 năm có giới hạn lệnh cho thấy làm kết quả kém đi."""
+    end = len(base) if upto is None else upto + 1
+    w = base.iloc[max(0, end - VP_BARS):end]
+    if len(w) < 50:
+        return None
+    p = poc(w["high"].to_numpy(), w["low"].to_numpy(), w["close"].to_numpy(), w["volume"].to_numpy())
+    if p is not None and (entry - p) * side <= 0:
+        return f"Giá phía nghịch POC Volume Profile ({p:.6g})"
     return None
 
 

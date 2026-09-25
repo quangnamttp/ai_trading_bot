@@ -1,6 +1,6 @@
 """Dữ liệu công khai Binance (miễn phí, không cần API key), dự phòng bằng Bybit.
 
-Khi Binance giới hạn tần suất (Render dùng chung IP) -> lấy ngay từ Bybit, không đứng chờ.
+Khi Binance giới hạn tần suất (Render dùng chung IP) -> lấy ngay từ Bybit, Bybit lỗi -> MEXC, không đứng chờ.
 Nến được giữ trong bộ nhớ: lần sau chỉ tải thêm nến mới (vài nến) thay vì tải lại 500 nến -> ít request hơn nhiều.
 
 Server phải đặt ngoài Mỹ (Binance trả HTTP 451 cho IP Mỹ) -> Render region Frankfurt/Singapore.
@@ -139,13 +139,21 @@ async def _binance_klines(symbol: str, interval: str, limit: int) -> pd.DataFram
 
 
 async def _fetch(symbol: str, interval: str, limit: int) -> pd.DataFrame:
+    """Binance -> Bybit -> MEXC (nguồn nào trả được trước dùng nguồn đó)."""
     try:
         df = await _binance_klines(symbol, interval, limit)
         if len(df):
             return df
     except Exception as exc:  # noqa: BLE001
         log.info("Binance klines %s %s lỗi (%s) -> dùng Bybit", symbol, interval, exc)
-    return await _bybit_klines(symbol, interval, min(limit, 1000))
+    try:
+        df = await _bybit_klines(symbol, interval, min(limit, 1000))
+        if len(df):
+            return df
+    except Exception as exc:  # noqa: BLE001
+        log.info("Bybit klines %s %s lỗi (%s) -> dùng MEXC", symbol, interval, exc)
+    from app.data import mexc
+    return await mexc.klines(symbol, interval, min(limit, 1500))
 
 
 async def klines(symbol: str, interval: str, limit: int = 500, *, closed_only: bool = True) -> pd.DataFrame:
@@ -186,7 +194,12 @@ async def klines_since(symbol: str, interval: str, start_ms: int) -> pd.DataFram
             start = int(rows[-1][0]) + 1
     except Exception as exc:  # noqa: BLE001
         log.info("Binance klines_since %s lỗi (%s) -> dùng Bybit", symbol, exc)
-        frames = [await _bybit_klines(symbol, interval, 1000, start_ms=start_ms)]
+        try:
+            frames = [await _bybit_klines(symbol, interval, 1000, start_ms=start_ms)]
+        except Exception as exc2:  # noqa: BLE001
+            log.info("Bybit klines_since %s lỗi (%s) -> dùng MEXC", symbol, exc2)
+            from app.data import mexc
+            frames = [await mexc.klines(symbol, interval, 2000, start_ms=start_ms)]
     frames = [f for f in frames if len(f)]
     if not frames:
         return pd.DataFrame()
@@ -219,7 +232,11 @@ async def last_price(symbol: str) -> float:
         d = await get_json(f"{FAPI[0]}/fapi/v1/ticker/price", {"symbol": symbol}, ttl=5)
         return float(d["price"])
     except Exception:  # noqa: BLE001
-        return float((await _bybit_tickers())[symbol]["lastPrice"])
+        try:
+            return float((await _bybit_tickers())[symbol]["lastPrice"])
+        except Exception:  # noqa: BLE001
+            from app.data import mexc
+            return float((await mexc.tickers())[symbol]["lastPrice"])
 
 
 async def funding_history(symbol: str, start_ms: int | None = None) -> pd.Series:
@@ -289,9 +306,14 @@ async def tickers_24h() -> dict[str, dict]:
         return {r["symbol"]: r for r in rows}
     except Exception as exc:  # noqa: BLE001
         log.info("Binance tickers lỗi (%s) -> dùng Bybit", exc)
-    return {s: {"symbol": s, "lastPrice": t["lastPrice"], "quoteVolume": t.get("turnover24h", "0"),
-                "priceChangePercent": str(float(t.get("price24hPcnt") or 0) * 100)}
-            for s, t in (await _bybit_tickers()).items()}
+    try:
+        return {s: {"symbol": s, "lastPrice": t["lastPrice"], "quoteVolume": t.get("turnover24h", "0"),
+                    "priceChangePercent": str(float(t.get("price24hPcnt") or 0) * 100)}
+                for s, t in (await _bybit_tickers()).items()}
+    except Exception as exc:  # noqa: BLE001
+        log.info("Bybit tickers lỗi (%s) -> dùng MEXC", exc)
+    from app.data import mexc
+    return await mexc.tickers()
 
 
 async def all_funding() -> dict[str, float]:
@@ -300,7 +322,12 @@ async def all_funding() -> dict[str, float]:
         return {r["symbol"]: float(r["lastFundingRate"]) for r in rows if r.get("lastFundingRate") not in (None, "")}
     except Exception as exc:  # noqa: BLE001
         log.info("Binance funding lỗi (%s) -> dùng Bybit", exc)
-    return {s: float(t["fundingRate"]) for s, t in (await _bybit_tickers()).items() if t.get("fundingRate")}
+    try:
+        return {s: float(t["fundingRate"]) for s, t in (await _bybit_tickers()).items() if t.get("fundingRate")}
+    except Exception as exc:  # noqa: BLE001
+        log.info("Bybit funding lỗi (%s) -> dùng MEXC", exc)
+    from app.data import mexc
+    return {s: float(t["fundingRate"]) for s, t in (await mexc.tickers()).items()}
 
 
 async def oi_change_24h(symbol: str) -> tuple[float, float] | None:

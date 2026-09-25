@@ -279,3 +279,16 @@ async def test_manual_buy_marks_dca_level(db):
     assert await pf.match_level(60, "SOLUSDT", 89) == 1       # dưới mốc 2 -> đánh dấu mốc 2
     p = await storage.position(60, "SOLUSDT")
     assert [lv["status"] for lv in pf.plan_of(p)["levels"]] == ["done", "done"]
+
+
+async def test_backup_roundtrip(db):
+    await storage.upsert_user(70, "a", "An")
+    await storage.add_position(70, "SOLUSDT")
+    await pf.buy(70, "SOLUSDT", 100, 50)
+    dump = storage.loads(storage.dumps(await storage.export_data()))  # như gửi file rồi đọc lại
+    await storage.delete_user(70)
+    assert await storage.get_user(70) is None
+    added = await storage.import_data(dump)
+    assert added["users"] == 1 and added["portfolio"] == 1 and added["portfolio_tx"] == 1
+    assert (await storage.position(70, "SOLUSDT"))["qty"] == 2
+    assert (await storage.import_data(dump))["users"] == 0  # chạy lại không nhân đôi

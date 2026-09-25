@@ -150,7 +150,8 @@ def mode_keyboard(user: dict) -> InlineKeyboardMarkup:
                                       f"🔔 Nhận tín hiệu: {'BẬT' if user['subscribed'] else 'TẮT'}",
                                       callback_data="sub:toggle")])
     rows.append([InlineKeyboardButton(f"💱 Đơn vị tiền: {'VNĐ' if user.get('currency') == 'VND' else 'USDT'}",
-                                      callback_data="cur:toggle")])
+                                      callback_data="cur:toggle"),
+                 InlineKeyboardButton(f"🏦 Sàn: {user.get('exchange') or 'Binance'}", callback_data="exch:toggle")])
     return InlineKeyboardMarkup(rows)
 
 
@@ -194,6 +195,8 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
             await q.answer("Admin đang tạm dừng tín hiệu của bạn — liên hệ admin để mở lại.", show_alert=True)
             return
         await storage.update_user(user["chat_id"], subscribed=not user["subscribed"])
+    elif kind == "exch":
+        await storage.update_user(user["chat_id"], exchange="Binance" if user.get("exchange") == "MEXC" else "MEXC")
     elif kind == "cur":
         await storage.update_user(user["chat_id"], currency="USDT" if user.get("currency") == "VND" else "VND")
     elif kind == "risk":
@@ -226,7 +229,7 @@ async def open_signals(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     lines = ["📊 <b>Lệnh đang chạy</b>"]
     for s in sigs:
         st = storage.loads(s["state"])["trade"]
-        mult = s["multiplier"] if user["mode"] == "spot" else 1
+        mult = texts.disp_mult(s, user["mode"], user.get("exchange"))
         emoji = ("🎯" if s.get("source") == "ind" else "") + ("🟢" if s["side"] > 0 else "🔴")
         flags = " · đã về hòa vốn" if st["be_done"] else ""
         flags += " · đã TP1" if st["hit"] else ""
@@ -441,6 +444,8 @@ async def admin_panel(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
          InlineKeyboardButton("👥 Danh sách", callback_data="adm:users")],
         [InlineKeyboardButton("🔍 Quét ngay", callback_data="adm:scan"),
          InlineKeyboardButton("🤖 Kiểm tra AI", callback_data="adm:ai")],
+        [InlineKeyboardButton("🩺 Trạng thái bot", callback_data="adm:status"),
+         InlineKeyboardButton("📦 Sao lưu dữ liệu", callback_data="adm:backup")],
     ] + ([] if reports.NEWS_BOT else [[InlineKeyboardButton("🌍 Thị trường", callback_data="adm:market"),
                                          InlineKeyboardButton("📅 Lịch tuần", callback_data="adm:cal")]])))
 
@@ -548,6 +553,18 @@ async def on_admin(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         _bg(_scan_in_background(ctx.bot, q.message.chat_id))
     elif op == "ai":
         await q.message.reply_text(await extra.assistant.ping(), parse_mode=ParseMode.HTML)
+    elif op == "backup":
+        await reports.send_backup(ctx.bot, q.message.chat_id)
+    elif op == "status":
+        await q.message.reply_text(await status_text(), parse_mode=ParseMode.HTML)
+    elif op == "restore":
+        data = ctx.user_data.pop("restore_data", None)
+        if not data:
+            await q.message.reply_text("Hết hạn, gửi lại file sao lưu.")
+            return
+        added = await storage.import_data(data)
+        await q.message.reply_text("✅ Đã khôi phục (chỉ thêm dữ liệu còn thiếu): "
+                                   + ", ".join(f"{k} +{v}" for k, v in added.items()))
     elif op == "market":
         await q.message.reply_text(await reports.morning_text(), parse_mode=ParseMode.HTML, disable_web_page_preview=True)
     elif op == "cal":
@@ -604,6 +621,46 @@ def _bg(coro) -> None:
     t.add_done_callback(_tasks.discard)
 
 
+async def status_text() -> str:
+    """🩺 Trạng thái: lần quét gần nhất, nguồn dữ liệu đang bị giới hạn, lệnh mở, người dùng, AI, Bot Tin tức."""
+    import time as _t
+    from datetime import datetime, timezone
+    from app.data import http
+    last = await storage.kv_get("last_scan_ok")
+    age = (datetime.now(timezone.utc) - datetime.fromisoformat(last)).total_seconds() / 60 if last else None
+    blocked = [h for h, t in http._blocked_until.items() if t > _t.time()]
+    opened = await storage.open_signals()
+    users = await storage.all_users()
+    return "\n".join([
+        "🩺 <b>Trạng thái bot</b>",
+        f"Lần quét có dữ liệu gần nhất: {f'{age:.0f} phút trước' if age is not None else 'chưa có'}",
+        f"Nguồn dữ liệu đang tạm nghỉ: {', '.join(blocked) if blocked else 'không (Binance bình thường)'}",
+        f"Lệnh đang mở: {len([s for s in opened if s.get('source') != 'ind'])} tín hiệu bot · "
+        f"{len([s for s in opened if s.get('source') == 'ind'])} 🎯 chỉ báo",
+        f"Người dùng: {len(users)} · Bot Tin tức: {len(await storage.news_users())} người"
+        + (f" (@{reports.NEWS_USERNAME})" if reports.NEWS_USERNAME else " (chưa cấu hình NEWS_BOT_TOKEN)"),
+        f"AI: {'đã có key' if extra.assistant.ai.enabled() else 'chưa có key'}",
+    ])
+
+
+async def on_backup_file(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    """Admin gửi file sao lưu .json -> hỏi xác nhận rồi khôi phục (chỉ thêm dữ liệu còn thiếu)."""
+    if not is_admin(update.effective_user.id):
+        return
+    doc = update.effective_message.document
+    try:
+        raw = await (await doc.get_file()).download_as_bytearray()
+        data = storage.loads(bytes(raw).decode())
+        assert isinstance(data, dict) and "users" in data
+    except Exception:  # noqa: BLE001
+        await _reply(update, "❌ File không phải bản sao lưu của bot.")
+        return
+    ctx.user_data["restore_data"] = data
+    await _reply(update, f"📦 Bản sao lưu có {len(data.get('users', []))} người dùng, "
+                         f"{len(data.get('portfolio_tx', []))} lệnh mua/bán. Khôi phục (chỉ thêm phần còn thiếu)?",
+                 reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("✅ Khôi phục", callback_data="adm:restore")]]))
+
+
 async def _scan_in_background(bot, chat_id: int) -> None:
     """Quét ngay chạy nền: bot vẫn trả lời người khác trong lúc quét, xong thì báo kết quả."""
     try:
@@ -626,8 +683,9 @@ def register(app: Application) -> None:
     app.add_handler(CommandHandler("users", users_cmd, filters=private))
     app.add_handler(CommandHandler(["ban", "unban"], ban_cmd, filters=private))
     app.add_handler(CommandHandler("broadcast", broadcast_cmd, filters=private))
-    app.add_handler(CallbackQueryHandler(on_callback, pattern=r"^(mode|risk|style|sub|cur):"))
+    app.add_handler(CallbackQueryHandler(on_callback, pattern=r"^(mode|risk|style|sub|cur|exch):"))
     app.add_handler(CallbackQueryHandler(on_admin, pattern=r"^adm:"))
+    app.add_handler(MessageHandler(private & filters.Document.FileExtension("json"), on_backup_file))
     extra.register(app)
     portfolio_ui.register(app)
     app.add_handler(MessageHandler(private & filters.TEXT & ~filters.COMMAND, on_text))

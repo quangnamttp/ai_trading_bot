@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
+import os
 import signal
 from datetime import datetime, time, timedelta, timezone
 
@@ -26,6 +27,34 @@ STARTED = datetime.now(VN_TZ)
 
 
 # ---------------------------------------------------------------- jobs
+HEARTBEAT: dict[str, datetime] = {}  # việc định kỳ -> lần chạy xong gần nhất (tự phục hồi khi kẹt)
+
+
+def beat(name: str) -> None:
+    HEARTBEAT[name] = datetime.now(timezone.utc)
+
+
+async def job_watchdog(ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    """Tự phục hồi: quét (mỗi giờ) hoặc theo dõi lệnh (mỗi 5 phút) không chạy xong quá lâu -> báo admin rồi thoát
+    tiến trình; Render tự khởi động lại bot sau khoảng 1 phút (không cần ai vào sửa tay)."""
+    now = datetime.now(timezone.utc)
+    limits = {"scan": timedelta(hours=2, minutes=30), "track": timedelta(minutes=40)}
+    stuck = [n for n, lim in limits.items() if now - HEARTBEAT.get(n, STARTED) > lim]
+    if not stuck:
+        return
+    msg = f"♻️ Việc {', '.join(stuck)} bị kẹt quá lâu → bot tự khởi động lại."
+    log.error(msg)
+    try:
+        await service.notify_admins(ctx.bot, msg)
+    finally:
+        os._exit(1)
+
+
+async def job_backup(ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    if datetime.now(VN_TZ).weekday() == 6:  # tối chủ nhật: gửi file sao lưu cho admin
+        await _safe("backup", reports.send_backup(ctx.bot))
+
+
 async def job_scan(ctx: ContextTypes.DEFAULT_TYPE) -> None:
     """Mỗi giờ (1'30" sau khi nến 1H đóng): swing ngắn; thêm swing dài khi nến 4H vừa đóng."""
     styles = ("short", "long") if datetime.now(timezone.utc).hour % 4 == 0 else ("short",)
@@ -39,6 +68,7 @@ async def job_scan(ctx: ContextTypes.DEFAULT_TYPE) -> None:
             log.info(await asyncio.wait_for(service.run_indicator(ctx.bot, tf), 240))
         except Exception:  # noqa: BLE001
             log.exception("Chỉ báo %s lỗi", tf)
+    beat("scan")
 
 
 async def _safe(name: str, coro) -> None:
@@ -49,7 +79,8 @@ async def _safe(name: str, coro) -> None:
 
 
 async def job_track(ctx: ContextTypes.DEFAULT_TYPE) -> None:
-    await _safe("track", service.track(ctx.bot))
+    await _safe("track", asyncio.wait_for(service.track(ctx.bot), 240))
+    beat("track")
 
 
 async def job_morning(ctx: ContextTypes.DEFAULT_TYPE) -> None:
@@ -117,6 +148,8 @@ def schedule(app: Application) -> None:
     jq.run_repeating(job_alerts, interval=900, first=180, name="alerts")
     jq.run_repeating(job_dca, interval=900, first=240, name="dca")
     jq.run_repeating(job_holdings, interval=3600, first=next_scan + timedelta(minutes=4), name="holdings")
+    jq.run_repeating(job_watchdog, interval=600, first=900, name="watchdog")
+    jq.run_daily(job_backup, time=time(23, 30, tzinfo=VN_TZ), name="backup")
 
 
 # ---------------------------------------------------------------- web
