@@ -137,3 +137,12 @@ async def test_perps_fallback_excludes_stocks(db, monkeypatch):
     monkeypatch.setattr(binance, "get_json", fail)
     monkeypatch.setattr(binance, "_bybit_instruments", bybit)
     assert await binance.perpetual_symbols() == {"SOLUSDT", "ETHUSDT"}
+
+
+async def test_bybit_list_excludes_stocks(monkeypatch):
+    async def gj(url, *a, **k):
+        return {"result": {"list": [
+            {"symbol": s, "status": "Trading", "contractType": "LinearPerpetual", "quoteCoin": "USDT", "symbolType": t}
+            for s, t in (("SOLUSDT", ""), ("NEWUSDT", "innovation"), ("SOXLUSDT", "ETF"), ("TSLAUSDT", "stock"))]}}
+    monkeypatch.setattr(binance, "get_json", gj)
+    assert [i["symbol"] for i in await binance._bybit_instruments()] == ["SOLUSDT", "NEWUSDT"]

@@ -56,7 +56,8 @@ def split_symbol(symbol: str) -> tuple[str, int]:
 async def _bybit_instruments() -> list[dict]:
     data = await get_json(f"{BYBIT}/v5/market/instruments-info", {"category": "linear", "limit": 1000}, ttl=6 * 3600)
     return [i for i in data["result"]["list"]
-            if i.get("status") == "Trading" and i.get("contractType") == "LinearPerpetual" and i.get("quoteCoin") == "USDT"]
+            if i.get("status") == "Trading" and i.get("contractType") == "LinearPerpetual" and i.get("quoteCoin") == "USDT"
+            and i.get("symbolType", "") in ("", "innovation")]  # bỏ cổ phiếu / ETF (SOXL...) / hàng hóa / ngoại hối
 
 
 async def perpetual_symbols() -> set[str]:
