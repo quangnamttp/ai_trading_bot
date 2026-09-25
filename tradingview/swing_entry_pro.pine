@@ -1,7 +1,9 @@
 //@version=5
-// Swing Entry Pro v6.1 — cùng chiến lược với bot Telegram, backtest 9 năm (2017–2026) / 50 coin.
+// Swing Entry Pro v6.1 — cùng chiến lược với bot Telegram.
+// Backtest nghiệm thu 25/09/2026 (mô phỏng đúng luật file này, 53 coin, 2017–2026, top 20 thanh khoản, phí 0.1%):
+//   • 4H: +0.29R/lệnh (9 năm), +0.21R (2 năm gần), có lời 48%, 1 năm lỗ nhẹ / 10  -> KHUYÊN DÙNG.
+//   • 1H: +0.10R/lệnh (9 năm) nhưng chỉ +0.03R từ 2021, năm 2023–2024 lỗ nhẹ     -> chỉ tham khảo.
 // v6: • Thoát lệnh: KHÔNG chốt 50% cố định — Trailing Stop cho cả lệnh (kích hoạt +1R, callback 2.5 x ATR khung xu hướng).
-//       9 năm: lời TB/lệnh 1H +0.12R -> +0.17R, 4H +0.21R -> +0.31R; sụt giảm tối đa giảm gần một nửa ở 1H.
 //     • Lọc Volume Profile: chỉ vào lệnh ở phía thuận POC 150 nến (LONG trên POC, SHORT dưới POC).
 // v6.1: • Tự vẽ 2 kháng cự + 2 hỗ trợ gần giá nhất (đỉnh/đáy xoay chiều, đỉnh/đáy ngày & tuần trước, POC/VAH/VAL),
 //       gộp mốc gần nhau thành vùng; vùng có >= 3 nguồn trùng = MẠNH. Chỉ để nhìn — không đổi tín hiệu.
@@ -46,6 +48,8 @@ showBoxes  = input.bool(true, "Vẽ hộp vị thế (vùng lời / vùng lỗ)"
 showSR     = input.bool(true, "Vẽ hỗ trợ / kháng cự (2 + 2 vùng gần giá nhất)", group=grpShow, display=display.none)
 srLen      = input.int(5, "Độ rõ đỉnh/đáy xoay chiều (số nến mỗi bên)", minval=2, maxval=20, group=grpShow, display=display.none)
 srMerge    = input.float(0.5, "Gộp các mốc cách nhau dưới (x ATR)", minval=0.1, step=0.1, group=grpShow, display=display.none)
+srWhite    = input.bool(false, "Viền khung hỗ trợ / kháng cự màu trắng", group=grpShow, display=display.none)
+srExt      = input.int(25, "Kéo dài khung sang phải (số nến)", minval=5, maxval=200, group=grpShow, display=display.none)
 vpLookback = input.int(150, "Số nến tính POC/VAH/VAL cho TP2 (khớp Volume Profile Pro v3)", minval=50, maxval=400, group=grpShow, display=display.none)
 vpBins     = input.int(24, "Số mức giá Volume Profile", minval=10, maxval=50, group=grpShow, display=display.none)
 tablePosIn = input.string("Trên phải", "Vị trí bảng thống kê", options=["Trên phải", "Trên trái", "Dưới phải", "Dưới trái"], group=grpShow, display=display.none)
@@ -252,16 +256,22 @@ f_vp(N, bins) =>
 // ============ HỖ TRỢ / KHÁNG CỰ ============
 var float[] srPH = array.new_float(0)   // đỉnh xoay chiều gần nhất
 var float[] srPL = array.new_float(0)   // đáy xoay chiều gần nhất
+var int[] srPHb = array.new_int(0)      // nến tạo ra đỉnh / đáy đó
+var int[] srPLb = array.new_int(0)
 ph = ta.pivothigh(high, srLen, srLen)
 pl = ta.pivotlow(low, srLen, srLen)
 if not na(ph)
     array.push(srPH, ph)
+    array.push(srPHb, bar_index - srLen)
     if array.size(srPH) > 12
         array.shift(srPH)
+        array.shift(srPHb)
 if not na(pl)
     array.push(srPL, pl)
+    array.push(srPLb, bar_index - srLen)
     if array.size(srPL) > 12
         array.shift(srPL)
+        array.shift(srPLb)
 [dH, dL] = request.security(syminfo.tickerid, "D", [high[1], low[1]], lookahead=barmerge.lookahead_on)
 [wH, wL] = request.security(syminfo.tickerid, "W", [high[1], low[1]], lookahead=barmerge.lookahead_on)
 atrChart = ta.atr(14)
@@ -386,10 +396,26 @@ plot(tSide != 0 ? tEntry : na, "Giá vào", color=color.new(color.white, 30), st
 plot(trailNow, "Trailing stop", color=#ffb300, style=plot.style_linebr, linewidth=2)
 
 // ============ VẼ HỖ TRỢ / KHÁNG CỰ (nến cuối) ============
+// Vùng = các mốc giá cách nhau < srMerge x ATR gộp lại. Khung: cao từ mốc thấp nhất đến cao nhất của vùng,
+// bắt đầu từ đỉnh/đáy cũ nhất tạo ra vùng, kéo dài srExt nến sang phải. Vùng >= 3 mốc = MẠNH (viền dày, nền đậm).
 var box[] srBoxes = array.new_box(0)
 var label[] srLabels = array.new_label(0)
-var float kc1 = na
-var float ht1 = na
+var float[] srZones = array.new_float(0)   // tâm mọi vùng (để bắt cảnh báo phá / thủng khi nến đóng)
+
+f_srDraw(c0, zlo, zhi, zx, n, isRes, k) =>
+    col = isRes ? #ef5350 : #26a69a
+    strong = n >= 3
+    pad = 0.08 * atrChart
+    top = math.max(zhi, c0 + pad)
+    bot = math.min(zlo, c0 - pad)
+    left = math.max(zx, bar_index - 300)
+    right = bar_index + srExt
+    array.push(srBoxes, box.new(left, top, right, bot, border_color=srWhite ? color.new(color.white, strong ? 0 : 30) : color.new(col, strong ? 0 : 30),
+         border_width=strong ? 2 : 1, bgcolor=color.new(col, strong ? 72 : 88)))
+    array.push(srLabels, label.new(right, c0, (isRes ? "KC" : "HT") + str.tostring(k) + " " + f_fmt(c0) + (strong ? " (mạnh)" : ""),
+         style=label.style_label_left, color=color.new(col, strong ? 0 : 35), textcolor=color.white, size=size.small))
+    strong
+
 if showSR and barstate.islast
     for b in srBoxes
         box.delete(b)
@@ -397,63 +423,76 @@ if showSR and barstate.islast
         label.delete(l)
     array.clear(srBoxes)
     array.clear(srLabels)
-    // gom mọi mốc: đỉnh/đáy xoay chiều, ngày/tuần trước, POC/VAH/VAL 150 nến
+    // gom mọi mốc (giá + nến bắt đầu): đỉnh/đáy xoay chiều, đỉnh/đáy ngày & tuần trước, POC/VAH/VAL 150 nến
     lv = array.new_float(0)
-    for v in srPH
+    lx = array.new_int(0)
+    for [i, v] in srPH
         array.push(lv, v)
-    for v in srPL
+        array.push(lx, array.get(srPHb, i))
+    for [i, v] in srPL
         array.push(lv, v)
-    for v in array.from(dH, dL, wH, wL)
-        if not na(v)
-            array.push(lv, v)
+        array.push(lx, array.get(srPLb, i))
     [pocL, vahL, valL] = f_vp(math.max(1, math.min(vpLookback, bar_index)), vpBins)
-    for v in array.from(pocL, vahL, valL)
+    for v in array.from(dH, dL, wH, wL, pocL, vahL, valL)
         if not na(v)
             array.push(lv, v)
-    array.sort(lv, order.ascending)
-    // gộp các mốc gần nhau thành vùng (tâm = trung bình, độ mạnh = số nguồn)
-    zc = array.new_float(0)
-    zn = array.new_int(0)
+            array.push(lx, bar_index - 40)
+    ordIdx = array.sort_indices(lv, order.ascending)
+    // gộp các mốc gần nhau thành vùng
+    zc = array.new_float(0)   // tâm
+    zlo = array.new_float(0)  // mốc thấp nhất
+    zhi = array.new_float(0)  // mốc cao nhất
+    zx = array.new_int(0)     // nến bắt đầu
+    zn = array.new_int(0)     // số mốc
     tol = srMerge * atrChart
-    for v in lv
+    for idx in ordIdx
+        v = array.get(lv, idx)
+        x = array.get(lx, idx)
         k = array.size(zc) - 1
-        last = k >= 0 ? array.last(zc) : na   // Pine không dừng sớm ở "and" -> không gọi array.get khi mảng rỗng
+        last = k >= 0 ? array.last(zhi) : na   // Pine không dừng sớm ở "and" -> không đọc mảng rỗng
         if not na(last) and v - last <= tol
             n = array.get(zn, k)
             array.set(zc, k, (array.get(zc, k) * n + v) / (n + 1))
+            array.set(zhi, k, v)
+            array.set(zx, k, math.min(array.get(zx, k), x))
             array.set(zn, k, n + 1)
         else
             array.push(zc, v)
+            array.push(zlo, v)
+            array.push(zhi, v)
+            array.push(zx, x)
             array.push(zn, 1)
-    // 2 kháng cự trên giá + 2 hỗ trợ dưới giá gần nhất
-    kc1 := na
-    ht1 := na
+    array.clear(srZones)
+    array.concat(srZones, zc)
+    // 2 kháng cự trên giá (gần nhất trước) + 2 hỗ trợ dưới giá
     upCount = 0
     for [i, c0] in zc
         if c0 > close and upCount < 2
             upCount += 1
-            strong = array.get(zn, i) >= 3
-            kc1 := upCount == 1 ? c0 : kc1
-            array.push(srBoxes, box.new(bar_index - 60, c0 + 0.15 * atrChart, bar_index + 15, c0 - 0.15 * atrChart,
-                 border_color=na, bgcolor=color.new(#ef5350, strong ? 65 : 85)))
-            array.push(srLabels, label.new(bar_index + 15, c0, "KC" + str.tostring(upCount) + " " + f_fmt(c0) + (strong ? " (mạnh)" : ""),
-                 style=label.style_label_left, color=color.new(#ef5350, strong ? 10 : 45), textcolor=color.white, size=size.small))
+            f_srDraw(c0, array.get(zlo, i), array.get(zhi, i), array.get(zx, i), array.get(zn, i), true, upCount)
     dnCount = 0
-    rev = array.copy(zc)
-    array.reverse(rev)
-    for [i, c0] in rev
-        if c0 < close and dnCount < 2
-            dnCount += 1
-            strong = array.get(zn, array.size(zn) - 1 - i) >= 3   // rev đảo ngược zc
-            ht1 := dnCount == 1 ? c0 : ht1
-            array.push(srBoxes, box.new(bar_index - 60, c0 + 0.15 * atrChart, bar_index + 15, c0 - 0.15 * atrChart,
-                 border_color=na, bgcolor=color.new(#26a69a, strong ? 65 : 85)))
-            array.push(srLabels, label.new(bar_index + 15, c0, "HT" + str.tostring(dnCount) + " " + f_fmt(c0) + (strong ? " (mạnh)" : ""),
-                 style=label.style_label_left, color=color.new(#26a69a, strong ? 10 : 45), textcolor=color.white, size=size.small))
-if showSR and barstate.isconfirmed and not na(kc1) and close > kc1 and close[1] <= kc1
-    alert(syminfo.ticker + " " + timeframe.period + ": giá đóng nến PHÁ kháng cự " + f_fmt(kc1), alert.freq_once_per_bar_close)
-if showSR and barstate.isconfirmed and not na(ht1) and close < ht1 and close[1] >= ht1
-    alert(syminfo.ticker + " " + timeframe.period + ": giá đóng nến THỦNG hỗ trợ " + f_fmt(ht1), alert.freq_once_per_bar_close)
+    nz_ = array.size(zc)
+    for j = 1 to math.max(nz_, 1)
+        i = nz_ - j
+        c0 = i >= 0 ? array.get(zc, i) : na
+        if not na(c0)
+            if c0 < close and dnCount < 2
+                dnCount += 1
+                f_srDraw(c0, array.get(zlo, i), array.get(zhi, i), array.get(zx, i), array.get(zn, i), false, dnCount)
+
+// Cảnh báo khi nến ĐÓNG vượt qua tâm một vùng (so với giá đóng nến trước)
+float srBrkUp = na
+float srBrkDn = na
+if showSR and barstate.isconfirmed
+    for z in srZones
+        if close[1] <= z and close > z
+            srBrkUp := na(srBrkUp) ? z : math.max(srBrkUp, z)
+        if close[1] >= z and close < z
+            srBrkDn := na(srBrkDn) ? z : math.min(srBrkDn, z)
+if not na(srBrkUp)
+    alert(syminfo.ticker + " " + timeframe.period + ": nến đóng PHÁ kháng cự " + f_fmt(srBrkUp) + " — giá " + f_fmt(close), alert.freq_once_per_bar_close)
+if not na(srBrkDn)
+    alert(syminfo.ticker + " " + timeframe.period + ": nến đóng THỦNG hỗ trợ " + f_fmt(srBrkDn) + " — giá " + f_fmt(close), alert.freq_once_per_bar_close)
 
 // ============ CẢNH BÁO "CHUẨN BỊ" (chưa phải tín hiệu) ============
 prepL = showPrep and evalNow and tSide == 0 and not okL and setupL > 0 and trendL >= 15 and not pbL and scL >= threshold - 8 and scL < threshold
@@ -465,8 +504,8 @@ alertcondition(prepL or prepS, "Chuẩn bị", "Setup đang hình thành, gần 
 // ============ BẢNG THỐNG KÊ ============
 tfName(sec) => sec < 3600 ? str.tostring(sec / 60) + "m" : sec < 86400 ? str.tostring(sec / 3600) + "H" : sec < 604800 ? "1D" : "1W"
 oiOn = useOI and oiAvailable
-verdict = sigSec == 3600 ? (oiOn ? "Dùng được (9 năm: +0.17R/lệnh)" : "Thiếu OI: yếu hơn, dễ ngược sóng") :
-     sigSec == 14400 ? "Khuyên dùng (9 năm: +0.31R/lệnh)" :
+verdict = sigSec == 3600 ? "Yếu (từ 2021 ~ +0.03R/lệnh) — nên dùng 4H" :
+     sigSec == 14400 ? "Khuyên dùng (9 năm: +0.29R/lệnh)" :
      sigSec == 86400 ? "Chưa đủ dữ liệu kiểm chứng" : "Chưa kiểm chứng — chỉ tham khảo"
 f_pos(p) => p == "Trên trái" ? position.top_left : p == "Dưới phải" ? position.bottom_right : p == "Dưới trái" ? position.bottom_left : position.top_right
 tSize = tableSizeIn == "Rất nhỏ" ? size.tiny : tableSizeIn == "Vừa" ? size.normal : size.small
@@ -477,7 +516,7 @@ if showTable and barstate.islast
     table.cell(tb, 0, 0, "Khung tín hiệu", bgcolor=c1, text_color=color.white, text_size=tSize)
     table.cell(tb, 1, 0, tfName(sigSec) + (sigSec != chartSec ? " (từ khung lớn hơn)" : ""), bgcolor=c2, text_color=color.white, text_size=tSize)
     table.cell(tb, 0, 1, "Đánh giá khung", bgcolor=c1, text_color=color.white, text_size=tSize)
-    table.cell(tb, 1, 1, verdict, bgcolor=c2, text_color=not oiOn and sigSec <= 3600 ? color.orange : sigSec == 14400 ? color.lime : sigSec == 3600 ? color.yellow : color.orange, text_size=tSize)
+    table.cell(tb, 1, 1, verdict, bgcolor=c2, text_color=sigSec == 14400 ? color.lime : color.orange, text_size=tSize)
     table.cell(tb, 0, 2, "Lệnh trên chart này", bgcolor=c1, text_color=color.white, text_size=tSize)
     table.cell(tb, 1, 2, str.tostring(nTrades), bgcolor=c2, text_color=color.white, text_size=tSize)
     table.cell(tb, 0, 3, "Có lời", bgcolor=c1, text_color=color.white, text_size=tSize)

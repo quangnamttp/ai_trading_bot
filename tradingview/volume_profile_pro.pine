@@ -1,13 +1,14 @@
 //@version=5
-// Volume Profile Pro v3.2 — công cụ VÙNG GIÁ đi kèm Swing Entry Pro v5.
+// Volume Profile Pro v3.3 — công cụ VÙNG GIÁ đi kèm Swing Entry Pro v6.1.
 // • POC / VAH / VAL (cuộn 150 nến + theo phiên) và POC chưa bị chạm (naked POC) = các mốc giá biết TRƯỚC khi giá tới:
-//   dùng để đặt lệnh chờ, chốt lời (Swing Pro v5 dùng cùng công thức để đặt TP2).
+//   dùng để đặt lệnh chờ, chốt lời (Swing Pro dùng cùng công thức cho bộ lọc POC và mục tiêu xa).
 // • Dấu VP★ (nến đảo chiều tại POC/VAL/VAH) mặc định TẮT: backtest 2 năm / 20 coin cho thấy dùng riêng bị lỗ
 //   (-0.06 đến -0.23R/lệnh). Chỉ bật để tham khảo.
 // • Không repaint: mọi tín hiệu chỉ xác nhận khi nến đóng.
 // • v3.2: POC/VAH/VAL của TUẦN TRƯỚC và THÁNG TRƯỚC, chế độ "chỉ vẽ đường" (gọn chart), cảnh báo khi giá chạm
 //   POC / VAH / VAL / POC trinh (tạo alert → chọn "Any alert() function call").
-indicator("Volume Profile Pro v3.2 - POC + Value Area + Tuần/Tháng + Naked POC", overlay=true, max_boxes_count=250, max_lines_count=100, max_labels_count=100)
+// • v3.3: giữ sẵn 2000 nến lịch sử -> không lỗi "!" trên khung nhỏ (15m, 5m) khi tính tuần/tháng/phiên.
+indicator("Volume Profile Pro v3.3 - POC + Value Area + Tuần/Tháng + Naked POC", shorttitle="Volume Profile v3.3", overlay=true, max_boxes_count=250, max_lines_count=100, max_labels_count=100, max_bars_back=2000)
 
 // ============ NHÓM: CHẾ ĐỘ HIỂN THỊ ============
 grpMode = "Chế độ hiển thị"

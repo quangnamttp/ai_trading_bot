@@ -215,7 +215,7 @@ chạm vùng</b>. Mua trên sàn xong bấm ✅ Đã mua là danh mục tự c�
 <b>🎯 Tín hiệu chỉ báo Swing</b> (bật trong 🪙 / 💼): nến 1H hoặc 4H đóng mà coin bạn chọn đủ điều kiện chỉ báo
 Swing Entry Pro → bot gửi giống nhãn MUA/BÁN trên TradingView và theo dõi lệnh. Chọn không chuông, tối đa 1–5 tin/ngày.
 
-🧱 Mỗi tín hiệu có dòng kháng cự / hỗ trợ gần nhất: vùng cản cách dưới 1R thì lệnh dễ bị chặn sớm, cân nhắc kỹ.
+🧱 Mỗi tín hiệu có dòng kháng cự / hỗ trợ gần nhất để biết giá sắp gặp vùng nào — chỉ để tham khảo, không cần bỏ lệnh vì vùng cản gần.
 
 <b>Lịch tự động</b>: 15:05 danh sách theo dõi (nếu chưa có tín hiệu) · 22:00 tổng kết cá nhân · chủ nhật 22:05
 tổng kết lệnh tuần · lệnh đóng → 📋 Tổng kết lệnh. Tin tức, thị trường, lịch sự kiện: 📰 Bot Tin tức.
