@@ -14,7 +14,7 @@
 //   TradingView cập nhật OI trễ vài phút)
 //   sàn khác (MEXC, OKX...) hoặc cặp USDC — backtest cho thấy thiếu lọc OI là nguyên nhân chính khiến tín hiệu đi ngược sóng.
 indicator("Swing Entry Pro v6.1 — Điểm vào + SL + Trailing + Hỗ trợ/Kháng cự", shorttitle="Swing Pro v6.1", overlay=true,
-     max_lines_count=300, max_labels_count=300, max_boxes_count=150)
+     max_lines_count=300, max_labels_count=300, max_boxes_count=150, max_bars_back=500)
 
 // ============ CÀI ĐẶT ============
 grpSig = "Tín hiệu"
