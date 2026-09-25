@@ -417,7 +417,8 @@ if showSR and barstate.islast
     tol = srMerge * atrChart
     for v in lv
         k = array.size(zc) - 1
-        if k >= 0 and v - array.get(zc, k) <= tol
+        last = k >= 0 ? array.last(zc) : na   // Pine không dừng sớm ở "and" -> không gọi array.get khi mảng rỗng
+        if not na(last) and v - last <= tol
             n = array.get(zn, k)
             array.set(zc, k, (array.get(zc, k) * n + v) / (n + 1))
             array.set(zn, k, n + 1)
@@ -438,12 +439,12 @@ if showSR and barstate.islast
             array.push(srLabels, label.new(bar_index + 15, c0, "KC" + str.tostring(upCount) + " " + f_fmt(c0) + (strong ? " (mạnh)" : ""),
                  style=label.style_label_left, color=color.new(#ef5350, strong ? 10 : 45), textcolor=color.white, size=size.small))
     dnCount = 0
-    for j = 0 to math.max(array.size(zc) - 1, 0)
-        i = array.size(zc) - 1 - j
-        c0 = i >= 0 ? array.get(zc, i) : na
-        if not na(c0) and c0 < close and dnCount < 2
+    rev = array.copy(zc)
+    array.reverse(rev)
+    for [i, c0] in rev
+        if c0 < close and dnCount < 2
             dnCount += 1
-            strong = array.get(zn, i) >= 3
+            strong = array.get(zn, array.size(zn) - 1 - i) >= 3   // rev đảo ngược zc
             ht1 := dnCount == 1 ? c0 : ht1
             array.push(srBoxes, box.new(bar_index - 60, c0 + 0.15 * atrChart, bar_index + 15, c0 - 0.15 * atrChart,
                  border_color=na, bgcolor=color.new(#26a69a, strong ? 65 : 85)))
