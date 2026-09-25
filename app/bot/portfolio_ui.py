@@ -98,7 +98,7 @@ async def coin_view(user: dict, symbol: str) -> tuple[str, InlineKeyboardMarkup]
     else:
         lines += ["", "🎯 Chưa có kế hoạch DCA — bấm <b>Đặt vốn DCA</b>, nhập số tiền dự kiến mua thêm, bot chia vào "
                       "các vùng hỗ trợ và nhắc khi giá chạm."]
-    rows = [[B("➕ Mua", callback_data=f"pf:buy:{symbol}"), B("➖ Bán", callback_data=f"pf:sell:{symbol}")],
+    rows = [[B("➕ Mua / DCA", callback_data=f"pf:buy:{symbol}"), B("➖ Bán", callback_data=f"pf:sell:{symbol}")],
             [B("🎯 Đặt vốn DCA", callback_data=f"pf:bud:{symbol}")]
             + ([B("🔄 Tính lại mốc", callback_data=f"pf:re:{symbol}")] if plan else []),
             [B("📜 Lịch sử", callback_data=f"pf:hist:{symbol}"), B("🗑 Xóa coin", callback_data=f"pf:del:{symbol}")],
@@ -237,9 +237,14 @@ async def handle_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE, user: dict
                 return True
             await pf.buy(user["chat_id"], sym, usdt, price, currency=cur,
                          note=f"DCA mốc {st['i'] + 1}" if op == "dca" else None)
+            note = ""
             if op == "dca":
                 await pf.mark_level(user["chat_id"], sym, st["i"], "done")
-            await msg.reply_text(f"✅ Đã ghi mua {pf.money(usdt, cur, fx)} {escape(pf.base_of(sym))} giá {texts.price(price)}.")
+            else:
+                lv = await pf.match_level(user["chat_id"], sym, price)
+                if lv is not None:
+                    note = f" Đã đánh dấu ✅ mốc DCA {lv + 1}."
+            await msg.reply_text(f"✅ Đã ghi mua {pf.money(usdt, cur, fx)} {escape(pf.base_of(sym))} giá {texts.price(price)}.{note}")
     elif op == "sell":
         p = await storage.position(user["chat_id"], sym)
         held = p["qty"] if p else 0.0

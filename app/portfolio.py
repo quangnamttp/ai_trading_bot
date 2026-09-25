@@ -132,6 +132,24 @@ async def mark_level(chat_id: int, symbol: str, i: int, status: str) -> dict | N
     return plan["levels"][i]
 
 
+MATCH = 0.02  # tự mua trong khoảng 2% quanh mốc DCA đang chờ -> coi như đã mua mốc đó
+
+
+async def match_level(chat_id: int, symbol: str, price: float) -> int | None:
+    """Người dùng tự ghi mua (không qua nút nhắc DCA): giá mua gần / dưới mốc DCA đang chờ -> đánh dấu mốc đó ✅
+    (mốc cao nhất phù hợp), để bot không nhắc lại. Trả chỉ số mốc hoặc None."""
+    pos = await storage.position(chat_id, symbol)
+    plan = plan_of(pos) if pos else None
+    if not plan:
+        return None
+    hits = [i for i, lv in enumerate(plan["levels"]) if lv["status"] == "pending" and price <= lv["price"] * (1 + MATCH)]
+    if not hits:
+        return None
+    i = min(hits, key=lambda k: plan["levels"][k]["price"] - price if plan["levels"][k]["price"] >= price else 1e18)
+    await mark_level(chat_id, symbol, i, "done")
+    return i
+
+
 async def buy(chat_id: int, symbol: str, amount_usdt: float, price: float, *, currency: str = "USDT",
               note: str | None = None) -> dict:
     return await storage.record_trade(chat_id, symbol, "buy", amount_usdt / price, price, currency=currency, note=note)

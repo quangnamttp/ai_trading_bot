@@ -265,3 +265,17 @@ async def test_news_bot_requires_approval(db):
     await storage.update_user(50, approved=True)
     u = await news._member(upd)
     assert u and u["news_started"]
+
+
+async def test_manual_buy_marks_dca_level(db):
+    await storage.upsert_user(60, "a")
+    await storage.add_position(60, "SOLUSDT")
+    plan = {"levels": [{"price": 100, "name": "VAL", "amount": 30, "status": "pending", "alerted": False},
+                       {"price": 90, "name": "đáy", "amount": 70, "status": "pending", "alerted": False}],
+            "stop": 80, "stop_alerted": False, "budget": 100}
+    await storage.update_position(60, "SOLUSDT", plan=storage.dumps(plan), budget=100)
+    assert await pf.match_level(60, "SOLUSDT", 120) is None   # mua xa mốc -> không đánh dấu
+    assert await pf.match_level(60, "SOLUSDT", 101.5) == 0    # gần mốc 1 (trong 2%)
+    assert await pf.match_level(60, "SOLUSDT", 89) == 1       # dưới mốc 2 -> đánh dấu mốc 2
+    p = await storage.position(60, "SOLUSDT")
+    assert [lv["status"] for lv in pf.plan_of(p)["levels"]] == ["done", "done"]
