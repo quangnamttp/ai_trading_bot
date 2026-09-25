@@ -190,16 +190,15 @@ chạm vùng</b>. Mua trên sàn xong bấm ✅ Đã mua là danh mục tự c�
 
 <b>🪙 Coin theo dõi</b> (Futures, tối đa 20): thêm coin muốn nhận tín hiệu ngoài Top 20.
 
-<b>Lịch tự động</b>: 07:00 thị trường 24h · 15:05 danh sách theo dõi (nếu chưa có tín hiệu) · 22:00 tổng kết cá nhân
-· chủ nhật 20:00 tổng kết thị trường tuần (topic 📰), 22:05 tổng kết lệnh tuần. Lệnh đóng → 📋 Tổng kết lệnh.
+<b>🎯 Tín hiệu chỉ báo Swing</b> (bật trong 🪙 / 💼): nến 1H hoặc 4H đóng mà coin bạn chọn đủ điều kiện chỉ báo
+Swing Entry Pro → bot gửi giống nhãn MUA/BÁN trên TradingView và theo dõi lệnh. Chọn không chuông, tối đa 1–5 tin/ngày.
 
-<b>📰 Topic Tin tức</b> (nhóm): tin tức, lịch tuần (tin ghim), tin vĩ mô Mỹ báo 4 lần — trước 1 giờ, lúc ra tin,
-15 phút và 1 giờ sau (BTC/ETH phản ứng thật + kịch bản).
+<b>Lịch tự động</b>: 15:05 danh sách theo dõi (nếu chưa có tín hiệu) · 22:00 tổng kết cá nhân · chủ nhật 22:05
+tổng kết lệnh tuần · lệnh đóng → 📋 Tổng kết lệnh. Tin tức, thị trường, lịch sự kiện: 📰 Bot Tin tức.
 
-<b>🤖 Hỏi AI</b> (chỉ bạn thấy · 20 câu/ngày · câu ngoài phạm vi không tính lượt)
+<b>🤖 Hỏi AI</b> (50 câu/ngày · câu ngoài phạm vi không tính lượt)
 • Spot: hỏi về coin trong danh mục (DCA bao nhiêu, ở đâu, giá vốn, lời/lỗ).
 • Futures: hỏi về tín hiệu bot đã gửi và còn mở (vì sao LONG/SHORT, khi nào về bờ) — hoặc reply vào tin tín hiệu.
-• 🌍 Thị trường chung: tin tức, lịch sự kiện, mọi coin.
 
 <b>Trung thực về rủi ro</b>
 Backtest 2 năm / 40 coin: khoảng 43% lệnh có lời, trung bình +0.2R/lệnh, chuỗi sụt giảm tệ nhất khoảng 16R

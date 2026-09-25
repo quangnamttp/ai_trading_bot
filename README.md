@@ -62,9 +62,12 @@ không backtest được (bot ghi lại mỗi lần tin tức chặn tín hiệu
   cảnh báo xu hướng, OI/funding, tin xấu; hiển thị USDT hoặc VNĐ. Lịch sử lưu cả sàn + đơn vị tiền để sau này hỗ trợ sàn Việt.
 - **🪙 Coin theo dõi** (Futures, tối đa 20): chọn nhận tín hiệu *Top 20* / *chỉ coin của tôi* / *cả hai*. Tín hiệu coin
   tự chọn không chiếm giới hạn Top 20; mỗi người tối đa 3 tín hiệu swing ngắn/ngày. Tổng số coin quét tối đa 60.
-- **Nhóm Telegram**: chỉ 1 topic 📰 Tin tức (admin gõ `/set_news` trong topic). Tin vĩ mô Mỹ báo 4 lần (trước 1 giờ,
-  lúc ra tin, +15 phút, +1 giờ), tin ghim "📅 Lịch tuần", tổng kết thị trường chủ nhật. Tên tin và tiêu đề tin tức
-  hiển thị tiếng Việt. Tín hiệu, danh mục, hỏi AI đều ở chat riêng (chỉ người đó thấy).
+- **📰 Bot Tin tức** (tùy chọn, đặt `NEWS_BOT_TOKEN` trên Render — chạy chung service, webhook `/telegram-news`):
+  chat riêng từng người; 7h thị trường 24h, tin vĩ mô Mỹ 4 mốc, 🚀 coin biến động mạnh (≥5%/1h hoặc ≥10%/4h kèm
+  volume), BTC ±3%/h, funding cực đoan, tổng kết tuần, lịch tuần ghim đầu chat; mỗi người tự bật/tắt từng loại tin;
+  hỏi AI crypto 100 câu/ngày. Dùng chung danh sách người dùng với Bot Tín hiệu. Chưa có token -> tin gửi qua Bot Tín hiệu.
+- **🎯 Tín hiệu chỉ báo Swing**: bot chạy đúng công thức Swing Entry Pro (1H/4H) trên coin người dùng tự chọn, gửi và
+  theo dõi như tín hiệu thường; tính riêng, không chiếm giới hạn tín hiệu của bot.
 - **🤖 AI** (tùy chọn): đặt `GEMINI_API_KEY`, `GROQ_API_KEY`, `OPENROUTER_API_KEY` trên Render. Thử lần lượt
   Gemini → Groq → OpenRouter, tự dò model còn dùng được, bỏ câu trả lời lặp / bịa số. Theo chế độ: Spot chỉ hỏi coin
   trong danh mục, Futures chỉ hỏi tín hiệu đang mở (lệnh đóng → 📋 Tổng kết lệnh), thêm mục 🌍 Thị trường chung.

@@ -29,6 +29,8 @@ users = sa.Table(
     sa.Column("ind_tf", sa.String(4)),  # 🎯 tín hiệu chỉ báo Swing cho coin tự chọn: None = tắt | 1h | 4h
     sa.Column("ind_silent", sa.Boolean, nullable=False, server_default=sa.false()),  # gửi không chuông
     sa.Column("ind_max", sa.Integer, nullable=False, server_default="3"),  # tối đa tin chỉ báo / ngày
+    sa.Column("news_started", sa.Boolean, nullable=False, server_default=sa.false()),  # đã bấm Start ở Bot Tin tức
+    sa.Column("news_prefs", sa.Text),  # JSON: loại tin tức đang TẮT, vd ["funding"]
     sa.Column("banned", sa.Boolean, nullable=False, server_default=sa.false()),
     sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
 )
@@ -552,3 +554,10 @@ async def delete_user(chat_id: int) -> None:
         await c.execute(users.delete().where(users.c.chat_id == chat_id))
     await kv_set(f"deleted:{chat_id}", "1")
     await kv_set(f"pending:{chat_id}", "")
+
+
+async def news_users() -> list[dict]:
+    """Người đã mở Bot Tin tức, được duyệt, không bị chặn."""
+    async with engine().connect() as c:
+        rows = (await c.execute(sa.select(users).where(users.c.news_started, users.c.approved, ~users.c.banned))).all()
+    return [_row(r) for r in rows]

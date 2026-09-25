@@ -6,6 +6,7 @@ nghiêm trọng về coin) và điều chỉnh nhẹ điểm, không tự tạo 
 from __future__ import annotations
 
 import asyncio
+import html
 import logging
 import re
 from calendar import timegm
@@ -75,7 +76,7 @@ async def _rss(url: str) -> list[Headline]:
         ts = e.get("published_parsed") or e.get("updated_parsed")
         if not ts:
             continue
-        title = e.get("title", "")
+        title = html.unescape(html.unescape(e.get("title", "")))  # một số RSS mã hóa 2 lần (&amp;#x27;)
         out.append(Headline(title, e.get("link", ""), datetime.fromtimestamp(timegm(ts), timezone.utc), score_text(title)))
     return out
 

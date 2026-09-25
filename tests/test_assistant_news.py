@@ -66,7 +66,8 @@ async def test_out_of_scope_does_not_use_quota(db, monkeypatch):
         return "BTC đang đi ngang.", "x"
     monkeypatch.setattr(assistant.ai, "ask", ask_ok)
     await assistant.answer_market(5, "BTC thế nào?")
-    assert (await assistant.allowed(5))[1] == 1
+    assert (await assistant.allowed(5, "news"))[1] == 1  # lượt của Bot Tin tức
+    assert (await assistant.allowed(5))[1] == 0  # lượt của Bot Tín hiệu không bị trừ
 
 
 async def test_find_symbols(monkeypatch):

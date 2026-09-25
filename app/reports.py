@@ -1,7 +1,8 @@
 """Báo cáo định kỳ và cảnh báo.
 
-Tin tức chung (thị trường, lịch sự kiện, nhắc tin vĩ mô, biến động mạnh, funding) -> topic 📰 của nhóm (/set_news).
-Nội dung cá nhân (tổng kết lời lỗ, danh mục Spot, tin xấu về lệnh đang mở) -> chỉ chat riêng.
+Tin tức chung (thị trường, lịch sự kiện, tin vĩ mô, biến động mạnh, funding) -> 📰 Bot Tin tức (chat riêng từng
+người, mỗi người tự bật/tắt từng loại). Chưa cấu hình Bot Tin tức -> gửi qua Bot Tín hiệu.
+Nội dung về tín hiệu (tổng kết lời lỗ, danh mục Spot, tin xấu về lệnh đang mở, 15h đang theo dõi) -> Bot Tín hiệu.
 """
 from __future__ import annotations
 
@@ -46,35 +47,44 @@ async def broadcast(bot: Bot, text: str) -> None:
         await asyncio.sleep(0.05)
 
 
-async def group_target(kind: str) -> tuple[int, int | None] | None:
-    """Nơi gửi trong nhóm: kind = 'news' (đặt bằng /set_news trong topic 📰)."""
-    raw = await storage.kv_get(f"{kind}_target")
-    if not raw:
-        return None
-    chat, _, thread = raw.partition(":")
-    return int(chat), int(thread) if thread and thread != "None" else None
+# 📰 Bot Tin tức (main.py gán khi có NEWS_BOT_TOKEN) + username 2 bot để tạo nút liên kết
+NEWS_BOT: Bot | None = None
+SIGNAL_USERNAME = ""
+NEWS_USERNAME = ""
+
+NEWS_CATS = {"morning": "🌅 Thị trường 7h sáng", "calendar": "📅 Lịch & tin kinh tế trong ngày",
+             "macro": "⏰ Tin vĩ mô Mỹ (trước/sau khi ra)", "moves": "🚀 Coin biến động mạnh",
+             "funding": "🔥 Funding cực đoan", "weekly": "📊 Tổng kết thị trường tuần"}
+
+
+def news_off(u: dict) -> set[str]:
+    try:
+        return set(storage.loads(u["news_prefs"])) if u.get("news_prefs") else set()
+    except Exception:  # noqa: BLE001
+        return set()
+
+
+def analyze_url(base: str) -> str | None:
+    """Link mở 🔍 Phân tích coin ở Bot Tín hiệu (deep link /start an_SOL)."""
+    return f"https://t.me/{SIGNAL_USERNAME}?start=an_{base}" if SIGNAL_USERNAME else None
 
 
 async def broadcast_news(bot: Bot, text: str, markup: InlineKeyboardMarkup | None = None, *,
-                         silent: bool | None = None) -> None:
-    """Tin tức chung chỉ gửi vào topic 📰 của nhóm (thành viên nhóm đều thấy).
-    Chưa cài topic (/set_news) thì gửi chat riêng cho mọi người để tin không bị mất. Giờ yên lặng -> gửi không chuông."""
+                         category: str = "general", silent: bool | None = None) -> None:
+    """Tin tức chung -> 📰 Bot Tin tức (người đã mở bot đó, không tắt loại tin này).
+    Chưa có Bot Tin tức -> gửi qua Bot Tín hiệu cho mọi người. Giờ yên lặng -> gửi không chuông."""
     silent = is_quiet() if silent is None else silent
-    target = await group_target("news")
-    if target:
+    sender = NEWS_BOT or bot
+    users = await storage.news_users() if NEWS_BOT else await storage.subscribers()
+    for u in users:
+        if category in news_off(u):
+            continue
         try:
-            await bot.send_message(target[0], text, parse_mode=ParseMode.HTML, message_thread_id=target[1],
-                                   reply_markup=markup, disable_web_page_preview=True, disable_notification=silent)
+            await sender.send_message(u["chat_id"], text, parse_mode=ParseMode.HTML, reply_markup=markup,
+                                      disable_web_page_preview=True, disable_notification=silent)
         except TelegramError as exc:
-            log.warning("Gửi topic tin tức lỗi: %s", exc)
-    for u in await storage.subscribers():
-        if not target:
-            try:
-                await bot.send_message(u["chat_id"], text, parse_mode=ParseMode.HTML, reply_markup=markup,
-                                       disable_web_page_preview=True, disable_notification=silent)
-            except TelegramError as exc:
-                log.warning("Gửi tin tức tới %s lỗi: %s", u["chat_id"], exc)
-            await asyncio.sleep(0.05)
+            log.warning("Gửi tin tức tới %s lỗi: %s", u["chat_id"], exc)
+        await asyncio.sleep(0.05)
 
 
 WEEKDAYS = ["Thứ 2", "Thứ 3", "Thứ 4", "Thứ 5", "Thứ 6", "Thứ 7", "Chủ nhật"]
@@ -114,40 +124,42 @@ async def find_event(key: str) -> dict | None:
 async def week_calendar(bot: Bot) -> None:
     evs = [e for e in await events.week_events() if e["time"] >= datetime.now(timezone.utc) - timedelta(hours=2)]
     text, markup = calendar_message(evs, f"📅 <b>Lịch sự kiện tuần này</b> ({vn_now():%d/%m})")
-    await broadcast_news(bot, text, markup)
+    await broadcast_news(bot, text, markup, category="calendar")
 
 
 async def pinned_calendar(bot: Bot, *, new: bool = False) -> bool:
-    """Tin ghim "📅 Lịch tuần" ở topic 📰: thứ 2 gửi mới + ghim, các ngày khác sửa lại nội dung (bỏ tin đã qua).
-    Trả False nếu chưa cài topic tin tức."""
-    target = await group_target("news")
-    if not target:
+    """Tin ghim "📅 Lịch tuần" đầu chat 📰 Bot Tin tức của từng người: thứ 2 gửi mới + ghim, các ngày khác sửa lại
+    (bỏ tin đã qua). Trả False nếu chưa có Bot Tin tức."""
+    if not NEWS_BOT:
         return False
     evs = [e for e in await events.week_events() if e["time"] >= datetime.now(timezone.utc) - timedelta(hours=2)]
     text, markup = calendar_message(evs, f"📅 <b>Lịch sự kiện tuần này</b> · cập nhật {vn_now():%H:%M %d/%m}")
-    old = await storage.kv_get("cal_pin")
-    if old and not new:
+    for u in await storage.news_users():
+        if "calendar" in news_off(u):
+            continue
+        chat, key = u["chat_id"], f"cal_pin:{u['chat_id']}"
+        old = await storage.kv_get(key)
+        if old and not new:
+            try:
+                await NEWS_BOT.edit_message_text(text, chat_id=chat, message_id=int(old), parse_mode=ParseMode.HTML,
+                                                 reply_markup=markup, disable_web_page_preview=True)
+                continue
+            except TelegramError as exc:
+                if "not modified" in str(exc).lower():
+                    continue
         try:
-            await bot.edit_message_text(text, chat_id=target[0], message_id=int(old), parse_mode=ParseMode.HTML,
-                                        reply_markup=markup, disable_web_page_preview=True)
-            return True
+            m = await NEWS_BOT.send_message(chat, text, parse_mode=ParseMode.HTML, reply_markup=markup,
+                                            disable_web_page_preview=True, disable_notification=True)
+            if old:
+                try:
+                    await NEWS_BOT.unpin_chat_message(chat, int(old))
+                except TelegramError:
+                    pass
+            await NEWS_BOT.pin_chat_message(chat, m.message_id, disable_notification=True)
+            await storage.kv_set(key, str(m.message_id))
         except TelegramError as exc:
-            if "not modified" in str(exc).lower():
-                return True
-            log.info("Không sửa được lịch ghim (%s) -> gửi mới", exc)
-    try:
-        m = await bot.send_message(target[0], text, parse_mode=ParseMode.HTML, message_thread_id=target[1],
-                                   reply_markup=markup, disable_web_page_preview=True, disable_notification=True)
-    except TelegramError as exc:
-        log.warning("Gửi lịch tuần lỗi: %s", exc)
-        return True
-    try:
-        if old:
-            await bot.unpin_chat_message(target[0], int(old))
-        await bot.pin_chat_message(target[0], m.message_id, disable_notification=True)
-    except TelegramError as exc:
-        log.info("Không ghim được lịch (bot cần quyền ghim tin trong nhóm): %s", exc)
-    await storage.kv_set("cal_pin", str(m.message_id))
+            log.info("Lịch ghim cho %s lỗi: %s", chat, exc)
+        await asyncio.sleep(0.05)
     return True
 
 
@@ -155,7 +167,7 @@ async def today_calendar(bot: Bot) -> None:
     start, end = vn_midnight_utc(), vn_midnight_utc() + timedelta(days=1)
     evs = [e for e in await events.week_events() if start <= e["time"] < end]
     text, markup = calendar_message(evs, f"🗓 <b>Tin kinh tế hôm nay</b> {vn_now():%d/%m}")
-    await broadcast_news(bot, text, markup)
+    await broadcast_news(bot, text, markup, category="calendar")
 
 
 # ---------------------------------------------------------------- 07:00
@@ -229,7 +241,7 @@ async def morning_text() -> str:
 
 
 async def morning(bot: Bot) -> None:
-    await broadcast_news(bot, await morning_text())
+    await broadcast_news(bot, await morning_text(), category="morning")
     if vn_now().weekday() == 0:
         if not await pinned_calendar(bot, new=True):
             await week_calendar(bot)
@@ -250,7 +262,7 @@ async def afternoon_watch(bot: Bot) -> None:
         text += "\n👀 <b>Đang theo dõi</b> (chưa phải tín hiệu, KHÔNG vào lệnh):\n" + "\n".join(f"• {w}" for w in watch)
     else:
         text += "Thị trường chưa có coin nào gần đạt chuẩn — đứng ngoài cũng là một quyết định tốt."
-    await broadcast_news(bot, text)
+    await broadcast(bot, text)
 
 
 # ---------------------------------------------------------------- 22:00
@@ -461,7 +473,7 @@ async def macro_reminders(bot: Bot) -> None:
                 log.warning("Tin vĩ mô %s lỗi: %s", stage, exc)
                 continue
             if text:
-                await broadcast_news(bot, text, markup)
+                await broadcast_news(bot, text, markup, category="macro")
 
 
 # ---------------------------------------------------------------- tổng kết thị trường tuần (topic 📰, chủ nhật)
@@ -531,7 +543,7 @@ async def weekly_market_text() -> str:
 
 
 async def weekly_market(bot: Bot) -> None:
-    await broadcast_news(bot, await weekly_market_text())
+    await broadcast_news(bot, await weekly_market_text(), category="weekly")
 
 
 async def health_check(bot: Bot) -> None:
@@ -578,7 +590,8 @@ async def market_alerts(bot: Bot) -> None:
                 await storage.kv_set(key, "1")
                 await broadcast_news(bot, f"🚨 <b>BTC {'tăng' if move > 0 else 'giảm'} mạnh {move:+.1%} trong 1 giờ</b> "
                                           f"(giá {texts.price(float(k['close'].iloc[-1]))}).\n"
-                                          "Biến động mạnh dễ quét SL 2 chiều — kiểm tra lệnh đang mở, tránh đuổi giá.")
+                                          "Biến động mạnh dễ quét SL 2 chiều — kiểm tra lệnh đang mở, tránh đuổi giá.",
+                                     category="moves")
     except Exception as exc:  # noqa: BLE001
         log.warning("Cảnh báo BTC lỗi: %s", exc)
     try:
@@ -598,9 +611,89 @@ async def market_alerts(bot: Bot) -> None:
             for c, f in fresh:
                 side = "LONG đang quá đông → dễ bị quét xuống" if f > 0 else "SHORT đang quá đông → dễ bị ép tăng"
                 lines.append(f"• {escape(c.display)}: {f:+.3%} — {side}")
-            await broadcast_news(bot, "\n".join(lines))
+            await broadcast_news(bot, "\n".join(lines), category="funding")
     except Exception as exc:  # noqa: BLE001
         log.warning("Cảnh báo funding lỗi: %s", exc)
+
+
+async def big_moves(bot: Bot) -> None:
+    """🚀 Coin (top 50 theo khối lượng, trừ BTC) chạy mạnh trong ~1 giờ / ~4 giờ kèm volume tăng đột biến."""
+    from app.strategy.scanner import live_derivs
+    coins = [c for c in await binance.universe(50, settings.min_quote_volume) if c.symbol != "BTCUSDT"]
+    items = await news.headlines(6)
+    found = []
+    for c in coins:
+        try:
+            k = await binance.klines(c.symbol, "1h", 30, closed_only=False)
+        except Exception:  # noqa: BLE001
+            continue
+        if len(k) < 27:
+            continue
+        px = float(k["close"].iloc[-1])
+        ch1, ch4 = px / float(k["close"].iloc[-2]) - 1, px / float(k["close"].iloc[-5]) - 1
+        vol_x = max(float(k["volume"].iloc[-1]), float(k["volume"].iloc[-2])) / max(1e-9, float(k["volume"].iloc[-26:-2].mean()))
+        hit = abs(ch1) >= settings.move_1h_pct / 100 or abs(ch4) >= settings.move_4h_pct / 100
+        if not hit or vol_x < settings.move_vol_x:
+            continue
+        up = (ch1 if abs(ch1) >= settings.move_1h_pct / 100 else ch4) > 0
+        key = f"move:{c.symbol}:{up}:{datetime.now(timezone.utc):%Y%m%d}{datetime.now(timezone.utc).hour // 4}"
+        if await storage.kv_get(key):
+            continue
+        await storage.kv_set(key, "1")
+        found.append((c, px, ch1, ch4, vol_x, up))
+    if not found:
+        return
+    lines, buttons = ["🚀 <b>Coin biến động mạnh</b>"], []
+    for c, px, ch1, ch4, vol_x, up in found[:5]:
+        d = await live_derivs(c.symbol, 24)
+        extra = " · ".join(filter(None, [f"OI 24h {d['oi_chg']:+.0%}" if "oi_chg" in d else "",
+                                         f"funding {d['funding']:.3%}" if "funding" in d else ""]))
+        lines.append(f"\n{'🟢' if up else '🔴'} <b>{escape(c.base)}</b> {ch1:+.1%} (1 giờ) · {ch4:+.1%} (4 giờ) · "
+                     f"volume x{vol_x:.1f}\nGiá {texts.price(px / c.multiplier)}" + (f" · {extra}" if extra else ""))
+        cn = news.coin_news(c.base, items)
+        heads = (cn.get("severe_negative") or []) + (cn.get("severe_positive") or [])
+        if heads:
+            from app.assistant import vi_titles
+            lines.append("📰 " + escape((await vi_titles([heads[0].title]))[0][:110]))
+        url = analyze_url(c.base)
+        if url:
+            buttons.append(InlineKeyboardButton(f"🔍 {c.base}", url=url))
+    markup = InlineKeyboardMarkup([buttons[i:i + 3] for i in range(0, len(buttons), 3)]) if buttons else None
+    await broadcast_news(bot, "\n".join(lines), markup, category="moves")
+
+
+async def latest_news_text(limit: int = 8) -> str:
+    from app.assistant import vi_titles
+    items = sorted(await news.headlines(24), key=lambda h: h.time, reverse=True)[:limit]
+    if not items:
+        return "📰 Chưa lấy được tin mới, thử lại sau ít phút."
+    vi = await vi_titles([h.title for h in items])
+    lines = [f"📰 <b>Tin mới nhất</b> · {vn_now():%H:%M %d/%m}"]
+    for h, t in zip(items, vi):
+        icon = "🟢" if h.score > 0.2 else "🔴" if h.score < -0.2 else "⚪"
+        lines.append(f"{icon} {h.time.astimezone(VN_TZ):%H:%M} <a href=\"{escape(h.link)}\">{escape(t[:120])}</a>")
+    return "\n".join(lines)
+
+
+async def hot_coins_text() -> str:
+    from app.strategy import scanner
+    coins = await binance.universe(50, settings.min_quote_volume)
+    tick = await binance.tickers_24h()
+    moves = sorted(((c.base, float(tick[c.symbol]["priceChangePercent"])) for c in coins if c.symbol in tick),
+                   key=lambda x: -x[1])
+    lines = [f"🔥 <b>Coin đáng chú ý</b> · {vn_now():%H:%M %d/%m}"]
+    if moves:
+        lines.append("📈 Tăng mạnh 24h: " + " · ".join(f"{b} {v:+.1f}%" for b, v in moves[:5]))
+        lines.append("📉 Giảm mạnh 24h: " + " · ".join(f"{b} {v:+.1f}%" for b, v in moves[::-1][:5]))
+    oi = [(c.base, x[1]) for c, x in zip(coins[:20], await asyncio.gather(*(binance.oi_change_24h(c.symbol)
+                                                                           for c in coins[:20]))) if x]
+    if oi:
+        top = sorted(oi, key=lambda x: -abs(x[1]))[:5]
+        lines.append("💼 OI biến động mạnh 24h: " + " · ".join(f"{b} {v:+.0%}" for b, v in top))
+    watch = await scanner.watch_candidates(5)
+    if watch:
+        lines += ["", "👀 <b>Gần đủ điều kiện vào lệnh</b> (bot đang theo dõi):"] + [f"• {w}" for w in watch]
+    return "\n".join(lines)
 
 
 # ---------------------------------------------------------------- coin 📌 đang giữ

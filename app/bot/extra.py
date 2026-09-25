@@ -53,7 +53,8 @@ async def auto_approve_member(bot, chat_id: int) -> bool:
     """Người đã là thành viên nhóm (nhóm có topic 📰 / 💬 của bot) -> tự duyệt, không cần admin bấm."""
     if await storage.kv_get(f"deleted:{chat_id}"):
         return False  # admin đã xóa người này -> phải chờ admin duyệt lại
-    groups = {t[0] for t in [await reports.group_target("news")] if t}
+    raw = await storage.kv_get("news_target")  # nhóm Telegram đã đăng ký bằng /set_news (để tự duyệt thành viên)
+    groups = {int(raw.split(":")[0])} if raw else set()
     for g in groups:
         try:
             m = await bot.get_chat_member(g, chat_id)
@@ -282,24 +283,23 @@ async def on_event(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 
 # ---------------------------------------------------------------- 🤖 hỏi AI
 def _markup(buttons: list[tuple[str, str]]) -> InlineKeyboardMarkup | None:
-    return InlineKeyboardMarkup([[B(t, callback_data=d)] for t, d in buttons]) if buttons else None
+    return InlineKeyboardMarkup([[B(t, url=d) if d.startswith("http") else B(t, callback_data=d)]
+                                 for t, d in buttons]) if buttons else None
 
 
 async def ai_prompt(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     user = await storage.get_user(update.effective_user.id)
     spot = user and user.get("mode") == "spot"
-    personal = ("💼 Về danh mục của tôi" if spot else "📊 Về tín hiệu của tôi")
     ctx.user_data["await_ai"] = "personal"
+    other = assistant.market_button()
     await _reply(update,
-                 "🤖 <b>Hỏi AI</b> — chọn mục rồi gõ câu hỏi (chỉ bạn thấy câu hỏi và câu trả lời):\n\n"
-                 + ("💼 <b>Danh mục của tôi</b> (Spot): coin trong danh mục — nên DCA bao nhiêu, ở đâu, giá vốn, lời/lỗ.\n"
-                    "   Vd: <i>Nên DCA SOL thế nào?</i>\n" if spot else
-                    "📊 <b>Tín hiệu của tôi</b> (Futures): lệnh bot đã gửi và còn mở — vì sao LONG/SHORT, khi nào về bờ.\n"
-                    "   Vd: <i>Lệnh ETH khi nào về bờ?</i> · hoặc reply thẳng vào tin tín hiệu.\n")
-                 + "🌍 <b>Thị trường chung</b>: tin tức, lịch sự kiện, dữ liệu thị trường, mọi coin.\n\n"
-                 f"<i>{settings.ai_daily_limit} câu/ngày · câu ngoài phạm vi không tính lượt.</i>",
-                 reply_markup=InlineKeyboardMarkup([[B(personal, callback_data="aimode:personal"),
-                                                     B("🌍 Thị trường chung", callback_data="aimode:market")]]))
+                 "🤖 <b>Hỏi AI</b> — gõ câu hỏi:\n"
+                 + ("💼 Coin trong danh mục — nên DCA bao nhiêu, ở đâu, giá vốn, lời/lỗ. Vd: <i>Nên DCA SOL thế nào?</i>"
+                    if spot else
+                    "📊 Tín hiệu bot đã gửi và còn mở — vì sao LONG/SHORT, khi nào về bờ. Vd: <i>Lệnh ETH khi nào về bờ?</i> "
+                    "(hoặc reply thẳng vào tin tín hiệu)")
+                 + f"\n\nTin tức, thị trường chung → 📰 Bot Tin tức · <i>{settings.ai_daily_limit} câu/ngày</i>",
+                 reply_markup=_markup([other if other[1].startswith("http") else ("🌍 Thị trường chung", "aimode:market")]))
 
 
 async def ai_answer(update: Update, ctx: ContextTypes.DEFAULT_TYPE, question: str, *, user: dict,
@@ -309,7 +309,7 @@ async def ai_answer(update: Update, ctx: ContextTypes.DEFAULT_TYPE, question: st
     await ctx.bot.send_chat_action(msg.chat_id, ChatAction.TYPING)
     ctx.user_data["ai_q"] = question  # để nút 🌍 / chọn lệnh dùng lại câu hỏi
     if kind == "market":
-        text, buttons = await assistant.answer_market(user["chat_id"], question)
+        text, buttons = await assistant.answer_market(user["chat_id"], question, "sig")
     else:
         text, buttons = await assistant.answer_personal(user, question, signal)
     await msg.reply_text(text, parse_mode=ParseMode.HTML, disable_web_page_preview=True, reply_markup=_markup(buttons))
@@ -340,7 +340,7 @@ async def on_ai(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         sig = await storage.get_signal(int(value))
         text, buttons = await assistant.answer_personal(user, question, sig) if sig else ("Không tìm thấy lệnh.", [])
     else:
-        text, buttons = await assistant.answer_market(user["chat_id"], question)
+        text, buttons = await assistant.answer_market(user["chat_id"], question, "sig")
     await q.message.reply_text(text, parse_mode=ParseMode.HTML, disable_web_page_preview=True, reply_markup=_markup(buttons))
 
 
@@ -362,16 +362,16 @@ async def ai_ping_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 
 # ---------------------------------------------------------------- nhóm có Topic
 async def set_target(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-    """/set_news gõ trong topic 📰 của nhóm (chỉ admin)."""
+    """/set_news gõ trong nhóm Telegram (chỉ admin): thành viên nhóm này được tự duyệt dùng bot."""
     msg = update.effective_message
     if not is_admin(update.effective_user.id):
         await msg.reply_text("⛔ Chỉ admin dùng được lệnh này.")
         return
     if msg.chat.type == "private":
-        await msg.reply_text("Hãy gõ lệnh này bên trong topic Tin tức của nhóm Telegram.")
+        await msg.reply_text("Hãy gõ lệnh này bên trong nhóm Telegram.")
         return
     await storage.kv_set("news_target", f"{msg.chat_id}:{msg.message_thread_id}")
-    await msg.reply_text("✅ Từ giờ tin tức, lịch sự kiện và cảnh báo thị trường sẽ gửi vào topic này.")
+    await msg.reply_text("✅ Thành viên nhóm này sẽ được tự duyệt dùng bot. Tin tức gửi riêng qua 📰 Bot Tin tức.")
 
 
 def register(app: Application) -> None:

@@ -107,6 +107,9 @@ async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         else:
             await extra.request_approval(update, ctx, user)
             return
+    if ctx.args and ctx.args[0].startswith("an_"):  # nút 🔍 từ Bot Tin tức
+        await analyze(update, ctx, ctx.args[0][3:])
+        return
     await _reply(update,
                  "👋 <b>Chào mừng đến bot tín hiệu swing crypto!</b>\n\n"
                  "Bot quét Top 20 coin (và coin bạn tự chọn) mỗi giờ, gửi tín hiệu có điểm vào, SL, TP, trailing stop, "
@@ -115,8 +118,9 @@ async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
                     "• 🤖 Hỏi AI về coin trong danh mục của bạn\n" if user["mode"] == "spot" else
                     "• 🪙 Coin theo dõi: thêm coin muốn nhận tín hiệu ngoài Top 20\n"
                     "• 🤖 Hỏi AI về tín hiệu bot đã gửi cho bạn\n")
-                 + "• 📰 Tin tức, lịch sự kiện: xem topic Tin tức trong nhóm\n\n"
-                 f"Chế độ hiện tại: <b>{user['mode'].upper()}</b> · rủi ro {user['risk_pct']:g}%/lệnh\n"
+                 + (f"• 📰 Tin tức, lịch sự kiện, hỏi AI thị trường: @{reports.NEWS_USERNAME}\n\n" if reports.NEWS_USERNAME
+                    else "\n")
+                 + f"Chế độ hiện tại: <b>{user['mode'].upper()}</b> · rủi ro {user['risk_pct']:g}%/lệnh\n"
                  "Đổi ở ⚙️ Cài đặt. Đọc ℹ️ Hướng dẫn trước khi giao dịch.",
                  reply_markup=menu(user))
 
@@ -437,8 +441,8 @@ async def admin_panel(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
          InlineKeyboardButton("👥 Danh sách", callback_data="adm:users")],
         [InlineKeyboardButton("🔍 Quét ngay", callback_data="adm:scan"),
          InlineKeyboardButton("🤖 Kiểm tra AI", callback_data="adm:ai")],
-        [InlineKeyboardButton("🌍 Thị trường", callback_data="adm:market"),
-         InlineKeyboardButton("📅 Lịch tuần", callback_data="adm:cal")]]))
+    ] + ([] if reports.NEWS_BOT else [[InlineKeyboardButton("🌍 Thị trường", callback_data="adm:market"),
+                                         InlineKeyboardButton("📅 Lịch tuần", callback_data="adm:cal")]])))
 
 
 def _flag(u: dict) -> str:

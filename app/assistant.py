@@ -25,16 +25,20 @@ log = logging.getLogger(__name__)
 FOOTER = ""
 OUT_TEXT = ("🙅 Mình chỉ trả lời câu hỏi về crypto và giao dịch thôi nhé. "
             "Ví dụ: <i>Nên DCA SOL thế nào?</i>, <i>Khi nào lệnh ETH về bờ?</i>")
-TO_MARKET = "🌍 Câu này về thị trường chung — bấm nút bên dưới để hỏi ở mục <b>Thị trường chung</b>."
-TO_PERSONAL = ("💼 Câu này về lệnh / danh mục của riêng bạn — bấm 🤖 Hỏi AI → mục "
-               "<b>Danh mục / Tín hiệu của tôi</b> để bot dùng số liệu của bạn.")
+TO_MARKET = "🌍 Câu này về thị trường chung — hỏi ở <b>📰 Bot Tin tức</b> nhé."
+TO_PERSONAL = "💼 Câu này về lệnh / danh mục của riêng bạn — hỏi ở <b>🤖 Bot Tín hiệu</b> (nút 🤖 Hỏi AI) nhé."
 NOT_IN_PORTFOLIO = ("💼 Hiện tại danh mục của bạn không có đầu tư đồng coin <b>{coins}</b>.\n"
-                    "Muốn hỏi về coin này: thêm vào 💼 Danh mục của tôi, hoặc hỏi ở mục 🌍 Thị trường chung.")
+                    "Muốn hỏi về coin này: thêm vào 💼 Danh mục của tôi, hoặc hỏi ở 📰 Bot Tin tức.")
 EMPTY_PORTFOLIO = "💼 Danh mục Spot của bạn đang trống. Bấm 💼 Danh mục của tôi → ➕ Thêm coin rồi hỏi lại nhé."
 NO_SIGNAL = ("📊 Ở chế độ Futures, AI chỉ trả lời về tín hiệu bot đã gửi cho bạn và còn đang mở. "
              "{coins}Muốn xem một coin bất kỳ: dùng 🔍 Phân tích coin.")
 PICK_SIGNAL = "📊 Bạn đang có nhiều lệnh mở — chọn lệnh muốn hỏi:"
-MARKET_BUTTON = ("🌍 Hỏi ở mục Thị trường chung", "aimkt")
+MARKET_BUTTON = ("🌍 Hỏi ở mục Thị trường chung", "aimkt")  # đổi thành link Bot Tin tức khi có (market_button)
+
+
+def market_button() -> tuple[str, str]:
+    from app import reports
+    return ("📰 Mở Bot Tin tức", f"https://t.me/{reports.NEWS_USERNAME}") if reports.NEWS_USERNAME else MARKET_BUTTON
 
 # từ thường gặp trùng tên coin -> không coi là mã coin khi viết chữ thường
 STOP = {"the", "and", "for", "how", "what", "gia", "mua", "ban", "nen", "khi", "sao", "can", "dca", "hot", "one",
@@ -213,24 +217,33 @@ async def _event_context(question: str) -> str:
 
 
 # ---------------------------------------------------------------- lượt hỏi
-def _quota_key(user_id: int) -> str:
-    return f"ai:{user_id}:{datetime.now(VN_TZ):%Y%m%d}"
+def _quota_key(user_id: int, quota: str = "sig") -> str:
+    return f"{'ai' if quota == 'sig' else 'ainews'}:{user_id}:{datetime.now(VN_TZ):%Y%m%d}"
 
 
-async def allowed(user_id: int) -> tuple[bool, int]:
-    """Còn lượt hỏi AI hôm nay không (admin không giới hạn). Chỉ trừ lượt khi AI trả lời thật (xem `_consume`)."""
+def _limit(quota: str) -> int:
+    return settings.ai_daily_limit if quota == "sig" else settings.ai_news_daily_limit
+
+
+async def allowed(user_id: int, quota: str = "sig") -> tuple[bool, int]:
+    """Còn lượt hỏi AI hôm nay không (admin không giới hạn). Mỗi bot có hạn mức riêng: 'sig' = Bot Tín hiệu,
+    'news' = Bot Tin tức. Chỉ trừ lượt khi AI trả lời thật (xem `_consume`)."""
     if user_id in settings.admin_ids:
         return True, 0
-    n = int(await storage.kv_get(_quota_key(user_id)) or 0)
-    return n < settings.ai_daily_limit, n
+    n = int(await storage.kv_get(_quota_key(user_id, quota)) or 0)
+    return n < _limit(quota), n
 
 
-async def _consume(user_id: int) -> None:
+async def _consume(user_id: int, quota: str = "sig") -> None:
     if user_id not in settings.admin_ids:
-        await storage.kv_incr(_quota_key(user_id))
+        await storage.kv_incr(_quota_key(user_id, quota))
 
 
-LIMIT_TEXT = f"⏳ Bạn đã dùng hết {settings.ai_daily_limit} câu hỏi AI hôm nay. Mai hỏi tiếp nhé!"
+def limit_text(quota: str = "sig") -> str:
+    return f"⏳ Bạn đã dùng hết {_limit(quota)} câu hỏi AI hôm nay. Mai hỏi tiếp nhé!"
+
+
+LIMIT_TEXT = limit_text()
 
 
 def _fallback(question: str, ctx: str, reason: str) -> str:
@@ -248,16 +261,16 @@ def _fallback(question: str, ctx: str, reason: str) -> str:
 Reply = tuple[str, list[tuple[str, str]]]  # (nội dung HTML, các nút (chữ, callback_data))
 
 
-async def _ask(user_id: int, question: str, ctx: str, scope: str) -> Reply:
+async def _ask(user_id: int, question: str, ctx: str, scope: str, quota: str = "sig") -> Reply:
     ctx += await _event_context(question)
     text, src = await ai.ask(question, ctx, scope)
     if text == ai.OUT_OF_SCOPE:
         return OUT_TEXT, []
     if text == ai.OTHER_PLACE:
-        return (TO_PERSONAL, []) if scope == "market" else (TO_MARKET, [MARKET_BUTTON])
+        return (TO_PERSONAL, []) if scope == "market" else (TO_MARKET, [market_button()])
     if text is None:
         return _fallback(question, ctx, src), []
-    await _consume(user_id)
+    await _consume(user_id, quota)
     return f"🤖 {escape(text)}{FOOTER}", []
 
 
@@ -286,9 +299,9 @@ async def answer_personal(user: dict, question: str, signal: dict | None = None)
     if user.get("mode") == "spot":
         pos = [p["symbol"] for p in await storage.portfolio_of(uid)]
         if not pos:
-            return EMPTY_PORTFOLIO, [MARKET_BUTTON]
+            return EMPTY_PORTFOLIO, [market_button()]
         if syms and not any(s in pos for s in syms):
-            return NOT_IN_PORTFOLIO.format(coins=", ".join(escape(pf.base_of(s)) for s in syms)), [MARKET_BUTTON]
+            return NOT_IN_PORTFOLIO.format(coins=", ".join(escape(pf.base_of(s)) for s in syms)), [market_button()]
         chosen = [s for s in syms if s in pos] or (pos if len(pos) <= 3 else [])
         return await _ask(uid, question, await spot_context(user, chosen), "spot")
 
@@ -301,27 +314,40 @@ async def answer_personal(user: dict, question: str, signal: dict | None = None)
             if closed:
                 return closed_text(closed[0]), []
             coins = ", ".join(pf.base_of(s) for s in syms)
-            return NO_SIGNAL.format(coins=f"{escape(coins)} không có lệnh đang mở của bạn. "), [MARKET_BUTTON]
+            return NO_SIGNAL.format(coins=f"{escape(coins)} không có lệnh đang mở của bạn. "), [market_button()]
         open_ = hit
     if not open_:
-        return NO_SIGNAL.format(coins="Hiện bạn chưa có lệnh nào đang mở. "), [MARKET_BUTTON]
+        return NO_SIGNAL.format(coins="Hiện bạn chưa có lệnh nào đang mở. "), [market_button()]
     if len(open_) > 1:
         return PICK_SIGNAL, [(f"{'🟢' if s['side'] > 0 else '🔴'} {s['display']} #{s['id']}", f"aisig:{s['id']}")
                              for s in open_[:8]]
     return await answer_personal(user, question, open_[0])
 
 
-async def answer_market(user_id: int, question: str) -> Reply:
-    if not (await allowed(user_id))[0]:
-        return LIMIT_TEXT, []
-    return await _ask(user_id, question, await market_context(question), "market")
+async def answer_market(user_id: int, question: str, quota: str = "news") -> Reply:
+    """Hỏi AI thị trường chung (📰 Bot Tin tức): tin tức, lịch sự kiện, mọi coin, coin nào đang mạnh."""
+    if not (await allowed(user_id, quota))[0]:
+        return limit_text(quota), []
+    return await _ask(user_id, question, await market_context(question) + await _hot_context(question), "market", quota)
 
 
-async def explain_event(user_id: int, e: dict) -> str:
+async def _hot_context(question: str) -> str:
+    """Hỏi 'coin nào nên chú ý / đang mạnh' -> thêm dữ liệu coin mạnh, OI, danh sách bot đang theo dõi."""
+    if not re.search(r"coin nào|nên (vào|mua|chú ý)|đang mạnh|tiềm năng|đề xuất|gợi ý|top", question.lower()):
+        return ""
+    try:
+        from app import reports
+        return "\nDỮ LIỆU COIN ĐÁNG CHÚ Ý:\n" + re.sub(r"<[^>]+>", "", await reports.hot_coins_text())
+    except Exception as exc:  # noqa: BLE001
+        log.debug("hot ctx: %s", exc)
+        return ""
+
+
+async def explain_event(user_id: int, e: dict, quota: str = "news") -> str:
     q = (f"Giải thích dễ hiểu tin '{e['title']}' lúc {e['time'].astimezone(VN_TZ):%H:%M %d/%m} (dự báo "
          f"{e.get('forecast') or 'chưa có'}, kỳ trước {e.get('previous') or 'chưa có'}): tin này là gì, số thực tế cao/thấp "
          "hơn dự báo thì thường ảnh hưởng crypto thế nào, người giao dịch nên lưu ý gì trước và sau giờ ra tin.")
-    return (await answer_market(user_id, q))[0]
+    return (await answer_market(user_id, q, quota))[0]
 
 
 async def explain_signal(user_id: int, sig: dict, user: dict | None = None) -> str:

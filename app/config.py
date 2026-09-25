@@ -27,6 +27,7 @@ def _int(name: str, default: int) -> int:
 @dataclass(frozen=True)
 class Settings:
     telegram_token: str = os.getenv("TELEGRAM_BOT_TOKEN", "")
+    news_bot_token: str = os.getenv("NEWS_BOT_TOKEN", "")  # 📰 Bot Tin tức (tùy chọn, chạy chung service)
     admin_ids: list[int] = field(default_factory=lambda: _ids(os.getenv("ADMIN_IDS") or os.getenv("TELEGRAM_ADMIN_ID")))
     # Render tự cấp RENDER_EXTERNAL_URL; để trống => chạy polling (máy local)
     public_url: str = (os.getenv("PUBLIC_URL") or os.getenv("RENDER_EXTERNAL_URL") or "").rstrip("/")
@@ -68,11 +69,15 @@ class Settings:
     gemini_key: str = os.getenv("GEMINI_API_KEY", "")
     groq_key: str = os.getenv("GROQ_API_KEY", "")
     openrouter_key: str = os.getenv("OPENROUTER_API_KEY", "")
-    ai_daily_limit: int = _int("AI_DAILY_LIMIT", 20)
+    ai_daily_limit: int = _int("AI_DAILY_LIMIT", 50)            # câu hỏi AI / người / ngày ở Bot Tín hiệu
+    ai_news_daily_limit: int = _int("AI_NEWS_DAILY_LIMIT", 100)  # ... ở Bot Tin tức
 
     # Cảnh báo thị trường
     btc_move_alert_pct: float = _float("BTC_MOVE_ALERT_PCT", 3.0)       # BTC chạy >= x% trong 1 giờ
     funding_alert: float = _float("FUNDING_ALERT", 0.001)               # |funding| >= 0.1%/8h
+    move_1h_pct: float = _float("MOVE_1H_PCT", 5.0)     # 🚀 coin chạy >= x% trong ~1 giờ
+    move_4h_pct: float = _float("MOVE_4H_PCT", 10.0)    # ... hoặc >= y% trong ~4 giờ
+    move_vol_x: float = _float("MOVE_VOL_X", 2.5)       # kèm volume >= z lần trung bình
 
     # Tùy chọn
     cryptopanic_token: str = os.getenv("CRYPTOPANIC_TOKEN", "")

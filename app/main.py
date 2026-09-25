@@ -78,6 +78,7 @@ async def job_health(ctx: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def job_alerts(ctx: ContextTypes.DEFAULT_TYPE) -> None:
     await _safe("alerts", reports.market_alerts(ctx.bot))
+    await _safe("moves", reports.big_moves(ctx.bot))
 
 
 async def job_holdings(ctx: ContextTypes.DEFAULT_TYPE) -> None:
@@ -119,14 +120,14 @@ def schedule(app: Application) -> None:
 
 
 # ---------------------------------------------------------------- web
-def webhook_secret() -> str:
+def webhook_secret(token: str | None = None) -> str:
     """Telegram chỉ nhận A-Z a-z 0-9 _ - (tối đa 256 ký tự); secret do Render sinh ra có thể chứa ký tự khác
-    -> luôn băm về chuỗi hex hợp lệ."""
-    seed = settings.webhook_secret or settings.telegram_token
+    -> luôn băm về chuỗi hex hợp lệ. Bot Tin tức dùng secret riêng (băm từ token của nó)."""
+    seed = (settings.webhook_secret or settings.telegram_token) + (token or "")
     return hashlib.sha256(seed.encode()).hexdigest()[:48]
 
 
-def make_web(app: Application) -> web.Application:
+def make_web(app: Application, news_app: Application | None = None) -> web.Application:
     async def health(_: web.Request) -> web.Response:
         return web.json_response({"ok": True, "started": STARTED.isoformat()})
 
@@ -136,10 +137,17 @@ def make_web(app: Application) -> web.Application:
         await app.update_queue.put(Update.de_json(await request.json(), app.bot))
         return web.Response(text="ok")
 
+    async def news_hook(request: web.Request) -> web.Response:
+        if news_app is None or request.headers.get("X-Telegram-Bot-Api-Secret-Token") != webhook_secret(settings.news_bot_token):
+            return web.Response(status=403)
+        await news_app.update_queue.put(Update.de_json(await request.json(), news_app.bot))
+        return web.Response(text="ok")
+
     w = web.Application()
     w.router.add_get("/", health)
     w.router.add_get("/health", health)
     w.router.add_post("/telegram", telegram_hook)
+    w.router.add_post("/telegram-news", news_hook)
     return w
 
 
@@ -157,21 +165,37 @@ async def run() -> None:
     app = builder.build()
     handlers.register(app)
     schedule(app)
+    news_app = None
+    if settings.news_bot_token:
+        from app.bot import news
+        nb = Application.builder().token(settings.news_bot_token).concurrent_updates(True)
+        if settings.public_url:
+            nb = nb.updater(None)
+        news_app = nb.build()
+        news.register(news_app)
 
-    runner = web.AppRunner(make_web(app))
+    runner = web.AppRunner(make_web(app, news_app))
     await runner.setup()
     await web.TCPSite(runner, "0.0.0.0", settings.port).start()
     log.info("Web server chạy ở cổng %s", settings.port)
 
     async with app:
         await app.start()
+        if news_app:
+            await news_app.initialize()
+            await news_app.start()
         try:
-            await _serve(app)
+            await _serve(app, news_app)
         finally:
-            if app.updater and app.updater.running:
-                await app.updater.stop()
-            if app.running:
-                await app.stop()
+            for a in (news_app, app):
+                if a is None:
+                    continue
+                if a.updater and a.updater.running:
+                    await a.updater.stop()
+                if a.running:
+                    await a.stop()
+            if news_app:
+                await news_app.shutdown()
     await runner.cleanup()
     await http.close()
 
@@ -194,19 +218,30 @@ async def set_commands(app: Application) -> None:
         log.debug("Đặt nút menu lỗi: %s", exc)
 
 
-async def _serve(app: Application) -> None:
-    """Đặt webhook/polling, báo admin, rồi chờ tới khi nhận tín hiệu tắt."""
-    if settings.public_url:
-        await app.bot.set_webhook(f"{settings.public_url}/telegram", secret_token=webhook_secret(),
-                                  allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
-        log.info("Webhook: %s/telegram", settings.public_url)
-    else:
-        await app.bot.delete_webhook()
-        await app.updater.start_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
-        log.info("Chạy chế độ polling (local)")
-    await set_commands(app)
+async def _serve(app: Application, news_app: Application | None = None) -> None:
+    """Đặt webhook/polling cho Bot Tín hiệu (+ Bot Tin tức nếu có), báo admin, rồi chờ tới khi nhận tín hiệu tắt."""
+    for a, path, secret in ((app, "/telegram", webhook_secret()),
+                            (news_app, "/telegram-news", webhook_secret(settings.news_bot_token))):
+        if a is None:
+            continue
+        if settings.public_url:
+            await a.bot.set_webhook(f"{settings.public_url}{path}", secret_token=secret,
+                                    allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
+            log.info("Webhook: %s%s", settings.public_url, path)
+        else:
+            await a.bot.delete_webhook()
+            await a.updater.start_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
+            log.info("Chạy chế độ polling (local) %s", path)
+        await set_commands(a)
+    reports.SIGNAL_USERNAME = (await app.bot.get_me()).username or ""
+    if news_app:
+        reports.NEWS_BOT = news_app.bot
+        reports.NEWS_USERNAME = (await news_app.bot.get_me()).username or ""
+        from app.bot import news
+        await news.refresh_menus(news_app.bot)
     await handlers.refresh_menus(app.bot)
-    status = f"✅ Bot đã khởi động lúc {STARTED:%H:%M %d/%m}"
+    status = f"✅ Bot đã khởi động lúc {STARTED:%H:%M %d/%m}" + (
+        f" · 📰 Bot Tin tức @{reports.NEWS_USERNAME} đang chạy" if news_app else " · chưa có NEWS_BOT_TOKEN (tin tức gửi qua bot này)")
     try:
         await binance.last_price("BTCUSDT")
     except Exception as exc:  # noqa: BLE001

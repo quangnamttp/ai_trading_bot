@@ -234,3 +234,34 @@ async def test_indicator_settings_and_separation(db):
     from app.strategy import scanner
     open_now, _ = await scanner._open_state()
     assert open_now == []
+
+
+async def test_news_routing_and_prefs(db, monkeypatch):
+    from unittest.mock import AsyncMock, MagicMock
+    from app import reports
+    await storage.upsert_user(40, "a")
+    await storage.upsert_user(41, "b")
+    await storage.update_user(40, news_started=True)
+    await storage.update_user(41, news_started=True, news_prefs=storage.dumps(["funding"]))
+    signal_bot, news_bot = MagicMock(), MagicMock()
+    signal_bot.send_message, news_bot.send_message = AsyncMock(), AsyncMock()
+    monkeypatch.setattr(reports, "NEWS_BOT", news_bot)
+    await reports.broadcast_news(signal_bot, "tin funding", category="funding")
+    assert [c.args[0] for c in news_bot.send_message.call_args_list] == [40]  # 41 đã tắt loại tin này
+    assert signal_bot.send_message.call_count == 0  # có Bot Tin tức -> tin không đi qua Bot Tín hiệu
+    monkeypatch.setattr(reports, "NEWS_BOT", None)
+    await reports.broadcast_news(signal_bot, "tin", category="morning")
+    assert signal_bot.send_message.call_count == 2  # chưa có Bot Tin tức -> gửi qua Bot Tín hiệu
+
+
+async def test_news_bot_requires_approval(db):
+    from unittest.mock import AsyncMock, MagicMock
+    from app.bot import news
+    upd = MagicMock()
+    upd.effective_user.id = 50
+    upd.effective_message.reply_text = AsyncMock()
+    assert await news._member(upd) is None  # chưa từng dùng Bot Tín hiệu
+    await storage.upsert_user(50, "x")
+    await storage.update_user(50, approved=True)
+    u = await news._member(upd)
+    assert u and u["news_started"]
