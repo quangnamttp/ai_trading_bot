@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+from datetime import datetime
 from html import escape
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup, Update
@@ -13,7 +14,7 @@ from telegram.ext import Application, CallbackQueryHandler, CommandHandler, Cont
 
 from app import reports, service, storage
 from app.bot import extra, portfolio_ui, texts
-from app.config import settings
+from app.config import VN_TZ, settings
 from app.strategy.core import describe
 from app.strategy.scanner import analyze_symbol, bucket_stats, calibration
 
@@ -106,7 +107,7 @@ async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         if await extra.auto_approve_member(ctx.bot, user["chat_id"]):
             user = await storage.get_user(user["chat_id"])
         else:
-            await extra.request_approval(update, ctx, user)
+            await extra.request_approval(update, ctx, user, "s")
             return
     if ctx.args and ctx.args[0].startswith("an_"):  # nút 🔍 từ Bot Tin tức
         await analyze(update, ctx, ctx.args[0][3:])
@@ -436,7 +437,7 @@ async def users_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def admin_panel(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     us = await storage.all_users()
-    pending = [u for u in us if not u.get("approved", True) and not u["banned"]]
+    pending = await storage.pending_requests()
     await _reply(update, f"👥 <b>Quản lý</b> · {len(us)} người dùng · {len(pending)} chờ duyệt", reply_markup=InlineKeyboardMarkup([
         [InlineKeyboardButton(f"⏳ Chờ duyệt ({len(pending)})", callback_data="adm:pending"),
          InlineKeyboardButton("👥 Danh sách", callback_data="adm:users")],
@@ -449,8 +450,12 @@ async def admin_panel(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 def _flag(u: dict) -> str:
-    return ("⛔" if u["banned"] else "⏳" if not u.get("approved", True) else "⏸" if u.get("admin_muted")
+    return ("⛔" if u["banned"] else "⏳" if not (u.get("approved", True) or u.get("news_ok")) else "⏸" if u.get("admin_muted")
             else "🔔" if u["subscribed"] else "🔕")
+
+
+def _access(u: dict) -> str:
+    return f"🤖{'✅' if u.get('approved') else '❌'} 📰{'✅' if u.get('news_ok') else '❌'}"
 
 
 async def _user_card(q, u: dict, *, edit: bool = False) -> None:
@@ -459,8 +464,13 @@ async def _user_card(q, u: dict, *, edit: bool = False) -> None:
     status = ("⛔ đang bị chặn" if u["banned"] else "⏸ admin đang tạm dừng tín hiệu" if u.get("admin_muted")
               else "🔔 đang nhận tín hiệu" if u["subscribed"] else "🔕 tự tắt tín hiệu")
     text = (f"👤 <b>{escape(u.get('full_name') or u['username'] or '-')}</b> · <code>{uid}</code>\n"
+            f"🤖 Bot Tín hiệu: {'✅ được dùng' if u.get('approved') else '❌ chưa'} · "
+            f"📰 Bot Tin tức: {'✅ được dùng' if u.get('news_ok') else '❌ chưa'}"
+            + (" (đã mở)" if u.get("news_started") else "") + "\n"
             f"{u['mode']} · rủi ro {u['risk_pct']:g}% · {status}")
     markup = InlineKeyboardMarkup([
+        [InlineKeyboardButton(("❌ Tắt" if u.get("approved") else "✅ Bật") + " 🤖 Tín hiệu", callback_data=f"adm:acc:s:{uid}"),
+         InlineKeyboardButton(("❌ Tắt" if u.get("news_ok") else "✅ Bật") + " 📰 Tin tức", callback_data=f"adm:acc:n:{uid}")],
         [InlineKeyboardButton("🔔 Mở lại tín hiệu" if u.get("admin_muted") else "🔕 Tắt tín hiệu",
                               callback_data=f"adm:mute:{uid}")],
         [InlineKeyboardButton("🗑 Xóa", callback_data=f"adm:del:{uid}"),
@@ -482,16 +492,28 @@ async def on_admin(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     await q.answer()
     parts = q.data.split(":")
     op = parts[1]
-    if op == "pending":
-        pend = [u for u in await storage.all_users() if not u.get("approved", True) and not u["banned"]]
+    if op == "acc":
+        kind, uid = parts[2], int(parts[3])
+        u = await storage.get_user(uid)
+        if u:
+            if kind == "s":
+                await extra.set_access(ctx.bot, uid, sig=not u.get("approved"))
+            else:
+                await extra.set_access(ctx.bot, uid, news=not u.get("news_ok"))
+            await _user_card(q, await storage.get_user(uid), edit=True)
+    elif op == "pending":
+        pend = await storage.pending_requests()
         if not pend:
             await q.message.reply_text("Không có ai chờ duyệt.")
-        for u in pend[:15]:
+        for u, kind in pend[:15]:
             name = escape(u.get("full_name") or u["username"] or "-")
+            uid = u["chat_id"]
             await q.message.reply_text(
-                f"🙋 {name} · <code>{u['chat_id']}</code>", parse_mode=ParseMode.HTML,
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("✅ Duyệt", callback_data=f"appr:{u['chat_id']}:1"),
-                                                    InlineKeyboardButton("❌ Từ chối", callback_data=f"appr:{u['chat_id']}:0")]]))
+                f"🙋 {name} · <code>{uid}</code> xin dùng {extra.BOT_NAME[kind]}", parse_mode=ParseMode.HTML,
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("✅ Duyệt", callback_data=f"appr:{uid}:{kind}"),
+                     InlineKeyboardButton("✅ Duyệt cả 2 bot", callback_data=f"appr:{uid}:b")],
+                    [InlineKeyboardButton("❌ Từ chối", callback_data=f"appr:{uid}:0:{kind}")]]))
     elif op == "users":
         us = [u for u in await storage.all_users() if not is_admin(u["chat_id"])]
         lines = [f"👥 <b>{len(us)} người dùng</b> (🔔 nhận tín hiệu · 🔕 tự tắt · ⏸ admin tạm dừng · ⛔ chặn · ⏳ chờ duyệt)",
@@ -500,7 +522,7 @@ async def on_admin(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         for u in us[-30:]:
             flag = _flag(u)
             name = u.get("full_name") or u["username"] or str(u["chat_id"])
-            lines.append(f"{flag} {escape(name)} · {u['mode']} · {u['risk_pct']:g}%")
+            lines.append(f"{flag} {escape(name)} · {_access(u)} · {u['mode']} · {u['risk_pct']:g}%")
             rows.append([InlineKeyboardButton(f"{flag} {name[:20]}", callback_data=f"adm:u:{u['chat_id']}")])
         await q.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML,
                                    reply_markup=InlineKeyboardMarkup(rows) if rows else None)
@@ -515,7 +537,7 @@ async def on_admin(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         if not u:
             return
         if op == "ban":
-            await storage.update_user(u["chat_id"], banned=not u["banned"], **({"approved": True} if u["banned"] else {}))
+            await storage.update_user(u["chat_id"], banned=not u["banned"])
             note = "✅ Đã bỏ chặn." if u["banned"] else "⛔ Đã chặn — người này không dùng được bot nữa."
         else:
             await storage.update_user(u["chat_id"], admin_muted=not u.get("admin_muted"))
@@ -602,6 +624,7 @@ async def on_error(update: object, ctx: ContextTypes.DEFAULT_TYPE) -> None:
                 await update.effective_message.reply_text("⚠️ Có lỗi, thử lại sau ít phút.")
         except Exception:  # noqa: BLE001
             pass
+    await storage.kv_incr(f"errors:{datetime.now(VN_TZ):%Y%m%d}")  # đếm cho tóm tắt sức khỏe 23h
     what = update.callback_query.data if isinstance(update, Update) and update.callback_query else (
         update.effective_message.text if isinstance(update, Update) and update.effective_message else "")
     await service.notify_admins(ctx.bot, f"🐞 Lỗi khi xử lý «{escape(str(what)[:60])}»: "

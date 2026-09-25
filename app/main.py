@@ -50,6 +50,10 @@ async def job_watchdog(ctx: ContextTypes.DEFAULT_TYPE) -> None:
         os._exit(1)
 
 
+async def job_health_daily(ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    await _safe("health_daily", reports.daily_health(ctx.bot))
+
+
 async def job_backup(ctx: ContextTypes.DEFAULT_TYPE) -> None:
     if datetime.now(VN_TZ).weekday() == 6:  # tối chủ nhật: gửi file sao lưu cho admin
         await _safe("backup", reports.send_backup(ctx.bot))
@@ -108,8 +112,22 @@ async def job_health(ctx: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def job_alerts(ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    from app import alerts
     await _safe("alerts", reports.market_alerts(ctx.bot))
     await _safe("moves", reports.big_moves(ctx.bot))
+    await _safe("breaking", alerts.breaking_news(ctx.bot))
+
+
+async def job_listings(ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    from app import alerts
+    await _safe("listings", alerts.listings(ctx.bot))
+
+
+async def job_early(ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    """Mỗi giờ (sau khi nến 1H đóng): dấu hiệu gom hàng / ép short + dòng tiền stablecoin."""
+    from app import alerts
+    await _safe("early", asyncio.wait_for(alerts.early_signals(ctx.bot), 300))
+    await _safe("money", alerts.stablecoin_flow(ctx.bot))
 
 
 async def job_holdings(ctx: ContextTypes.DEFAULT_TYPE) -> None:
@@ -149,7 +167,10 @@ def schedule(app: Application) -> None:
     jq.run_repeating(job_dca, interval=900, first=240, name="dca")
     jq.run_repeating(job_holdings, interval=3600, first=next_scan + timedelta(minutes=4), name="holdings")
     jq.run_repeating(job_watchdog, interval=600, first=900, name="watchdog")
+    jq.run_repeating(job_listings, interval=300, first=90, name="listings")
+    jq.run_repeating(job_early, interval=3600, first=next_scan + timedelta(minutes=6), name="early")
     jq.run_daily(job_backup, time=time(23, 30, tzinfo=VN_TZ), name="backup")
+    jq.run_daily(job_health_daily, time=time(23, 0, tzinfo=VN_TZ), name="health_daily")
 
 
 # ---------------------------------------------------------------- web
@@ -266,6 +287,7 @@ async def _serve(app: Application, news_app: Application | None = None) -> None:
             await a.updater.start_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
             log.info("Chạy chế độ polling (local) %s", path)
         await set_commands(a)
+    reports.SIGNAL_BOT = app.bot
     reports.SIGNAL_USERNAME = (await app.bot.get_me()).username or ""
     if news_app:
         reports.NEWS_BOT = news_app.bot
@@ -282,11 +304,7 @@ async def _serve(app: Application, news_app: Application | None = None) -> None:
         log.error("Không gọi được Binance: %s", exc)
         status += (f"\n⚠️ KHÔNG lấy được dữ liệu Binance ({exc}).\n"
                    "Nếu lỗi 451: vùng server bị Binance chặn — tạo lại service Render ở region Frankfurt.")
-    for admin in settings.admin_ids:
-        try:
-            await app.bot.send_message(admin, status)
-        except Exception:  # noqa: BLE001
-            log.warning("Không gửi được tin khởi động cho admin %s", admin)
+    await service.notify_admins(app.bot, status)  # vào topic nhật ký (không có thì nhắn riêng admin)
 
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()

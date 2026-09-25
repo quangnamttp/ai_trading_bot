@@ -1,8 +1,10 @@
 //@version=5
-// Swing Entry Pro v6 — cùng chiến lược với bot Telegram, backtest 9 năm (2017–2026) / 50 coin.
+// Swing Entry Pro v6.1 — cùng chiến lược với bot Telegram, backtest 9 năm (2017–2026) / 50 coin.
 // v6: • Thoát lệnh: KHÔNG chốt 50% cố định — Trailing Stop cho cả lệnh (kích hoạt +1R, callback 2.5 x ATR khung xu hướng).
 //       9 năm: lời TB/lệnh 1H +0.12R -> +0.17R, 4H +0.21R -> +0.31R; sụt giảm tối đa giảm gần một nửa ở 1H.
 //     • Lọc Volume Profile: chỉ vào lệnh ở phía thuận POC 150 nến (LONG trên POC, SHORT dưới POC).
+// v6.1: • Tự vẽ 2 kháng cự + 2 hỗ trợ gần giá nhất (đỉnh/đáy xoay chiều, đỉnh/đáy ngày & tuần trước, POC/VAH/VAL),
+//       gộp mốc gần nhau thành vùng; vùng có >= 3 nguồn trùng = MẠNH. Chỉ để nhìn — không đổi tín hiệu.
 //     • Khung 1H: ngưỡng 75 + lọc OI >= 5%. Khung 4H trở lên: ngưỡng 70, không lọc OI (OI 4H không ổn định qua các năm).
 // • Tín hiệu chỉ xuất hiện khi nến khung tín hiệu ĐÃ ĐÓNG, dữ liệu khung lớn chỉ dùng nến đã đóng -> KHÔNG repaint.
 // • Điểm vào = giá đóng cửa nến tín hiệu. SL theo đáy/đỉnh 24 nến (giới hạn 0.8–2.2 ATR khung xu hướng).
@@ -11,7 +13,7 @@
 //   (v5.3: chờ OI của ĐÚNG nến tín hiệu có dữ liệu rồi mới quyết định -> tín hiệu không tự mọc ra / biến mất khi
 //   TradingView cập nhật OI trễ vài phút)
 //   sàn khác (MEXC, OKX...) hoặc cặp USDC — backtest cho thấy thiếu lọc OI là nguyên nhân chính khiến tín hiệu đi ngược sóng.
-indicator("Swing Entry Pro v6 — Điểm vào + SL + Trailing (không repaint)", shorttitle="Swing Pro v6", overlay=true,
+indicator("Swing Entry Pro v6.1 — Điểm vào + SL + Trailing + Hỗ trợ/Kháng cự", shorttitle="Swing Pro v6.1", overlay=true,
      max_lines_count=300, max_labels_count=300, max_boxes_count=150)
 
 // ============ CÀI ĐẶT ============
@@ -41,6 +43,9 @@ feePct     = input.float(0.1, "Phí khứ hồi (%) để tính thống kê", mi
 grpShow = "Hiển thị"
 showTable  = input.bool(true, "Hiện bảng thống kê", group=grpShow, display=display.none)
 showBoxes  = input.bool(true, "Vẽ hộp vị thế (vùng lời / vùng lỗ)", group=grpShow, display=display.none)
+showSR     = input.bool(true, "Vẽ hỗ trợ / kháng cự (2 + 2 vùng gần giá nhất)", group=grpShow, display=display.none)
+srLen      = input.int(5, "Độ rõ đỉnh/đáy xoay chiều (số nến mỗi bên)", minval=2, maxval=20, group=grpShow, display=display.none)
+srMerge    = input.float(0.5, "Gộp các mốc cách nhau dưới (x ATR)", minval=0.1, step=0.1, group=grpShow, display=display.none)
 vpLookback = input.int(150, "Số nến tính POC/VAH/VAL cho TP2 (khớp Volume Profile Pro v3)", minval=50, maxval=400, group=grpShow, display=display.none)
 vpBins     = input.int(24, "Số mức giá Volume Profile", minval=10, maxval=50, group=grpShow, display=display.none)
 tablePosIn = input.string("Trên phải", "Vị trí bảng thống kê", options=["Trên phải", "Trên trái", "Dưới phải", "Dưới trái"], group=grpShow, display=display.none)
@@ -244,6 +249,35 @@ f_vp(N, bins) =>
             va += array.get(prof, lo_i)
     [lo + (pocIdx + 0.5) * step, lo + (hi_i + 1) * step, lo + lo_i * step]
 
+// ============ HỖ TRỢ / KHÁNG CỰ ============
+var float[] srPH = array.new_float(0)   // đỉnh xoay chiều gần nhất
+var float[] srPL = array.new_float(0)   // đáy xoay chiều gần nhất
+ph = ta.pivothigh(high, srLen, srLen)
+pl = ta.pivotlow(low, srLen, srLen)
+if not na(ph)
+    array.push(srPH, ph)
+    if array.size(srPH) > 12
+        array.shift(srPH)
+if not na(pl)
+    array.push(srPL, pl)
+    if array.size(srPL) > 12
+        array.shift(srPL)
+[dH, dL] = request.security(syminfo.tickerid, "D", [high[1], low[1]], lookahead=barmerge.lookahead_on)
+[wH, wL] = request.security(syminfo.tickerid, "W", [high[1], low[1]], lookahead=barmerge.lookahead_on)
+atrChart = ta.atr(14)
+
+// mốc gần nhất phía trên (dir = 1) / phía dưới (dir = -1) giá `px`, trong các đỉnh/đáy + ngày/tuần trước
+f_nearest(px, dir) =>
+    float best = na
+    src = dir > 0 ? srPH : srPL
+    for v in src
+        if (v - px) * dir > 0 and (na(best) or math.abs(v - px) < math.abs(best - px))
+            best := v
+    for v in array.from(dH, wH, dL, wL)
+        if not na(v) and (v - px) * dir > 0 and (na(best) or math.abs(v - px) < math.abs(best - px))
+            best := v
+    best
+
 // ============ QUẢN LÝ LỆNH (máy trạng thái giống bot: SL kiểm tra trước trong mỗi nến) ============
 var int   tSide = 0
 var float tEntry = na
@@ -293,6 +327,9 @@ if newSignal
          "\nMục tiêu xa (Volume Profile): " + f_fmt(tp2) + (na(sPoc) ? "" : "\nPOC: " + f_fmt(sPoc)) +
          "\nTrailing: kích hoạt " + f_fmt(tAct) + ", callback " + str.tostring(tCb * 100, "#.#") + "%" +
          "\nKhông vào nếu giá đã vượt: " + f_fmt(tEntry + tSide * 0.3 * tRisk) +
+         (na(f_nearest(tEntry, tSide)) ? "" : "\n" + (tSide > 0 ? "Kháng cự" : "Hỗ trợ") + " gần nhất: " + f_fmt(f_nearest(tEntry, tSide)) +
+             " (cách " + str.tostring(math.abs(f_nearest(tEntry, tSide) - tEntry) / tRisk, "#.#") + "R)") +
+         (na(f_nearest(tEntry, -tSide)) ? "" : "\n" + (tSide > 0 ? "Hỗ trợ" : "Kháng cự") + " gần nhất: " + f_fmt(f_nearest(tEntry, -tSide))) +
          (oiAvailable ? "\nOI " + str.tostring(oiHours) + "h: " + str.tostring(oiChg, "#.#") + "%" : "")
     label.new(bar_index, tSide > 0 ? low : high, txt, tooltip=tip, style=tSide > 0 ? label.style_label_up : label.style_label_down,
          color=tSide > 0 ? color.new(#26a69a, 0) : color.new(#ef5350, 0), textcolor=color.white, size=size.normal)
@@ -347,6 +384,75 @@ plot(tSide != 0 ? tSL : na, "SL", color=#ef5350, style=plot.style_linebr, linewi
 plot(tSide != 0 ? tTP1 : na, "Mục tiêu tham khảo", color=color.new(#26a69a, 50), style=plot.style_linebr, linewidth=1)
 plot(tSide != 0 ? tEntry : na, "Giá vào", color=color.new(color.white, 30), style=plot.style_linebr, linewidth=1)
 plot(trailNow, "Trailing stop", color=#ffb300, style=plot.style_linebr, linewidth=2)
+
+// ============ VẼ HỖ TRỢ / KHÁNG CỰ (nến cuối) ============
+var box[] srBoxes = array.new_box(0)
+var label[] srLabels = array.new_label(0)
+var float kc1 = na
+var float ht1 = na
+if showSR and barstate.islast
+    for b in srBoxes
+        box.delete(b)
+    for l in srLabels
+        label.delete(l)
+    array.clear(srBoxes)
+    array.clear(srLabels)
+    // gom mọi mốc: đỉnh/đáy xoay chiều, ngày/tuần trước, POC/VAH/VAL 150 nến
+    lv = array.new_float(0)
+    for v in srPH
+        array.push(lv, v)
+    for v in srPL
+        array.push(lv, v)
+    for v in array.from(dH, dL, wH, wL)
+        if not na(v)
+            array.push(lv, v)
+    [pocL, vahL, valL] = f_vp(math.max(1, math.min(vpLookback, bar_index)), vpBins)
+    for v in array.from(pocL, vahL, valL)
+        if not na(v)
+            array.push(lv, v)
+    array.sort(lv, order.ascending)
+    // gộp các mốc gần nhau thành vùng (tâm = trung bình, độ mạnh = số nguồn)
+    zc = array.new_float(0)
+    zn = array.new_int(0)
+    tol = srMerge * atrChart
+    for v in lv
+        k = array.size(zc) - 1
+        if k >= 0 and v - array.get(zc, k) <= tol
+            n = array.get(zn, k)
+            array.set(zc, k, (array.get(zc, k) * n + v) / (n + 1))
+            array.set(zn, k, n + 1)
+        else
+            array.push(zc, v)
+            array.push(zn, 1)
+    // 2 kháng cự trên giá + 2 hỗ trợ dưới giá gần nhất
+    kc1 := na
+    ht1 := na
+    upCount = 0
+    for [i, c0] in zc
+        if c0 > close and upCount < 2
+            upCount += 1
+            strong = array.get(zn, i) >= 3
+            kc1 := upCount == 1 ? c0 : kc1
+            array.push(srBoxes, box.new(bar_index - 60, c0 + 0.15 * atrChart, bar_index + 15, c0 - 0.15 * atrChart,
+                 border_color=na, bgcolor=color.new(#ef5350, strong ? 65 : 85)))
+            array.push(srLabels, label.new(bar_index + 15, c0, "KC" + str.tostring(upCount) + " " + f_fmt(c0) + (strong ? " (mạnh)" : ""),
+                 style=label.style_label_left, color=color.new(#ef5350, strong ? 10 : 45), textcolor=color.white, size=size.small))
+    dnCount = 0
+    for j = 0 to math.max(array.size(zc) - 1, 0)
+        i = array.size(zc) - 1 - j
+        c0 = i >= 0 ? array.get(zc, i) : na
+        if not na(c0) and c0 < close and dnCount < 2
+            dnCount += 1
+            strong = array.get(zn, i) >= 3
+            ht1 := dnCount == 1 ? c0 : ht1
+            array.push(srBoxes, box.new(bar_index - 60, c0 + 0.15 * atrChart, bar_index + 15, c0 - 0.15 * atrChart,
+                 border_color=na, bgcolor=color.new(#26a69a, strong ? 65 : 85)))
+            array.push(srLabels, label.new(bar_index + 15, c0, "HT" + str.tostring(dnCount) + " " + f_fmt(c0) + (strong ? " (mạnh)" : ""),
+                 style=label.style_label_left, color=color.new(#26a69a, strong ? 10 : 45), textcolor=color.white, size=size.small))
+if showSR and barstate.isconfirmed and not na(kc1) and close > kc1 and close[1] <= kc1
+    alert(syminfo.ticker + " " + timeframe.period + ": giá đóng nến PHÁ kháng cự " + f_fmt(kc1), alert.freq_once_per_bar_close)
+if showSR and barstate.isconfirmed and not na(ht1) and close < ht1 and close[1] >= ht1
+    alert(syminfo.ticker + " " + timeframe.period + ": giá đóng nến THỦNG hỗ trợ " + f_fmt(ht1), alert.freq_once_per_bar_close)
 
 // ============ CẢNH BÁO "CHUẨN BỊ" (chưa phải tín hiệu) ============
 prepL = showPrep and evalNow and tSide == 0 and not okL and setupL > 0 and trendL >= 15 and not pbL and scL >= threshold - 8 and scL < threshold

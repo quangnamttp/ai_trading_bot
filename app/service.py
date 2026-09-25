@@ -102,6 +102,18 @@ def _chart(h1: pd.DataFrame, sig: dict, mult: int) -> bytes:
                         zone_lo=sig["zone_lo"] * k, zone_hi=sig["zone_hi"] * k, tp2_label="TRAIL")
 
 
+async def _sr(symbol: str) -> dict | None:
+    """Kháng cự / hỗ trợ gần nhất (vùng giá khung ngày của 🔍 Phân tích) cho dòng 🧱 trong tin tín hiệu."""
+    from app.strategy.levels import coin_plan
+    try:
+        plan = await asyncio.wait_for(coin_plan(symbol), 20)
+    except Exception as exc:  # noqa: BLE001  thiếu dòng 🧱 không được làm hỏng tín hiệu
+        log.info("Không tính được hỗ trợ/kháng cự %s: %s", symbol, exc)
+        return None
+    res, sup = plan["resistances"][:1], plan["supports"][:1]
+    return {"res": res[0][0] if res else None, "sup": sup[0][0] if sup else None} if res or sup else None
+
+
 async def publish(bot: Bot, found: Found) -> int:
     c, coin, row, style = found.candidate, found.coin, found.candidate.row, found.style
     created = storage.now()
@@ -118,7 +130,7 @@ async def publish(bot: Bot, found: Found) -> int:
                   state=storage.dumps({"trade": trade.to_dict(), "last_ts": created, "notified_stop": row["sl"]}))
     sig_id = await storage.insert_signal(**values)
     sig = {**values, "id": sig_id, "trend": row["trend"], "setup_text": setup_text, "reasons": reasons[1:],
-           "exit_mode": "pct", "callback": cb, "partials": trade.partials}
+           "exit_mode": "pct", "callback": cb, "partials": trade.partials, "sr": await _sr(coin.symbol)}
     stats = bucket_stats(c.score, style.key)
 
     photos: dict[int, bytes] = {}
@@ -157,19 +169,29 @@ async def publish(bot: Bot, found: Found) -> int:
 SCAN_TIMEOUT = 180  # giây — quá thì dừng lần quét này, lần sau vẫn chạy bình thường
 
 
+async def log_target() -> tuple[int, int | None] | None:
+    raw = await storage.kv_get("log_target") or await storage.kv_get("news_target")  # topic nhật ký của admin
+    if not raw:
+        return None
+    chat, _, thread = raw.partition(":")
+    return int(chat), int(thread) if thread and thread != "None" else None
+
+
 async def notify_admins(bot: Bot, text: str, *, key: str | None = None, every_minutes: int = 60) -> None:
-    """Nhắn admin (tối đa 1 lần / `every_minutes` cho cùng `key` để không dội tin)."""
+    """Nhật ký cho admin -> topic nhật ký (gửi bằng Bot Tín hiệu, kể cả sự cố của Bot Tin tức); không có topic
+    thì nhắn riêng admin. `key`: tối đa 1 lần / `every_minutes` để không dội tin."""
+    from app import reports
+    bot = reports.SIGNAL_BOT or bot
     if key:
         k = f"admin_note:{key}:{int(datetime.now(timezone.utc).timestamp() // (every_minutes * 60))}"
         if await storage.kv_get(k):
             return
         await storage.kv_set(k, "1")
-    raw = await storage.kv_get("log_target") or await storage.kv_get("news_target")  # topic nhật ký của admin
-    if raw:
-        chat, _, thread = raw.partition(":")
+    target = await log_target()
+    if target:
         try:
-            await bot.send_message(int(chat), text, parse_mode=ParseMode.HTML, disable_web_page_preview=True,
-                                   message_thread_id=int(thread) if thread and thread != "None" else None)
+            await bot.send_message(target[0], text, parse_mode=ParseMode.HTML, disable_web_page_preview=True,
+                                   message_thread_id=target[1])
             return
         except TelegramError as exc:
             log.warning("Không gửi được vào topic nhật ký (%s) -> nhắn riêng admin", exc)
@@ -278,7 +300,7 @@ async def publish_indicator(bot: Bot, s, coin: binance.Coin, users: list[dict]) 
         return 0
     sig_id = await storage.insert_signal(**values)
     sig = {**values, "id": sig_id, "trend": row["trend"], "setup_text": setup_text, "reasons": reasons,
-           "exit_mode": "pct", "callback": cb, "partials": trade.partials}
+           "exit_mode": "pct", "callback": cb, "partials": trade.partials, "sr": await _sr(coin.symbol)}
     photos: dict[int, bytes] = {}
     ex_px = await _ex_price(coin.symbol, receivers)
     for u in receivers:

@@ -101,3 +101,14 @@ async def test_migration_adds_new_columns_and_keeps_data(tmp_path, monkeypatch):
     assert await storage.kv_get("a") == "2"
     await storage.engine().dispose()
     storage._engine = None
+
+
+def test_signal_message_sr_line():
+    sig = dict(display="SOL/USDT", side=1, multiplier=1, entry=100, sl=95, tp1=110, tp2=115, zone_lo=99, zone_hi=100,
+               score=80, trend=30, setup_text="x", reasons=[], created_at=datetime.now(timezone.utc),
+               sr={"res": 104, "sup": 96})
+    msg = texts.signal_message(sig, mode="futures", risk_pct=0.5, stats=None)
+    assert "🧱 Kháng cự gần: 104" in msg and "(cách 0.8R)" in msg and "Hỗ trợ gần: 96" in msg
+    short = texts.signal_message({**sig, "side": -1, "sl": 105}, mode="futures", risk_pct=0.5, stats=None)
+    assert "🧱 Hỗ trợ gần: 96" in short and "Kháng cự gần: 104" in short
+    assert "🧱" not in texts.signal_message({**sig, "sr": None}, mode="futures", risk_pct=0.5, stats=None)

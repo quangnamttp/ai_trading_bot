@@ -254,17 +254,22 @@ async def test_news_routing_and_prefs(db, monkeypatch):
     assert signal_bot.send_message.call_count == 2  # chưa có Bot Tin tức -> gửi qua Bot Tín hiệu
 
 
-async def test_news_bot_requires_approval(db):
+async def test_news_bot_requires_approval(db, monkeypatch):
     from unittest.mock import AsyncMock, MagicMock
     from app.bot import news
+    monkeypatch.setattr(storage, "settings", replace(storage.settings, private_mode=True, admin_ids=[1]))
     upd = MagicMock()
     upd.effective_user.id = 50
+    upd.effective_user.username = "x"
+    upd.effective_user.full_name = "X"
     upd.effective_message.reply_text = AsyncMock()
-    assert await news._member(upd) is None  # chưa từng dùng Bot Tín hiệu
-    await storage.upsert_user(50, "x")
+    assert await news._member(upd) is None  # chưa được bật quyền 📰
     await storage.update_user(50, approved=True)
+    assert await news._member(upd) is None  # có quyền 🤖 nhưng chưa có quyền 📰 -> vẫn chưa dùng được
+    await storage.update_user(50, news_ok=True)
     u = await news._member(upd)
     assert u and u["news_started"]
+    assert [x["chat_id"] for x in await storage.news_users()] == [50]
 
 
 async def test_manual_buy_marks_dca_level(db):
@@ -317,3 +322,22 @@ async def test_offtopic_with_many_open_signals_is_refused(db, monkeypatch):
         await storage.add_message(sid, 80, 900 + sid)
     text, buttons = await assistant.answer_personal(user, "hôm nay thời tiết thế nào")
     assert text == assistant.OUT_TEXT and buttons == []
+
+
+def test_early_signal_detection():
+    import numpy as np
+    import pandas as pd
+    from app import alerts
+    idx = pd.date_range("2026-01-01", periods=150, freq="1h", tz="UTC")
+    k = pd.DataFrame({"close": np.full(150, 100.0), "volume": np.full(150, 10.0)}, index=idx)
+    k.iloc[-4:, 1] = 30.0                                   # volume 4 giờ gần nhất x3
+    oi = pd.Series(np.full(30, 1000.0), index=idx[-30:])
+    oi.iloc[-1] = 1100.0                                    # OI +10% trong 4 giờ, giá đứng yên
+    assert alerts.detect(k, oi, ls=1.5, funding=0.0001) == ["early"]
+    oi2 = pd.Series(np.linspace(1000, 1150, 30), index=idx[-30:])  # OI 24h +~12%
+    k2 = k.copy()
+    k2.iloc[-4:, 1] = 10.0
+    assert alerts.detect(k2, oi2, ls=0.8, funding=-0.0002) == ["squeeze"]
+    k3 = k2.copy()
+    k3.iloc[-1, 0] = 130.0                                  # giá đã chạy +30% -> không báo (đã bay rồi)
+    assert "squeeze" not in alerts.detect(k3, oi2, ls=0.8, funding=-0.0002)

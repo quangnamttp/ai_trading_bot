@@ -4,7 +4,7 @@ Gồm 2 chỉ báo, dùng chung trên một chart (gói TradingView miễn phí 
 
 | File | Vai trò |
 |---|---|
-| `swing_entry_pro.pine` (v6) | **Khi nào vào lệnh**: điểm vào, SL, trailing stop, mục tiêu tham khảo, hạng tín hiệu, "Chuẩn bị", bảng thống kê |
+| `swing_entry_pro.pine` (v6.1) | **Khi nào vào lệnh**: điểm vào, SL, trailing stop, hỗ trợ/kháng cự, mục tiêu tham khảo, hạng tín hiệu, "Chuẩn bị", bảng thống kê |
 | `volume_profile_pro.pine` (v3.2) | **Vùng giá quan trọng**: POC, Value Area (VAH/VAL), mốc tuần/tháng trước, POC chưa bị chạm |
 
 Cả 2 chỉ báo chạy 24/24, không lọc giờ, và **không repaint**: tín hiệu chỉ xuất hiện khi nến đóng, đã hiện thì không mất.
@@ -46,7 +46,7 @@ Kiểm chứng: bản Python của chỉ báo (`app/strategy/indicator.py`) tái
 
 Nếu Pine Editor báo lỗi (dòng chữ đỏ ở dưới), chụp màn hình gửi lại để sửa.
 
-## Dùng Swing Entry Pro v6
+## Dùng Swing Entry Pro v6.1
 
 - **Khung nên dùng**: **4H** (tốt nhất) hoặc **1H** (bảng phải hiện "Dữ liệu OI" có số). Chart 15m vẫn được: chỉ báo lấy
   tín hiệu từ 1H, dùng 15m để canh giá vào.
@@ -57,10 +57,14 @@ Nếu Pine Editor báo lỗi (dòng chữ đỏ ở dưới), chụp màn hình 
   khảo, không đặt lệnh chốt. Muốn chốt bớt một phần: Cài đặt → "Chốt từng phần tại mục tiêu (%)".
 - **Hạng A**: điểm ≥ 85 hoặc OI biến động ≥ 10%. **Hạng B**: đạt ngưỡng.
 - **Hình thoi vàng "Chuẩn bị"**: setup gần đạt chuẩn, chưa phải tín hiệu.
+- **Hỗ trợ / kháng cự** (v6.1): 2 vùng đỏ **KC1, KC2** phía trên giá và 2 vùng xanh **HT1, HT2** phía dưới, gộp từ
+  đỉnh/đáy xoay chiều, đỉnh/đáy ngày & tuần trước, POC/VAH/VAL. Chữ **(mạnh)** = từ 3 mốc trùng nhau trở lên. Có cảnh báo
+  khi nến đóng **phá KC1** hoặc **thủng HT1**. Nhãn MUA/BÁN ghi thêm kháng cự/hỗ trợ gần nhất và cách bao nhiêu R — nếu
+  kháng cự chỉ cách < 1R thì lệnh dễ bị chặn sớm. Tắt: Cài đặt → "Vẽ hỗ trợ / kháng cự".
 - **Đường vàng**: trailing stop, xuất hiện khi giá đi được +1R.
 - **Bảng góc phải**: kết quả lịch sử của chỉ báo trên coin và khung đang xem.
 - **Chỉ giao dịch Spot**: Cài đặt → tắt "Cho phép tín hiệu BÁN/SHORT".
-- **Cảnh báo**: đồng hồ báo thức → Condition "Swing Pro v6" → **Any alert() function call**.
+- **Cảnh báo**: đồng hồ báo thức → Condition "Swing Pro v6.1" → **Any alert() function call**.
 - Mỗi nến tín hiệu chỉ quyết định 1 lần khi OI của nến đó đã có (tối đa chờ 20 phút) → không có tín hiệu "mọc ra sau".
 - Bot Telegram gửi cùng tín hiệu này cho coin bạn tự chọn: 🪙 Coin theo dõi / 💼 Danh mục → 🎯 Tín hiệu chỉ báo Swing.
 

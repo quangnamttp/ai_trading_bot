@@ -50,6 +50,7 @@ SCOPES = {
         f"Nếu câu hỏi không liên quan crypto / tài chính (thời tiết, đời sống...) -> chỉ trả lời đúng: {OUT_OF_SCOPE}."
     ),
     "news": BASE + "Bạn viết tóm tắt tin tức thị trường cực ngắn (tối đa 3 gạch đầu dòng, mỗi dòng dưới 20 từ).",
+    "rank": "Bạn chấm điểm mức quan trọng của tin tức crypto. Chỉ trả đúng định dạng được yêu cầu, không giải thích.",
     "translate": ("Dịch từng tiêu đề tin tức crypto sang TIẾNG VIỆT tự nhiên, ngắn gọn. Giữ nguyên tên riêng, mã coin, "
                   "con số. Trả về đúng số dòng, mỗi dòng dạng 'số. bản dịch', không thêm gì khác."),
 }
@@ -185,7 +186,7 @@ async def ask(question: str, context: str, scope: str = "market") -> tuple[str |
                 for code in (OUT_OF_SCOPE, OTHER_PLACE):
                     if code in text[:40]:
                         return code, f"{provider}:{model}"
-                if scope == "translate" and text:
+                if scope in ("translate", "rank") and text:
                     return text, f"{provider}:{model}"
                 if not text or degenerate(text):
                     log.warning("AI %s/%s trả lời lặp/rỗng -> bỏ", provider, model)

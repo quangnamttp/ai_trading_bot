@@ -31,6 +31,7 @@ users = sa.Table(
     sa.Column("ind_silent", sa.Boolean, nullable=False, server_default=sa.false()),  # gửi không chuông
     sa.Column("ind_max", sa.Integer, nullable=False, server_default="3"),  # tối đa tin chỉ báo / ngày
     sa.Column("news_started", sa.Boolean, nullable=False, server_default=sa.false()),  # đã bấm Start ở Bot Tin tức
+    sa.Column("news_ok", sa.Boolean, nullable=False, server_default=sa.true()),  # được dùng 📰 Bot Tin tức (approved = 🤖)
     sa.Column("news_prefs", sa.Text),  # JSON: loại tin tức đang TẮT, vd ["funding"]
     sa.Column("banned", sa.Boolean, nullable=False, server_default=sa.false()),
     sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
@@ -239,7 +240,7 @@ async def upsert_user(chat_id: int, username: str | None, full_name: str | None 
             approved = ((not settings.private_mode) or chat_id in settings.admin_ids) and not (was_deleted and was_deleted.value)
             await c.execute(users.insert().values(chat_id=chat_id, username=username, full_name=full_name, mode="futures",
                                                   risk_pct=settings.default_risk_pct, subscribed=True,
-                                                  banned=False, approved=approved, news_dm=False, created_at=now()))
+                                                  banned=False, approved=approved, news_ok=approved, news_dm=False, created_at=now()))
             row = (await c.execute(sa.select(users).where(users.c.chat_id == chat_id))).first()
         elif (username and row.username != username) or (full_name and row.full_name != full_name):
             await c.execute(users.update().where(users.c.chat_id == chat_id)
@@ -554,13 +555,26 @@ async def delete_user(chat_id: int) -> None:
             await c.execute(table.delete().where(table.c.chat_id == chat_id))
         await c.execute(users.delete().where(users.c.chat_id == chat_id))
     await kv_set(f"deleted:{chat_id}", "1")
-    await kv_set(f"pending:{chat_id}", "")
+    for kind in ("s", "n"):
+        await kv_set(f"pending:{chat_id}:{kind}", "")
+
+
+async def pending_requests() -> list[tuple[dict, str]]:
+    """(người dùng, bot 's'|'n') đang chờ admin duyệt."""
+    out = []
+    for u in await all_users():
+        if u["banned"]:
+            continue
+        for kind, ok in (("s", u.get("approved")), ("n", u.get("news_ok"))):
+            if not ok and await kv_get(f"pending:{u['chat_id']}:{kind}"):
+                out.append((u, kind))
+    return out
 
 
 async def news_users() -> list[dict]:
     """Người đã mở Bot Tin tức, được duyệt, không bị chặn."""
     async with engine().connect() as c:
-        rows = (await c.execute(sa.select(users).where(users.c.news_started, users.c.approved, ~users.c.banned))).all()
+        rows = (await c.execute(sa.select(users).where(users.c.news_started, users.c.news_ok, ~users.c.banned))).all()
     return [_row(r) for r in rows]
 
 

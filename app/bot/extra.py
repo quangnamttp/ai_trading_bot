@@ -29,28 +29,36 @@ async def _reply(update: Update, text: str, **kw) -> None:
 
 
 # ---------------------------------------------------------------- duyệt người dùng mới
-async def request_approval(update: Update, ctx: ContextTypes.DEFAULT_TYPE, user: dict) -> None:
+BOT_NAME = {"s": "🤖 Bot Tín hiệu", "n": "📰 Bot Tin tức"}
+
+
+async def request_approval(update: Update, ctx: ContextTypes.DEFAULT_TYPE, user: dict, kind: str = "s") -> None:
+    """Người chưa được dùng bot `kind` ('s' tín hiệu / 'n' tin tức) -> yêu cầu duyệt gửi admin qua Bot Tín hiệu
+    (1 nơi quản lý chung cho cả 2 bot)."""
     await _reply(update, "⏳ Bot đang ở chế độ riêng tư. Yêu cầu của bạn đã gửi tới admin, vui lòng chờ duyệt.")
-    key = f"pending:{user['chat_id']}"
+    key = f"pending:{user['chat_id']}:{kind}"
     if await storage.kv_get(key):
         return
     await storage.kv_set(key, "1")
     u = update.effective_user
     name = escape(u.full_name if u else "?")
     uname = f" (@{escape(u.username)})" if u and u.username else ""
-    markup = InlineKeyboardMarkup([[InlineKeyboardButton("✅ Duyệt", callback_data=f"appr:{user['chat_id']}:1"),
-                                    InlineKeyboardButton("❌ Từ chối", callback_data=f"appr:{user['chat_id']}:0")]])
+    uid = user["chat_id"]
+    markup = InlineKeyboardMarkup([
+        [InlineKeyboardButton(f"✅ Duyệt {'Tín hiệu' if kind == 's' else 'Tin tức'}", callback_data=f"appr:{uid}:{kind}"),
+         InlineKeyboardButton("✅ Duyệt cả 2 bot", callback_data=f"appr:{uid}:b")],
+        [InlineKeyboardButton("❌ Từ chối", callback_data=f"appr:{uid}:0:{kind}")]])
+    sender = reports.SIGNAL_BOT or ctx.bot
     for admin in settings.admin_ids:
         try:
-            await ctx.bot.send_message(admin, f"🙋 <b>Người dùng mới muốn dùng bot</b>\nTên: {name}{uname}\n"
-                                              f"ID: <code>{user['chat_id']}</code>", parse_mode=ParseMode.HTML,
-                                       reply_markup=markup)
+            await sender.send_message(admin, f"🙋 <b>{name}{uname} xin dùng {BOT_NAME[kind]}</b>\n"
+                                             f"ID: <code>{uid}</code>", parse_mode=ParseMode.HTML, reply_markup=markup)
         except TelegramError as exc:
             log.warning("Không báo được admin %s: %s", admin, exc)
 
 
 async def auto_approve_member(bot, chat_id: int) -> bool:
-    """Người đã là thành viên nhóm (nhóm có topic 📰 / 💬 của bot) -> tự duyệt, không cần admin bấm."""
+    """Người đã là thành viên nhóm (nhóm đăng ký bằng /set_news) -> tự duyệt 🤖 Bot Tín hiệu, không cần admin bấm."""
     if await storage.kv_get(f"deleted:{chat_id}"):
         return False  # admin đã xóa người này -> phải chờ admin duyệt lại
     raw = await storage.kv_get("news_target")  # nhóm Telegram đã đăng ký bằng /set_news (để tự duyệt thành viên)
@@ -62,39 +70,72 @@ async def auto_approve_member(bot, chat_id: int) -> bool:
             continue
         if m.status in ("member", "administrator", "creator", "restricted"):
             await storage.update_user(chat_id, approved=True, banned=False)
-            await storage.kv_set(f"pending:{chat_id}", "")
-            for admin in settings.admin_ids:
-                try:
-                    await bot.send_message(admin, f"✅ Tự duyệt <code>{chat_id}</code> (đã là thành viên nhóm).",
-                                           parse_mode=ParseMode.HTML)
-                except TelegramError:
-                    pass
+            await storage.kv_set(f"pending:{chat_id}:s", "")
+            from app.service import notify_admins
+            await notify_admins(bot, f"✅ Tự duyệt 🤖 Bot Tín hiệu cho <code>{chat_id}</code> (đã là thành viên nhóm).")
             return True
     return False
 
 
-async def _set_approved(ctx: ContextTypes.DEFAULT_TYPE, chat_id: int, ok: bool) -> None:
-    await storage.update_user(chat_id, approved=ok, banned=not ok)
-    await storage.kv_set(f"pending:{chat_id}", "")
-    if ok:
-        await storage.kv_set(f"deleted:{chat_id}", "")
+async def _notify_access(chat_id: int, kind: str, ok: bool, bot) -> None:
+    """Báo người dùng qua đúng bot: được duyệt / bị thu hồi quyền."""
+    sender = (reports.NEWS_BOT if kind == "n" else reports.SIGNAL_BOT) or bot
+    text = (f"✅ Bạn đã được duyệt dùng {BOT_NAME[kind]}! Gõ /start để mở menu." if ok
+            else f"⛔ Quyền dùng {BOT_NAME[kind]} của bạn đã tắt.")
     try:
-        await ctx.bot.send_message(chat_id, "✅ Bạn đã được duyệt! Gõ /start để mở menu." if ok
-                                   else "❌ Yêu cầu dùng bot của bạn chưa được chấp nhận.")
+        await sender.send_message(chat_id, text)
     except TelegramError:
         pass
 
 
+async def set_access(bot, chat_id: int, *, sig: bool | None = None, news: bool | None = None) -> None:
+    """Bật/tắt quyền từng bot (admin). Bật quyền nào thì xóa dấu 'đã xóa' và báo người dùng."""
+    values = {}
+    if sig is not None:
+        values["approved"] = sig
+    if news is not None:
+        values["news_ok"] = news
+    if sig or news:
+        values["banned"] = False
+        await storage.kv_set(f"deleted:{chat_id}", "")
+    await storage.update_user(chat_id, **values)
+    for kind, v in (("s", sig), ("n", news)):
+        if v is not None:
+            await storage.kv_set(f"pending:{chat_id}:{kind}", "")
+            await _notify_access(chat_id, kind, v, bot)
+
+
 async def on_approve(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    """appr:<id>:s|n|b (duyệt Tín hiệu / Tin tức / cả 2) · appr:<id>:0[:kind] từ chối · appr:<id>:1 (bản cũ = Tín hiệu)."""
     q = update.callback_query
     if not is_admin(q.from_user.id):
         await q.answer("Chỉ admin")
         return
-    _, uid, ok = q.data.split(":")
-    await _set_approved(ctx, int(uid), ok == "1")
+    parts = q.data.split(":")
+    uid, mode = int(parts[1]), parts[2]
+    mode = "s" if mode == "1" else mode
+    if not await storage.get_user(uid):
+        await storage.upsert_user(uid, None)
+    if mode == "0":
+        kind = parts[3] if len(parts) > 3 else "s"
+        user = await storage.get_user(uid)
+        await storage.kv_set(f"pending:{uid}:{kind}", "")
+        if not (user.get("approved") or user.get("news_ok")):
+            await storage.update_user(uid, approved=False, news_ok=False)
+        try:
+            sender = (reports.NEWS_BOT if kind == "n" else reports.SIGNAL_BOT) or ctx.bot
+            await sender.send_message(uid, f"❌ Yêu cầu dùng {BOT_NAME[kind]} của bạn chưa được chấp nhận.")
+        except TelegramError:
+            pass
+        note = "❌ <b>Đã từ chối</b>"
+    else:
+        await set_access(ctx.bot, uid, sig=True if mode in ("s", "b") else None, news=True if mode in ("n", "b") else None)
+        note = "✅ <b>Đã duyệt " + {"s": "Bot Tín hiệu", "n": "Bot Tin tức", "b": "cả 2 bot"}[mode] + "</b>"
     await q.answer("Đã cập nhật")
-    await q.edit_message_text(q.message.text_html + ("\n\n✅ <b>Đã duyệt</b>" if ok == "1" else "\n\n❌ <b>Đã từ chối</b>"),
-                              parse_mode=ParseMode.HTML)
+    try:
+        await q.edit_message_text((q.message.text_html or "") + "\n\n" + note, parse_mode=ParseMode.HTML)
+    except Exception:  # noqa: BLE001
+        pass
 
 
 async def allow_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
@@ -106,8 +147,8 @@ async def allow_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     uid = int(ctx.args[0])
     if not await storage.get_user(uid):
         await storage.upsert_user(uid, None)
-    await _set_approved(ctx, uid, True)
-    await _reply(update, f"✅ Đã duyệt <code>{uid}</code>")
+    await set_access(ctx.bot, uid, sig=True, news=True)
+    await _reply(update, f"✅ Đã duyệt cả 2 bot cho <code>{uid}</code>")
 
 
 # ---------------------------------------------------------------- 🎯 tín hiệu chỉ báo (nút dùng chung 🪙 / 💼)

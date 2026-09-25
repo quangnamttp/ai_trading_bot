@@ -79,6 +79,15 @@ def signal_message(sig: dict, *, mode: str, risk_pct: float, stats: dict | None,
         f"⛔ Không vào nếu giá đã {'vượt' if side > 0 else 'xuống dưới'}: {p(chase_limit(sig))}",
         f"🛑 Cắt lỗ (SL): <b>{p(sl)}</b> (-{sl_pct:.1f}%)",
     ]
+    sr = sig.get("sr") or {}
+    ahead, behind = (sr.get("res"), sr.get("sup")) if side > 0 else (sr.get("sup"), sr.get("res"))
+    if ahead or behind:  # vùng giá khung ngày: phía trước lệnh (cản) / phía sau lệnh (đỡ)
+        parts = []
+        if ahead:
+            parts.append(f"{'Kháng cự' if side > 0 else 'Hỗ trợ'} gần: {p(ahead)} (cách {abs(ahead - entry) / max(risk, 1e-12):.1f}R)")
+        if behind:
+            parts.append(f"{'Hỗ trợ' if side > 0 else 'Kháng cự'} gần: {p(behind)}")
+        lines.append("🧱 " + " · ".join(parts))
     partial = bool(sig.get("partials")) or sig.get("exit_mode") != "pct"  # lệnh trước v6 có chốt 50% ở TP1
     if partial:
         lines.append(f"🎯 Chốt 50% tại: <b>{p(sig['tp1'])}</b> (+{tp1_pct:.1f}%)")
@@ -205,6 +214,8 @@ chạm vùng</b>. Mua trên sàn xong bấm ✅ Đã mua là danh mục tự c�
 
 <b>🎯 Tín hiệu chỉ báo Swing</b> (bật trong 🪙 / 💼): nến 1H hoặc 4H đóng mà coin bạn chọn đủ điều kiện chỉ báo
 Swing Entry Pro → bot gửi giống nhãn MUA/BÁN trên TradingView và theo dõi lệnh. Chọn không chuông, tối đa 1–5 tin/ngày.
+
+🧱 Mỗi tín hiệu có dòng kháng cự / hỗ trợ gần nhất: vùng cản cách dưới 1R thì lệnh dễ bị chặn sớm, cân nhắc kỹ.
 
 <b>Lịch tự động</b>: 15:05 danh sách theo dõi (nếu chưa có tín hiệu) · 22:00 tổng kết cá nhân · chủ nhật 22:05
 tổng kết lệnh tuần · lệnh đóng → 📋 Tổng kết lệnh. Tin tức, thị trường, lịch sự kiện: 📰 Bot Tin tức.

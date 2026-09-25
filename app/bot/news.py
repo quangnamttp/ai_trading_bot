@@ -34,10 +34,12 @@ MENU_VERSION = "news-2026-09-25"
 HELP = (
     "📰 <b>Bot Tin tức</b>\n\n"
     "<b>Tự động gửi</b> (tắt/bật từng loại ở ⚙️ Cài đặt tin):\n"
-    "• 07:00 thị trường 24h · lịch kinh tế trong ngày (lịch tuần được ghim đầu chat)\n"
-    "• Tin vĩ mô Mỹ: trước 1 giờ, lúc ra tin, 15 phút và 1 giờ sau (BTC/ETH phản ứng thật)\n"
-    "• 🚀 Coin chạy mạnh ≥5%/1 giờ hoặc ≥10%/4 giờ kèm volume lớn · BTC ±3%/giờ · funding cực đoan\n"
-    "• Chủ nhật 20:00 tổng kết thị trường tuần\n\n"
+    "• 07:00 thị trường 24h + funding cực đoan · lịch kinh tế trong ngày chỉ khi có tin mạnh (lịch tuần ghim đầu chat)\n"
+    "• Tin vĩ mô Mỹ: trước 1 giờ và 1 giờ sau khi ra tin (BTC/ETH phản ứng thật)\n"
+    "• Tin gấp, báo ngay: ⚡ tin nóng ảnh hưởng xu hướng · 💰 tiền lớn vào/ra (stablecoin) · 🆕 coin niêm yết Binance/Upbit\n"
+    "• 🚀 Dấu hiệu sớm (kèm ảnh): coin đang được gom hàng / sắp ép short — trước khi chạy. Bấm nút để hỏi Bot Tín hiệu "
+    "có nên vào không\n"
+    "• 📈 Coin Top 20 chạy mạnh (tối đa 1 tin / 4 giờ) · BTC ±3%/giờ · Chủ nhật 20:00 tổng kết tuần\n\n"
     f"<b>🤖 Hỏi AI</b>: gõ câu hỏi bất kỳ về crypto — coin nào đang mạnh, tin tức, vĩ mô… "
     f"({settings.ai_news_daily_limit} câu/ngày, câu ngoài chủ đề không tính lượt).\n"
     "Tín hiệu vào lệnh, danh mục, 🔍 phân tích coin: ở 🤖 Bot Tín hiệu."
@@ -59,25 +61,29 @@ async def _reply(update: Update, text: str, **kw) -> None:
     await update.effective_message.reply_text(text, parse_mode=ParseMode.HTML, disable_web_page_preview=True, **kw)
 
 
-async def _member(update: Update) -> dict | None:
-    """Người dùng được phép dùng Bot Tin tức (đã duyệt ở Bot Tín hiệu, không bị chặn). None -> đã báo lý do."""
-    uid = update.effective_user.id
-    user = await storage.get_user(uid)
-    if user and not user["banned"] and (user.get("approved", True) or is_admin(uid)):
+async def _member(update: Update, ctx: ContextTypes.DEFAULT_TYPE | None = None) -> dict | None:
+    """Người được dùng Bot Tin tức (admin đã bật quyền 📰, không bị chặn). Chưa có quyền -> gửi yêu cầu duyệt
+    về 👥 Quản lý (Bot Tín hiệu). None -> đã báo lý do."""
+    tg = update.effective_user
+    uid = tg.id
+    user = await storage.upsert_user(uid, tg.username, tg.full_name)
+    if user["banned"] and not is_admin(uid):
+        await _reply(update, "⛔ Tài khoản này không dùng được bot.")
+        return None
+    if user.get("news_ok") or is_admin(uid):
         if not user.get("news_started"):
             await storage.update_user(uid, news_started=True)
             user = await storage.get_user(uid)
         return user
-    link = f"https://t.me/{reports.SIGNAL_USERNAME}" if reports.SIGNAL_USERNAME else None
-    text = ("⛔ Tài khoản này không dùng được bot." if user and user["banned"] else
-            "👋 Bot Tin tức dành cho thành viên đã được duyệt ở 🤖 Bot Tín hiệu. Mở Bot Tín hiệu, bấm Start và chờ admin "
-            "duyệt, sau đó quay lại đây bấm /start.")
-    await _reply(update, text, reply_markup=InlineKeyboardMarkup([[B("🤖 Mở Bot Tín hiệu", url=link)]]) if link else None)
+    if ctx is not None:
+        await extra.request_approval(update, ctx, user, "n")
+    else:
+        await _reply(update, "⏳ Bạn cần được admin duyệt để dùng Bot Tin tức. Bấm /start để gửi yêu cầu.")
     return None
 
 
 async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-    user = await _member(update)
+    user = await _member(update, ctx)
     if user:
         await _reply(update, "👋 <b>Chào mừng đến Bot Tin tức!</b>\n\n" + HELP, reply_markup=menu(user))
 
@@ -86,8 +92,8 @@ async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 def settings_view(user: dict) -> tuple[str, InlineKeyboardMarkup]:
     off = reports.news_off(user)
     rows = [[B(("🔕 " if k in off else "🔔 ") + name, callback_data=f"nset:{k}")] for k, name in reports.NEWS_CATS.items()]
-    return ("⚙️ <b>Cài đặt tin tự động</b>\nBấm để bật 🔔 / tắt 🔕 từng loại tin. "
-            "Tin ban đêm (22h–6h) luôn gửi không chuông."), InlineKeyboardMarkup(rows)
+    return ("⚙️ <b>Cài đặt tin tự động</b>\nBấm để bật 🔔 / tắt 🔕 từng loại tin. Tin thường ban đêm (22h–6h) gửi "
+            "không chuông; tin gấp (⚡ 💰 🆕) luôn có chuông."), InlineKeyboardMarkup(rows)
 
 
 async def on_setting(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
@@ -119,7 +125,7 @@ async def _slow(update: Update, ctx: ContextTypes.DEFAULT_TYPE, make) -> None:
 
 
 async def on_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-    user = await _member(update)
+    user = await _member(update, ctx)
     if not user:
         return
     text = (update.effective_message.text or "").strip()

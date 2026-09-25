@@ -26,6 +26,11 @@ FEEDS = [
     "https://decrypt.co/feed",
     "https://bitcoinmagazine.com/.rss/full/",
     "https://cryptoslate.com/feed/",
+    "https://www.theblock.co/rss.xml",
+    "https://blockworks.co/feed",
+    "https://cryptopotato.com/feed/",
+    "https://u.today/rss",
+    "https://www.newsbtc.com/feed/",
 ]
 
 # Tin xấu nghiêm trọng -> chặn LONG coin liên quan 24h

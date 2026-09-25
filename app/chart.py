@@ -100,3 +100,48 @@ def render(h1: pd.DataFrame, *, title: str, side: int, entry: float, sl: float, 
     fig.savefig(buf, format="png", facecolor=BG)
     plt.close(fig)
     return buf.getvalue()
+
+
+def render_flow(df: pd.DataFrame, oi: pd.Series | None, *, title: str, subtitle: str = "", bars: int = 96) -> bytes:
+    """Ảnh cho cảnh báo sớm (🚀): nến + volume + đường OI — thấy rõ tiền vào vị thế trong khi giá chưa chạy."""
+    df = df.tail(bars).copy()
+    x = mdates.date2num(df.index.tz_convert(VN_TZ).tz_localize(None).to_pydatetime())
+    w = (x[1] - x[0]) * 0.7 if len(x) > 1 else 0.02
+    has_oi = oi is not None and len(oi) > 1
+    fig = plt.figure(figsize=(10, 6.4), dpi=110, facecolor=BG)
+    gs = fig.add_gridspec(3 if has_oi else 2, 1, height_ratios=[4, 1, 1.2] if has_oi else [4, 1], hspace=0.05,
+                          left=0.02, right=0.9, top=0.9, bottom=0.07)
+    first = fig.add_subplot(gs[0])
+    axes = [first] + [fig.add_subplot(gs[i], sharex=first) for i in range(1, 3 if has_oi else 2)]  # chung trục thời gian
+    for a in axes:
+        a.set_facecolor(BG)
+        a.grid(color=GRID, linewidth=0.8)
+        a.tick_params(colors=MUTED, labelsize=8, length=0)
+        a.yaxis.tick_right()
+        for sp in a.spines.values():
+            sp.set_visible(False)
+    ax, axv = axes[0], axes[1]
+    colors = [UP if c >= o else DOWN for o, c in zip(df["open"], df["close"])]
+    ax.vlines(x, df["low"], df["high"], colors=colors, linewidth=0.9)
+    ax.bar(x, (df["close"] - df["open"]).abs().clip(lower=(df["high"] - df["low"]).max() * 0.002),
+           bottom=df[["open", "close"]].min(axis=1), width=w, color=colors, linewidth=0)
+    axv.bar(x, df["volume"], width=w, color=[(*matplotlib.colors.to_rgb(c), 0.6) for c in colors])
+    axv.set_yticks([])
+    _tag(ax, float(df["close"].iloc[-1]), _fmt(float(df["close"].iloc[-1])), UP if colors[-1] == UP else DOWN)
+    if has_oi:
+        s = oi[oi.index >= df.index[0]]
+        xo = mdates.date2num(s.index.tz_convert(VN_TZ).tz_localize(None).to_pydatetime())
+        axes[2].plot(xo, s.values, color="#ffb300", linewidth=1.6)
+        axes[2].set_ylabel("OI", color=MUTED, fontsize=8)
+        axes[2].set_yticks([])
+    for a in axes[:-1]:
+        a.tick_params(labelbottom=False)
+    first.set_xlim(x[0] - w, x[-1] + w * 3)
+    axes[-1].xaxis.set_major_formatter(mdates.DateFormatter("%d/%m %Hh"))
+    fig.text(0.02, 0.955, title, color=TEXT, fontsize=13, fontweight="bold")
+    if subtitle:
+        fig.text(0.02, 0.925, subtitle, color=MUTED, fontsize=9)
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", facecolor=BG)
+    plt.close(fig)
+    return buf.getvalue()
