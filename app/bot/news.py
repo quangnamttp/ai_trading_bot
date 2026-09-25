@@ -162,7 +162,8 @@ async def on_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         await _slow(update, ctx, reports.hot_coins_text)
     elif text == BTN_AI:
         await _reply(update, "🤖 Gõ câu hỏi về crypto, ví dụ: <i>Coin nào đang mạnh?</i> · <i>CPI tối nay ảnh hưởng BTC thế nào?</i> · "
-                             "<i>ETH tuần này ra sao?</i>")
+                             "<i>ETH tuần này ra sao?</i>\nAI nhớ các câu trước nên có thể hỏi tiếp tự nhiên "
+                             "(vd <i>còn SOL thì sao?</i>).")
     elif text == BTN_SETTINGS:
         t, markup = settings_view(user)
         await _reply(update, t, reply_markup=markup)

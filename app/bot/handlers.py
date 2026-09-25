@@ -362,6 +362,11 @@ def analysis_text(res: dict, mode: str = "futures") -> str:
         lines.append(f"\n⏸ <b>KẾT LUẬN: CHƯA NÊN VÀO.</b> Chưa có điểm vào đạt chuẩn (ngưỡng {th:.0f}). "
                      + ("Chưa có nhịp hồi / retest hợp lệ." if best["setup"] == 0 else "Dòng tiền hoặc bộ lọc chưa ủng hộ."))
         lines.append("Vào lệnh lúc này là đoán hướng — nên chờ bot báo tín hiệu.")
+    ready = cand and not cand.vetoed and cand.score >= th and not (mode == "spot" and cand.side < 0)
+    if not ready and res.get("ema20"):
+        from app.strategy import waiting
+        w = waiting.plan(rows, res["ema20"], res.get("supports", []), res.get("resistances", []), mode)
+        lines += waiting.lines(w, texts.price, mode)
     return "\n".join(lines)
 
 

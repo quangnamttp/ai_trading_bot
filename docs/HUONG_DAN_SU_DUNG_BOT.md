@@ -90,7 +90,9 @@ Bot trả lời ngay vào tin tín hiệu gốc khi:
 
 Gõ tên coin (ví dụ `SOL`, `PEPE`). Bot trả về điểm LONG/SHORT, dữ liệu phái sinh, tin tức và **KẾT LUẬN**:
 - ✅ **CÓ THỂ VÀO LONG/SHORT**: kèm giá vào, SL, trailing, mức "không vào nếu đã vượt".
-- ⏸ / ⛔ **CHƯA NÊN VÀO**: kèm lý do. Nút **➕ Theo dõi** để bot tự gửi tín hiệu khi coin này đạt chuẩn.
+- ⏸ / ⛔ **CHƯA NÊN VÀO**: kèm lý do và **📋 Kịch bản chờ**: vùng giá nên chờ (theo đúng setup của bot), SL tham
+  khảo, mức hủy kịch bản. Không đặt lệnh chờ sẵn; bấm **➕ Theo dõi** để bot tự gửi tín hiệu chính xác khi coin đạt chuẩn.
+  Xu hướng không rõ thì bot ghi "đứng ngoài".
 
 Bot phân tích coin có hợp đồng futures trên Binance (hầu hết coin phổ biến).
 
@@ -109,9 +111,14 @@ Thêm tối đa 20 coin muốn nhận tín hiệu ngoài Top 20. Chọn nhận t
 
 ### 2.8 🤖 Hỏi AI
 
-- Futures: hỏi về **tín hiệu bot đã gửi cho bạn và còn mở** (vì sao LONG, khi nào về bờ...). Có thể trả lời (reply) thẳng vào tin tín hiệu.
-- Spot: hỏi về **coin trong danh mục** (nên DCA bao nhiêu, ở đâu...).
-- Câu hỏi thị trường chung → hỏi ở Bot Tin tức. 50 câu/ngày; câu ngoài phạm vi không tính lượt.
+Hỏi như nói chuyện bình thường; AI **nhớ các câu trước** (trong 2 giờ) nên có thể hỏi tiếp, ví dụ
+"SOL có nên vào không?" rồi "vậy giá nào thì vào?".
+- Hỏi về **bất kỳ coin nào**: AI dùng đúng phân tích của bot (kết luận có nên vào + kịch bản chờ).
+- Futures: hỏi về lệnh bot đã gửi cho bạn (vì sao LONG, khi nào về bờ...), hoặc reply thẳng vào tin tín hiệu.
+- Spot: hỏi về danh mục (nên DCA bao nhiêu, ở đâu, đang lời hay lỗ...).
+- Hỏi kiến thức: funding là gì, đặt trailing stop trên sàn thế nào, quản lý vốn ra sao...
+- Giá, mốc vào lệnh, SL **luôn lấy từ dữ liệu bot**; AI không tự đoán giá. 50 câu/ngày; câu ngoài chủ đề crypto
+  không tính lượt.
 
 ### 2.9 Lịch tự động
 

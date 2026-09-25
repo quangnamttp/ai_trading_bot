@@ -212,7 +212,7 @@ chạm vùng</b>. Mua trên sàn xong bấm ✅ Đã mua là danh mục tự c�
 
 <b>🪙 Coin theo dõi</b> (Futures, tối đa 20): thêm coin muốn nhận tín hiệu ngoài Top 20.
 
-<b>🔍 Phân tích coin</b>: gõ tên coin → bot KẾT LUẬN có thể vào LONG/SHORT (kèm giá vào, SL, trailing) hay chưa nên vào; chưa nên thì bấm ➕ Theo dõi để bot tự báo khi đạt chuẩn.
+<b>🔍 Phân tích coin</b>: gõ tên coin → bot KẾT LUẬN có thể vào LONG/SHORT (kèm giá vào, SL, trailing) hay chưa nên vào; chưa nên thì có 📋 Kịch bản chờ (vùng giá nên chờ, SL tham khảo) và nút ➕ Theo dõi để bot tự báo khi đạt chuẩn.
 
 <b>🎯 Tín hiệu chỉ báo Swing</b> (bật trong 🪙 / 💼): nến 1H hoặc 4H đóng mà coin bạn chọn đủ điều kiện chỉ báo
 Swing Entry Pro → bot gửi giống nhãn MUA/BÁN trên TradingView và theo dõi lệnh. Nên chọn khung 4H (backtest 9 năm tốt hơn 1H rõ rệt). Chọn không chuông, tối đa 1–5 tin/ngày.
@@ -223,8 +223,7 @@ Swing Entry Pro → bot gửi giống nhãn MUA/BÁN trên TradingView và theo 
 tổng kết lệnh tuần · lệnh đóng → 📋 Tổng kết lệnh. Tin tức, thị trường, lịch sự kiện: 📰 Bot Tin tức.
 
 <b>🤖 Hỏi AI</b> (50 câu/ngày · câu ngoài phạm vi không tính lượt)
-• Spot: hỏi về coin trong danh mục (DCA bao nhiêu, ở đâu, giá vốn, lời/lỗ).
-• Futures: hỏi về tín hiệu bot đã gửi và còn mở (vì sao LONG/SHORT, khi nào về bờ) — hoặc reply vào tin tín hiệu.
+• Hỏi như nói chuyện, AI nhớ câu trước. Hỏi được về lệnh của bạn, bất kỳ coin nào (dùng phân tích của bot), kiến thức giao dịch; có thể reply vào tin tín hiệu.
 
 <b>Trung thực về rủi ro</b>
 Backtest 2 năm gần nhất / 40 coin: swing ngắn 45% lệnh có lời, TB +0.2R/lệnh, sụt giảm tệ nhất ~15R (= −7.5% vốn

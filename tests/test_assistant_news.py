@@ -42,7 +42,7 @@ async def test_scope_codes_returned(monkeypatch):
     async def disc(provider, client):
         return ["m"]
 
-    async def call(provider, model, system, prompt, client):
+    async def call(provider, model, system, prompt, client, *a):
         return "OUT_OF_SCOPE"
     monkeypatch.setattr(ai, "_discover", disc)
     monkeypatch.setattr(ai, "_call", call)
@@ -51,7 +51,7 @@ async def test_scope_codes_returned(monkeypatch):
 
 
 async def test_out_of_scope_does_not_use_quota(db, monkeypatch):
-    async def ask(q, ctx, scope):
+    async def ask(q, ctx, scope, **kw):
         return ai.OUT_OF_SCOPE, "x"
 
     async def ctx(*a, **k):
@@ -62,7 +62,7 @@ async def test_out_of_scope_does_not_use_quota(db, monkeypatch):
     assert "crypto" in text
     assert (await assistant.allowed(5))[1] == 0
 
-    async def ask_ok(q, ctx, scope):
+    async def ask_ok(q, ctx, scope, **kw):
         return "BTC đang đi ngang.", "x"
     monkeypatch.setattr(assistant.ai, "ask", ask_ok)
     await assistant.answer_market(5, "BTC thế nào?")

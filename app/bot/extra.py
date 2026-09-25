@@ -348,12 +348,13 @@ async def ai_prompt(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     ctx.user_data["await_ai"] = "personal"
     other = assistant.market_button()
     await _reply(update,
-                 "🤖 <b>Hỏi AI</b> — gõ câu hỏi:\n"
-                 + ("💼 Coin trong danh mục — nên DCA bao nhiêu, ở đâu, giá vốn, lời/lỗ. Vd: <i>Nên DCA SOL thế nào?</i>"
+                 "🤖 <b>Hỏi AI</b> — gõ câu hỏi như nói chuyện bình thường, ví dụ:\n"
+                 + ("• <i>Nên DCA SOL thế nào?</i> · <i>Có nên mua thêm BTC lúc này?</i> · <i>Danh mục mình đang lời hay lỗ?</i>"
                     if spot else
-                    "📊 Tín hiệu bot đã gửi và còn mở — vì sao LONG/SHORT, khi nào về bờ. Vd: <i>Lệnh ETH khi nào về bờ?</i> "
-                    "(hoặc reply thẳng vào tin tín hiệu)")
-                 + f"\n\nTin tức, thị trường chung → 📰 Bot Tin tức · <i>{settings.ai_daily_limit} câu/ngày</i>",
+                    "• <i>Lệnh ETH khi nào về bờ?</i> · <i>SOL có nên vào không?</i> · <i>Đặt trailing stop trên MEXC thế nào?</i>\n"
+                    "• Hoặc reply thẳng vào tin tín hiệu để hỏi về lệnh đó")
+                 + "\nAI nhớ các câu trước nên có thể hỏi tiếp (vd <i>còn ETH thì sao?</i>). Giá và mốc vào lệnh luôn lấy "
+                   f"từ dữ liệu bot · <i>{settings.ai_daily_limit} câu/ngày</i>",
                  reply_markup=_markup([other if other[1].startswith("http") else ("🌍 Thị trường chung", "aimode:market")]))
 
 

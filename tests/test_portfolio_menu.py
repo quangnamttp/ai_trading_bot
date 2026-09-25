@@ -81,35 +81,69 @@ async def test_holding_migrates_to_portfolio(db):
 
 
 # ---------------------------------------------------------------- AI theo chế độ
-async def test_spot_ai_only_portfolio_coins(db, monkeypatch):
+def _stub_ai(monkeypatch, seen):
     async def perps():
         return {"SOLUSDT", "ETHUSDT", "BTCUSDT"}
-    called = []
 
-    async def ask(q, ctx, scope):
-        called.append(scope)
-        return "trả lời", "x"
+    async def ask(q, ctx, scope, history=None):
+        seen.append({"q": q, "ctx": ctx, "scope": scope, "history": list(history or [])})
+        return f"trả lời {len(seen)}", "x"
+
+    async def view(syms, mode="futures"):
+        return "".join(f"PHÂN TÍCH CỦA BOT cho {s}\n" for s in syms)
+
+    async def empty(*a, **k):
+        return []
+
+    async def sctx(user, syms):
+        return "SPOT ctx " + ",".join(syms)
+
+    async def sigctx(s):
+        return f"TÍN HIỆU {s['symbol']}"
     monkeypatch.setattr(assistant.binance, "perpetual_symbols", perps)
     monkeypatch.setattr(assistant.ai, "ask", ask)
+    monkeypatch.setattr(assistant, "coin_view", view)
+    monkeypatch.setattr(assistant, "_brief_market", empty)
+    monkeypatch.setattr(assistant, "spot_context", sctx)
+    monkeypatch.setattr(assistant, "signal_context", sigctx)
+
+
+async def test_spot_ai_answers_any_coin(db, monkeypatch):
+    seen = []
+    _stub_ai(monkeypatch, seen)
     user = await storage.upsert_user(4, "c")
     await storage.update_user(4, mode="spot")
     user = await storage.get_user(4)
-    text, buttons = await assistant.answer_personal(user, "nên DCA ETH không")
-    assert "danh mục" in text.lower() and not called  # danh mục trống -> không gọi AI
+    await assistant.answer_personal(user, "nên DCA ETH không")
+    assert seen[-1]["scope"] == "spot" and "Danh mục đang trống" in seen[-1]["ctx"]
+    assert "PHÂN TÍCH CỦA BOT cho ETHUSDT" in seen[-1]["ctx"]
     await storage.add_position(4, "SOLUSDT")
-    text, buttons = await assistant.answer_personal(user, "nên DCA ETH không")
-    assert "không có đầu tư đồng coin <b>ETH</b>" in text and not called
-    assert buttons == [assistant.MARKET_BUTTON]
-    assert (await assistant.allowed(4))[1] == 0  # không trừ lượt
+    await assistant.answer_personal(user, "nên DCA ETH không")
+    assert "CHƯA có trong danh mục: ETH" in seen[-1]["ctx"]
+    assert (await assistant.allowed(4))[1] == 2  # AI trả lời thật -> trừ lượt
 
 
-async def test_futures_ai_only_own_open_signals(db, monkeypatch):
-    async def perps():
-        return {"SOLUSDT", "ETHUSDT"}
-    monkeypatch.setattr(assistant.binance, "perpetual_symbols", perps)
+async def test_ai_remembers_conversation(db, monkeypatch):
+    seen = []
+    _stub_ai(monkeypatch, seen)
+    assistant.forget(6)
+    user = await storage.upsert_user(6, "e")
+    await assistant.answer_personal(user, "SOL có nên vào không")
+    await assistant.answer_personal(user, "vậy giá nào thì vào?")  # không nhắc coin -> hiểu là SOL của câu trước
+    assert seen[-1]["history"] == [("SOL có nên vào không", "trả lời 1")]
+    assert "PHÂN TÍCH CỦA BOT cho SOLUSDT" in seen[-1]["ctx"]
+    await assistant.answer_market(6, "BTC thế nào", "news")
+    assert seen[-1]["history"] == []  # mỗi bot nhớ riêng
+    assistant.forget(6)
+
+
+async def test_futures_ai_uses_open_signals(db, monkeypatch):
+    seen = []
+    _stub_ai(monkeypatch, seen)
+    assistant.forget(5)
     user = await storage.upsert_user(5, "d")
-    text, _ = await assistant.answer_personal(user, "lệnh SOL khi nào về bờ")
-    assert "không có lệnh đang mở" in text
+    await assistant.answer_personal(user, "lệnh SOL khi nào về bờ")
+    assert "không có lệnh nào đang mở" in seen[-1]["ctx"] and "PHÂN TÍCH CỦA BOT cho SOLUSDT" in seen[-1]["ctx"]
     now = storage.now()
     ids = []
     for sym in ("SOLUSDT", "ETHUSDT"):
@@ -120,11 +154,15 @@ async def test_futures_ai_only_own_open_signals(db, monkeypatch):
                                           state=storage.dumps({"trade": t.to_dict(), "last_ts": now}))
         await storage.add_message(sid, 5, 100 + sid)
         ids.append(sid)
-    text, buttons = await assistant.answer_personal(user, "lệnh của tôi thế nào")
-    assert text == assistant.PICK_SIGNAL and {b[1] for b in buttons} == {f"aisig:{i}" for i in ids}
+    await assistant.answer_personal(user, "lệnh của tôi thế nào")
+    assert "TÍN HIỆU SOLUSDT" in seen[-1]["ctx"] and "TÍN HIỆU ETHUSDT" in seen[-1]["ctx"]  # AI xem mọi lệnh mở
+    await assistant.answer_personal(user, "ETH sao rồi")
+    assert "TÍN HIỆU ETHUSDT" in seen[-1]["ctx"] and "TÍN HIỆU SOLUSDT" not in seen[-1]["ctx"]
+    assert "PHÂN TÍCH CỦA BOT" not in seen[-1]["ctx"]  # coin đã có lệnh -> dùng dữ liệu lệnh, không phân tích lại
     await storage.update_signal(ids[0], status="CLOSED", result_r=-1.0, closed_at=now)
-    text, _ = await assistant.answer_personal(user, "SOL sao rồi")
-    assert "đã đóng" in text and "-1.00R" in text
+    text, _ = await assistant.answer_personal(user, "lệnh này sao rồi", await storage.get_signal(ids[0]))
+    assert "đã đóng" in text and "-1.00R" in text  # reply vào tín hiệu đã đóng
+    assistant.forget(5)
 
 
 # ---------------------------------------------------------------- tổng kết lệnh, menu, tên tin tiếng Việt
@@ -164,7 +202,7 @@ def test_vi_titles():
 async def test_vi_titles_translate_and_cache(db, monkeypatch):
     calls = []
 
-    async def ask(q, ctx, scope):
+    async def ask(q, ctx, scope, **kw):
         calls.append(scope)
         return "1. Bitcoin vượt 100 nghìn USD\n2. SEC duyệt quỹ ETF Solana", "x"
     monkeypatch.setattr(assistant.ai, "ask", ask)
@@ -303,7 +341,7 @@ async def test_offtopic_with_many_open_signals_is_refused(db, monkeypatch):
     async def perps():
         return {"SOLUSDT", "ETHUSDT"}
 
-    async def ask(q, ctx, scope):
+    async def ask(q, ctx, scope, **kw):
         return assistant.ai.OUT_OF_SCOPE, "x"
 
     async def no_ctx(s):

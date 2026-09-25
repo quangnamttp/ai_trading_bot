@@ -22,30 +22,39 @@ OUT_OF_SCOPE = "OUT_OF_SCOPE"
 OTHER_PLACE = "OTHER_PLACE"
 
 BASE = (
-    "Bạn trả lời bằng TIẾNG VIỆT, ngắn gọn, dễ hiểu cho người mới (tối đa khoảng 180 từ, gạch đầu dòng khi hợp lý, "
-    "không dùng markdown ** hay #). CHỈ dùng số liệu có trong DỮ LIỆU CỦA BOT; không có thì nói là không có. "
-    "KHÔNG bịa số, KHÔNG khẳng định giá chắc chắn tăng/giảm — chỉ nêu kịch bản 'nếu... thì thường...'. "
+    "Bạn là trợ lý giao dịch crypto thân thiện, nói TIẾNG VIỆT tự nhiên như đang trò chuyện (xưng 'mình', gọi 'bạn'), "
+    "dễ hiểu cho người mới. Độ dài tùy câu hỏi: câu đơn giản trả lời 1–3 câu; câu cần phân tích thì chi tiết hơn, dùng "
+    "gạch đầu dòng. Không dùng markdown ** hay #. Nhớ các câu hỏi trước trong cuộc trò chuyện để hiểu câu hỏi tiếp "
+    "theo (vd 'còn ETH thì sao?'). Được dùng kiến thức chung để giải thích khái niệm (funding, OI, trailing stop...), "
+    "cách đặt lệnh trên sàn, quản lý vốn. Chào hỏi / cảm ơn thì đáp lại thân thiện, ngắn gọn.\n"
+    "LUẬT CỨNG (không được vi phạm): mọi GIÁ coin, mốc giá, vùng vào lệnh, SL, % thay đổi, số liệu thị trường CHỈ lấy "
+    "từ DỮ LIỆU CỦA BOT — không có thì nói là bot chưa có dữ liệu, không tự đoán. KHÔNG hứa lời, KHÔNG khẳng định giá "
+    "chắc chắn tăng/giảm — chỉ nêu kịch bản 'nếu... thì thường...'. KHÔNG tự tạo lệnh vào ngay khi bot kết luận CHƯA "
+    "NÊN VÀO (chỉ nhắc kịch bản chờ của bot). KHÔNG khuyên gồng lỗ, dời SL xa hơn, tăng đòn bẩy hay dồn vốn. "
 )
 SCOPES = {
     "spot": BASE + (
-        "Bạn là TRỢ LÝ SPOT trong chat riêng, chỉ lo DANH MỤC SPOT của người hỏi (chỉ mua bán thật, không short, "
-        "không đòn bẩy). Phạm vi: coin trong danh mục của họ — giá vốn, lời/lỗ, nên DCA bao nhiêu tiền ở mốc nào, "
-        "khi nào dừng DCA, chốt lời từng phần theo kịch bản, rủi ro. Mốc giá và số tiền CHỈ lấy từ 'VỊ THẾ SPOT' và "
-        "'KẾ HOẠCH DO BOT TÍNH'. "
-        f"Nếu câu hỏi là tin tức / thị trường chung, không gắn với coin trong danh mục -> chỉ trả lời đúng: {OTHER_PLACE}. "
-        f"Nếu câu hỏi không liên quan crypto / giao dịch (thời tiết, đời sống...) -> chỉ trả lời đúng: {OUT_OF_SCOPE}."
+        "Bạn là trợ lý của BOT TÍN HIỆU (chế độ SPOT: chỉ mua bán thật, không short, không đòn bẩy). Trả lời được: "
+        "danh mục của người hỏi (giá vốn, lời/lỗ, nên DCA bao nhiêu ở mốc nào, khi nào dừng DCA, chốt lời từng phần), "
+        "BẤT KỲ coin nào họ nhắc tới (dùng 'PHÂN TÍCH CỦA BOT' + 'KẾ HOẠCH DO BOT TÍNH'; coin chưa có trong danh mục thì "
+        "nói rõ và gợi ý thêm vào 💼 Danh mục nếu muốn theo dõi), kiến thức đầu tư Spot. Mốc giá và số tiền CHỈ lấy từ "
+        "'VỊ THẾ SPOT', 'KẾ HOẠCH DO BOT TÍNH', 'PHÂN TÍCH CỦA BOT'. Tin tức / vĩ mô: trả lời ngắn theo dữ liệu có. "
+        f"Chỉ khi câu hỏi hoàn toàn không liên quan crypto / tài chính -> trả lời đúng: {OUT_OF_SCOPE}."
     ),
     "futures": BASE + (
-        "Bạn là TRỢ LÝ TÍN HIỆU FUTURES trong chat riêng, chỉ trả lời về TÍN HIỆU BOT ĐÃ GỬI có trong dữ liệu. "
-        "Phạm vi: vì sao bot LONG/SHORT (dựa vào 'Lý do bot'), khi nào về bờ (chỉ nêu giá cần quay lại mức nào, cách "
-        "bao nhiêu %, KHÔNG hứa thời gian), SL/TP/trailing đang ở đâu, quy tắc quản lý lệnh của bot (Trailing Stop cho cả lệnh, kích hoạt "
-        "ở +1R, không chốt cố định; lệnh cũ trước v6 có chốt 50% ở TP1), rủi ro cần theo dõi. Không khuyên gồng lỗ, không khuyên dời SL xa hơn. "
-        f"Nếu câu hỏi là tin tức / thị trường chung -> chỉ trả lời đúng: {OTHER_PLACE}. "
-        f"Nếu câu hỏi không liên quan crypto / giao dịch -> chỉ trả lời đúng: {OUT_OF_SCOPE}."
+        "Bạn là trợ lý của BOT TÍN HIỆU (chế độ Futures). Trả lời được: tín hiệu bot đã gửi cho người hỏi (vì sao LONG/"
+        "SHORT theo 'Lý do bot', SL/trailing đang ở đâu, khi nào về bờ — chỉ nêu mức giá cần quay lại, không hứa thời "
+        "gian), BẤT KỲ coin nào người hỏi nhắc tới (dùng 'PHÂN TÍCH CỦA BOT' + 'KẾ HOẠCH DO BOT TÍNH' trong dữ liệu), "
+        "quy tắc quản lý lệnh của bot (Trailing Stop cho cả lệnh, kích hoạt ở +1R, không chốt cố định), kiến thức giao "
+        "dịch. Hỏi 'có nên vào không': trả lời đúng theo KẾT LUẬN của bot (đủ điều kiện thì nêu giá vào/SL/trailing trong "
+        "dữ liệu; chưa đủ thì giải thích lý do + kịch bản chờ). Tin tức / vĩ mô: trả lời ngắn theo dữ liệu có, gợi ý xem "
+        "thêm ở Bot Tin tức. "
+        f"Chỉ khi câu hỏi hoàn toàn không liên quan crypto / tài chính (thời tiết, nấu ăn...) -> trả lời đúng: {OUT_OF_SCOPE}."
     ),
     "market": BASE + (
-        "Bạn là TRỢ LÝ THỊ TRƯỜNG CHUNG trong chat riêng. Phạm vi: thị trường crypto nói chung, mọi coin, tin tức, "
-        "lịch sự kiện kinh tế và ảnh hưởng tới crypto, xu hướng, dòng tiền. "
+        "Bạn là trợ lý của BOT TIN TỨC. Phạm vi: thị trường crypto nói chung, mọi coin (dùng 'PHÂN TÍCH CỦA BOT' và "
+        "'KẾ HOẠCH DO BOT TÍNH' nếu có), tin tức, lịch sự kiện kinh tế và ảnh hưởng tới crypto, xu hướng, dòng tiền, "
+        "kiến thức crypto. "
         f"Nếu câu hỏi về lệnh / danh mục / vốn cá nhân của người hỏi -> chỉ trả lời đúng: {OTHER_PLACE}. "
         f"Nếu câu hỏi không liên quan crypto / tài chính (thời tiết, đời sống...) -> chỉ trả lời đúng: {OUT_OF_SCOPE}."
     ),
@@ -107,22 +116,31 @@ async def _discover(provider: str, client: httpx.AsyncClient) -> list[str]:
     return ordered[:3]
 
 
-async def _call(provider: str, model: str, system: str, prompt: str, client: httpx.AsyncClient) -> str:
+async def _call(provider: str, model: str, system: str, prompt: str, client: httpx.AsyncClient,
+                turns: list[tuple[str, str]] | None = None, chat: bool = False) -> str:
+    temp, max_tok = (0.6, 1200) if chat else (0.2, 700)  # trò chuyện: tự nhiên hơn; dịch / chấm điểm: ổn định
     if provider == "gemini":
+        contents = []
+        for q, a in turns or []:
+            contents += [{"role": "user", "parts": [{"text": q}]}, {"role": "model", "parts": [{"text": a}]}]
+        contents.append({"role": "user", "parts": [{"text": prompt}]})
         r = await client.post(f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
                               params={"key": settings.gemini_key},
-                              json={"systemInstruction": {"parts": [{"text": system}]},
-                                    "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-                                    "generationConfig": {"temperature": 0.2, "maxOutputTokens": 700}})
+                              json={"systemInstruction": {"parts": [{"text": system}]}, "contents": contents,
+                                    "generationConfig": {"temperature": temp, "maxOutputTokens": max_tok}})
         r.raise_for_status()
         parts = r.json()["candidates"][0]["content"]["parts"]
         return "".join(p.get("text", "") for p in parts if not p.get("thought"))
     url = ("https://api.groq.com/openai/v1/chat/completions" if provider == "groq"
            else "https://openrouter.ai/api/v1/chat/completions")
     key = settings.groq_key if provider == "groq" else settings.openrouter_key
+    messages = [{"role": "system", "content": system}]
+    for q, a in turns or []:
+        messages += [{"role": "user", "content": q}, {"role": "assistant", "content": a}]
+    messages.append({"role": "user", "content": prompt})
     r = await client.post(url, headers={"Authorization": f"Bearer {key}"},
-                          json={"model": model, "temperature": 0.2, "max_tokens": 700, "frequency_penalty": 0.5,
-                                "messages": [{"role": "system", "content": system}, {"role": "user", "content": prompt}]})
+                          json={"model": model, "temperature": temp, "max_tokens": max_tok, "frequency_penalty": 0.5,
+                                "messages": messages})
     r.raise_for_status()
     return r.json()["choices"][0]["message"]["content"]
 
@@ -155,23 +173,35 @@ def invented_numbers(text: str, context: str) -> int:
         return out
 
     known = numbers(context)
+    # số kèm đơn vị (10%, 2R, x3, 3 ngày, 20 nến, năm 2025...) là số diễn giải, không phải giá -> không kiểm
+    unit = r"\s*(?:%|r\b|x\b|lần|giờ|h\b|ngày|tuần|tháng|năm|phút|nến|lệnh|câu|coin|người|bước|điểm|/100|/30|/15|/20)"
+    priced = re.sub(r"\d+(?:[.,]\d+)*" + unit, " ", text, flags=re.I)
+    priced = re.sub(r"\b(?:19|20)\d\d\b", " ", priced)
     # số làm tròn (64,123 -> 64,100) vẫn tính là có trong dữ liệu: lệch <= 1%
-    return sum(1 for n in numbers(text)
+    return sum(1 for n in numbers(priced)
                if n >= 10 and not any(abs(n - k) <= 0.01 * max(k, 1) for k in known))
 
 
-async def ask(question: str, context: str, scope: str = "market") -> tuple[str | None, str]:
-    """Trả (câu trả lời | OUT_OF_SCOPE | OTHER_PLACE, nguồn). (None, lý do) nếu không nhà cung cấp nào trả lời tốt."""
+CHAT_SCOPES = ("spot", "futures", "market")
+
+
+async def ask(question: str, context: str, scope: str = "market",
+              history: list[tuple[str, str]] | None = None) -> tuple[str | None, str]:
+    """Trả (câu trả lời | OUT_OF_SCOPE | OTHER_PLACE, nguồn). (None, lý do) nếu không nhà cung cấp nào trả lời tốt.
+    `history`: các lượt (câu hỏi, câu trả lời) trước trong cuộc trò chuyện — để hỏi tiếp tự nhiên."""
     keys = {"gemini": settings.gemini_key, "groq": settings.groq_key, "openrouter": settings.openrouter_key}
     system = SCOPES.get(scope, SCOPES["market"])
     prompt = f"DỮ LIỆU CỦA BOT (thời gian thực):\n{context}\n\nCÂU HỎI: {question}"
+    chat = scope in CHAT_SCOPES
+    turns = list(history or []) if chat else []
+    known = context + question + " ".join(q + " " + a for q, a in turns)
     async with httpx.AsyncClient(timeout=httpx.Timeout(30.0)) as client:
         for provider, key in keys.items():
             if not key or _down_until.get(provider, 0) > time.time():
                 continue
             for model in await _discover(provider, client):
                 try:
-                    text = _clean(await _call(provider, model, system, prompt, client))
+                    text = _clean(await _call(provider, model, system, prompt, client, turns, chat))
                 except httpx.HTTPStatusError as exc:
                     code = exc.response.status_code
                     log.warning("AI %s/%s lỗi HTTP %s", provider, model, code)
@@ -194,7 +224,7 @@ async def ask(question: str, context: str, scope: str = "market") -> tuple[str |
                 if not text or degenerate(text):
                     log.warning("AI %s/%s trả lời lặp/rỗng -> bỏ", provider, model)
                     continue
-                if invented_numbers(text, context + question) > 3:
+                if invented_numbers(text, known) > 3:
                     log.warning("AI %s/%s có nhiều số không có trong dữ liệu -> bỏ", provider, model)
                     continue
                 return text, f"{provider}:{model}"

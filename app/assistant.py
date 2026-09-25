@@ -12,6 +12,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import re
+import time
 from datetime import datetime
 from html import escape
 
@@ -221,6 +222,45 @@ async def _event_context(question: str) -> str:
     return f"\nKiến thức của bot về loại tin này:\n{explain}\n{stat}"
 
 
+# ---------------------------------------------------------------- nhớ hội thoại (để hỏi tiếp tự nhiên)
+HIST_TURNS = 6
+HIST_TTL = 2 * 3600
+_HIST: dict[tuple[int, str], list[tuple[float, str, str]]] = {}
+
+
+def history(user_id: int, quota: str) -> list[tuple[str, str]]:
+    """Các lượt hỏi–đáp gần nhất (trong 2 giờ) của người này ở bot này."""
+    now = time.time()
+    turns = [t for t in _HIST.get((user_id, quota), []) if now - t[0] < HIST_TTL][-HIST_TURNS:]
+    _HIST[(user_id, quota)] = turns
+    return [(q, a) for _, q, a in turns]
+
+
+def remember(user_id: int, quota: str, question: str, answer: str) -> None:
+    _HIST.setdefault((user_id, quota), []).append((time.time(), question[:500], answer[:1500]))
+    del _HIST[(user_id, quota)][:-HIST_TURNS]
+
+
+def forget(user_id: int) -> None:
+    for k in [k for k in _HIST if k[0] == user_id]:
+        _HIST.pop(k, None)
+
+
+async def coin_view(symbols: list[str], mode: str = "futures") -> str:
+    """'PHÂN TÍCH CỦA BOT' cho coin được hỏi: kết luận có nên vào + kịch bản chờ (như nút 🔍), dạng chữ cho AI."""
+    from app.bot.handlers import analysis_text
+    from app.strategy.scanner import analyze_symbol
+    out = []
+    for sym in symbols[:2]:
+        try:
+            res = await analyze_symbol(sym)
+            out.append(f"PHÂN TÍCH CỦA BOT cho {pf.base_of(sym)} (chế độ {mode.upper()}):\n"
+                       + re.sub(r"<[^>]+>", "", analysis_text(res, mode)))
+        except Exception as exc:  # noqa: BLE001
+            log.debug("coin view %s: %s", sym, exc)
+    return "\n\n".join(out)
+
+
 # ---------------------------------------------------------------- lượt hỏi
 def _quota_key(user_id: int, quota: str = "sig") -> str:
     return f"{'ai' if quota == 'sig' else 'ainews'}:{user_id}:{datetime.now(VN_TZ):%Y%m%d}"
@@ -256,7 +296,7 @@ def _fallback(question: str, ctx: str, reason: str) -> str:
     head = f"🤖 <i>AI tạm thời không trả lời được ({escape(reason)}) — dưới đây là dữ liệu bot có sẵn:</i>\n\n"
     if kind != "other":
         return head + escape(explain)
-    for mark in ("VỊ THẾ SPOT", "TÍN HIỆU NGƯỜI HỎI", "KẾ HOẠCH DO BOT TÍNH"):
+    for mark in ("PHÂN TÍCH CỦA BOT", "VỊ THẾ SPOT", "TÍN HIỆU NGƯỜI HỎI", "KẾ HOẠCH DO BOT TÍNH"):
         i = ctx.find(mark)
         if i >= 0:
             return head + escape(ctx[i:].split("\nThời gian hiện tại")[0][:1800])
@@ -268,7 +308,7 @@ Reply = tuple[str, list[tuple[str, str]]]  # (nội dung HTML, các nút (chữ,
 
 async def _ask(user_id: int, question: str, ctx: str, scope: str, quota: str = "sig") -> Reply:
     ctx += await _event_context(question)
-    text, src = await ai.ask(question, ctx, scope)
+    text, src = await ai.ask(question, ctx, scope, history=history(user_id, quota))
     if text == ai.OUT_OF_SCOPE:
         return OUT_TEXT, []
     if text == ai.OTHER_PLACE:
@@ -276,6 +316,7 @@ async def _ask(user_id: int, question: str, ctx: str, scope: str, quota: str = "
     if text is None:
         return _fallback(question, ctx, src), []
     await _consume(user_id, quota)
+    remember(user_id, quota, question, text)
     return f"🤖 {escape(text)}{FOOTER}", []
 
 
@@ -291,60 +332,51 @@ def closed_text(s: dict) -> str:
 
 
 async def answer_personal(user: dict, question: str, signal: dict | None = None) -> Reply:
-    """🤖 Hỏi AI mục cá nhân: Spot -> danh mục, Futures -> tín hiệu đang mở (hoặc tín hiệu đang được reply)."""
+    """🤖 Hỏi AI ở Bot Tín hiệu. Dữ liệu đưa cho AI: Spot -> danh mục; Futures -> tín hiệu đang mở của người hỏi
+    (hoặc tín hiệu đang được reply); kèm phân tích + kịch bản chờ của coin được nhắc tới và thị trường chung."""
     uid = user["chat_id"]
     if not (await allowed(uid))[0]:
         return LIMIT_TEXT, []
-    if signal is not None:
-        if signal["status"] != "ACTIVE":
-            return closed_text(signal), []
-        return await _ask(uid, question, await signal_context(signal) + "\n" + "\n".join(await _brief_market()), "futures")
-
-    syms = await find_symbols(question)
+    if signal is not None and signal["status"] != "ACTIVE":
+        return closed_text(signal), []
+    asked = await find_symbols(question)
+    syms = asked
+    if not syms and history(uid, "sig"):  # hỏi tiếp ("còn giá vào thì sao?") -> coin của câu trước
+        syms = await find_symbols(" ".join(q for q, _ in history(uid, "sig")[-2:]))
+    brief = "\n".join(await _brief_market())
     if user.get("mode") == "spot":
         pos = [p["symbol"] for p in await storage.portfolio_of(uid)]
-        if not pos:
-            return EMPTY_PORTFOLIO, [market_button()]
-        if syms and not any(s in pos for s in syms):
-            return NOT_IN_PORTFOLIO.format(coins=", ".join(escape(pf.base_of(s)) for s in syms)), [market_button()]
-        chosen = [s for s in syms if s in pos] or (pos if len(pos) <= 3 else [])
-        return await _ask(uid, question, await spot_context(user, chosen), "spot")
+        chosen = [x for x in syms if x in pos] or (pos if len(pos) <= 3 and not syms else [])
+        ctx = await spot_context(user, chosen) if pos else "Người hỏi dùng chế độ SPOT. Danh mục đang trống.\n" + brief
+        others = [x for x in syms if x not in pos]
+        if others:
+            ctx += "\nCoin người hỏi nhắc tới nhưng CHƯA có trong danh mục: " + ", ".join(pf.base_of(x) for x in others)
+        view = await coin_view(syms, "spot")
+        return await _ask(uid, question, ctx + ("\n\n" + view if view else ""), "spot")
 
-    mine = await storage.user_signals(uid, days=45)
-    open_ = [s for s in mine if s["status"] == "ACTIVE"]
-    if syms:
-        hit = [s for s in open_ if s["symbol"] in syms]
-        if not hit:
-            closed = [s for s in mine if s["symbol"] in syms]
-            if closed:
-                return closed_text(closed[0]), []
-            coins = ", ".join(pf.base_of(s) for s in syms)
-            return NO_SIGNAL.format(coins=f"{escape(coins)} không có lệnh đang mở của bạn. "), [market_button()]
-        open_ = hit
-    if not open_:
-        return NO_SIGNAL.format(coins="Hiện bạn chưa có lệnh nào đang mở. "), [market_button()]
-    if len(open_) > 1:
-        # nhiều lệnh mở, câu hỏi không nêu coin: AI xem tất cả lệnh (vẫn từ chối câu ngoài chủ đề);
-        # AI không trả lời được -> cho chọn lệnh bằng nút
-        ctx = "\n\n".join([await signal_context(s) for s in open_[:4]] + ["\n".join(await _brief_market())])
-        text, _ = await ai.ask(question, ctx, "futures")
-        if text == ai.OUT_OF_SCOPE:
-            return OUT_TEXT, []
-        if text == ai.OTHER_PLACE:
-            return TO_MARKET, [market_button()]
-        if text:
-            await _consume(uid)
-            return f"🤖 {escape(text)}{FOOTER}", []
-        return PICK_SIGNAL, [(f"{'🟢' if s['side'] > 0 else '🔴'} {s['display']} #{s['id']}", f"aisig:{s['id']}")
-                             for s in open_[:8]]
-    return await answer_personal(user, question, open_[0])
+    if signal is not None:
+        sigs = [signal]
+    else:
+        open_ = [x for x in await storage.user_signals(uid, days=45) if x["status"] == "ACTIVE"]
+        sigs = [x for x in open_ if x["symbol"] in asked] or open_  # câu hỏi nêu coin -> chỉ lệnh coin đó
+    parts = [await signal_context(x) for x in sigs[:4]] if sigs else ["Người hỏi hiện không có lệnh nào đang mở."]
+    view = await coin_view([x for x in syms if not any(g["symbol"] == x for g in sigs)] if signal is None else [])
+    if view:
+        parts.append(view)
+    parts.append(brief)
+    return await _ask(uid, question, "\n\n".join(parts), "futures")
 
 
 async def answer_market(user_id: int, question: str, quota: str = "news") -> Reply:
     """Hỏi AI thị trường chung (📰 Bot Tin tức): tin tức, lịch sự kiện, mọi coin, coin nào đang mạnh."""
     if not (await allowed(user_id, quota))[0]:
         return limit_text(quota), []
-    return await _ask(user_id, question, await market_context(question) + await _hot_context(question), "market", quota)
+    syms = await find_symbols(question)
+    if not syms and history(user_id, quota):  # hỏi tiếp -> coin của câu trước
+        syms = await find_symbols(" ".join(q for q, _ in history(user_id, quota)[-2:]))
+    view = await coin_view(syms)
+    ctx = await market_context(question) + await _hot_context(question) + ("\n\n" + view if view else "")
+    return await _ask(user_id, question, ctx, "market", quota)
 
 
 async def _hot_context(question: str) -> str:

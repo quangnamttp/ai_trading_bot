@@ -43,7 +43,7 @@ async def test_link_points_to_news_bot(db, monkeypatch):
 async def test_summary_uses_ai_and_caches(db, monkeypatch):
     calls = []
 
-    async def ask(q, ctx, scope):
+    async def ask(q, ctx, scope, **kw):
         calls.append(scope)
         return "TIÊU ĐỀ: Bitcoin lập đỉnh\n- Ý 1.\n- Ý 2.\nẢNH HƯỞNG: Nhỏ.", "x"
 
@@ -78,7 +78,7 @@ async def test_breaking_news_needs_vietnamese(db, monkeypatch):
     await alerts.breaking_news(None)
     assert sent == []  # chưa dịch được -> chưa gửi, lần sau thử lại
 
-    async def ask(q, ctx, scope):
+    async def ask(q, ctx, scope, **kw):
         return "TIÊU ĐỀ: Sàn bị hack 200 triệu USD\n- Ý 1.\n- Ý 2.\nẢNH HƯỞNG: Xấu.", "x"
 
     async def page(url):
@@ -146,3 +146,19 @@ async def test_bybit_list_excludes_stocks(monkeypatch):
             for s, t in (("SOLUSDT", ""), ("NEWUSDT", "innovation"), ("SOXLUSDT", "ETF"), ("TSLAUSDT", "stock"))]}}
     monkeypatch.setattr(binance, "get_json", gj)
     assert [i["symbol"] for i in await binance._bybit_instruments()] == ["SOLUSDT", "NEWUSDT"]
+
+
+def test_waiting_plan():
+    from app.strategy import waiting
+    up = {1: {"trend": 30, "entry": 110.0, "atr4": 2.0}, -1: {"trend": 0, "entry": 110.0, "atr4": 2.0}}
+    w = waiting.plan(up, ema20=100.0, supports=[95.0], resistances=[120.0])
+    assert w.side == 1 and w.kind == "ema" and w.lo == pytest.approx(99.3) and w.hi == pytest.approx(100.6)
+    assert w.sl == pytest.approx(99.3 - 1.6) and w.act > w.hi
+    w = waiting.plan(up | {1: {"trend": 30, "entry": 97.0, "atr4": 2.0}}, ema20=100.0, supports=[95.0, 90.0], resistances=[])
+    assert w.kind == "level" and w.lo == pytest.approx(94.5)  # đã thủng EMA20 -> hỗ trợ ngày gần nhất
+    flat = {1: {"trend": 10, "entry": 100.0, "atr4": 2.0}, -1: {"trend": 5, "entry": 100.0, "atr4": 2.0}}
+    assert waiting.plan(flat, 100.0, [], []).kind == "flat"
+    down = {1: {"trend": 0, "entry": 100.0, "atr4": 2.0}, -1: {"trend": 30, "entry": 100.0, "atr4": 2.0}}
+    assert waiting.plan(down, 105.0, [], [110.0], mode="spot").kind == "spot_down"
+    w = waiting.plan(down, 105.0, [], [110.0])
+    assert w.side == -1 and w.sl > w.hi and "SHORT" in "".join(waiting.lines(w, str))
