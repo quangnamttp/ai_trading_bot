@@ -72,3 +72,4 @@ htmlcov/
 # Render
 .render/
 .cache/
+tradingview/backtest/*.pkl

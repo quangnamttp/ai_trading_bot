@@ -302,71 +302,142 @@ async def analyze(update: Update, ctx: ContextTypes.DEFAULT_TYPE, symbol_text: s
         await msg.edit_text(f"❌ Lỗi lấy dữ liệu: {exc}")
         return
     text = analysis_text(res, user["mode"])
-    cand = res["candidate"]
-    ready = cand and not cand.vetoed and cand.score >= res["threshold"]
-    markup = None
-    if not ready and user["mode"] == "futures":
-        sym = res["coin"].symbol
+    sym = res["coin"].symbol
+    await storage.kv_set(f"andet:{user['chat_id']}:{sym}", detail_text(res))
+    rows = [[InlineKeyboardButton("📊 Chi tiết điểm", callback_data=f"andet:{sym}")]]
+    if not is_ready(res, user["mode"]) and user["mode"] == "futures":
         mine = {c["symbol"] for c in await storage.user_coins_of(user["chat_id"])}
         if sym not in mine:
-            markup = InlineKeyboardMarkup([[InlineKeyboardButton(f"➕ Theo dõi {res['coin'].base}: bot tự báo khi đạt chuẩn",
-                                                                 callback_data=f"coin:watch:{sym}")]])
-    await msg.edit_text(text, parse_mode=ParseMode.HTML, reply_markup=markup)
+            rows.insert(0, [InlineKeyboardButton(f"➕ Theo dõi {res['coin'].base}: bot báo khi đủ điều kiện",
+                                                 callback_data=f"coin:watch:{sym}")])
+    await msg.edit_text(text, parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(rows))
+
+
+async def on_detail(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    """📊 Chi tiết điểm của lần 🔍 phân tích gần nhất (điểm thành phần, phái sinh, tin tức)."""
+    q = update.callback_query
+    text = await storage.kv_get(f"andet:{q.from_user.id}:{q.data.split(':', 1)[1]}")
+    await q.answer()
+    await q.message.reply_text(text or "Hãy phân tích lại coin này nhé.", parse_mode=ParseMode.HTML)
+
+
+def is_ready(res: dict, mode: str = "futures") -> bool:
+    cand = res["candidate"]
+    return bool(cand and not cand.vetoed and cand.score >= res["threshold"] and not (mode == "spot" and cand.side < 0))
+
+
+def _missing(res: dict, side: int) -> list[str]:
+    """Điều kiện vào lệnh còn thiếu — chữ dễ hiểu cho người mới (không dùng điểm số)."""
+    from app.strategy.core import GATE_OI, quality_gate
+    r, d, cand = res["rows"][side], res["deriv"] or {}, res["candidate"]
+    out = []
+    if r["trend"] < 20:
+        out.append("xu hướng chưa rõ ràng")
+    if r["setup_type"] == "pullback" and side > 0:
+        out.append("giá đang hồi — kiểu “mua khi hồi” bot không dùng (backtest lỗ); chờ giá phá đỉnh rồi quay lại kiểm tra")
+    elif r["setup"] == 0:
+        out.append(f"chưa có điểm vào đẹp (chờ giá phá {'đỉnh' if side > 0 else 'đáy'} gần rồi quay lại kiểm tra, "
+                   "hoặc một nhịp hồi rõ)")
+    if r["flow"] < 8:
+        out.append(f"dòng tiền {'mua' if side > 0 else 'bán'} chủ động còn yếu")
+    gate = quality_gate(side, "retest" if r["setup_type"] == "retest" else "", d.get("oi_chg"), d.get("ls"))
+    if gate and "OI" in gate:  # (kiểm tra riêng phần OI / đám đông, kể cả khi đã thiếu điều kiện khác)
+        oi = d.get("oi_chg")
+        out.append(f"hợp đồng mở (OI) chưa biến động mạnh ({oi:+.1%} / 24h, cần từ ±{GATE_OI:.0%})" if oi is not None
+                   else "chưa có dữ liệu OI xác nhận")
+    v = cand.vetoed if cand and cand.vetoed and cand.side == side else ""
+    if v and "Pullback" not in v and "OI" not in v:
+        base, up = res["coin"].base, side > 0
+        if v.startswith("Tin xấu") or v.startswith("Tin tốt"):
+            out.append(f"có tin {'xấu' if up else 'tốt'} mới về {base} đi ngược hướng này (xem ở 📰 Bot Tin tức)")
+        elif "POC" in v:
+            poc = re.search(r"\(([\d.eE+-]+)\)", v)
+            out.append(f"giá đang {'dưới' if up else 'trên'} vùng giao dịch nhiều nhất gần đây"
+                       + (f" ({texts.price(float(poc.group(1)) / res['coin'].multiplier)})" if poc else "") + f" — bot chỉ {'LONG' if up else 'SHORT'} khi giá "
+                       f"{'trên' if up else 'dưới'} vùng này")
+        elif "Funding" in v:
+            out.append("phí funding đang quá cao — đám đông đã vào lệnh quá đông, dễ bị quét ngược")
+        else:
+            out.append(v[:1].lower() + v[1:])
+    if not out:
+        out.append("các yếu tố cộng lại chưa đủ mạnh" if r["raw"] < res["threshold"] else
+                   "giá đang sát vùng cản lớn hoặc biến động bất thường")
+    return out
 
 
 def analysis_text(res: dict, mode: str = "futures") -> str:
+    """🔍 Kết quả phân tích ngắn gọn: vào ngay (giá vào, SL, trailing) hoặc chưa nên vào (thiếu gì, mốc cần để ý)."""
     coin, cand, rows, th = res["coin"], res["candidate"], res["rows"], res["threshold"]
-    lines = [f"🔍 <b>{coin.display}</b> · giá {texts.price(rows[1]['entry'])}"]
+    P = lambda v: texts.price(v / coin.multiplier)  # noqa: E731  giá 1 coin thật (1000PEPE -> PEPE)
+    px = float(rows[1]["entry"])
+    lines = [f"🔍 <b>{coin.display}</b> · giá {P(px)}"]
+    sup, res_ = res.get("supports") or [], res.get("resistances") or []
+    if is_ready(res, mode):
+        from app.strategy.trade import callback_rate
+        r, side = cand.row, cand.side
+        entry, sl = float(r["entry"]), float(r["sl"])
+        risk = abs(entry - sl)
+        action = "MUA" if mode == "spot" else ("LONG" if side > 0 else "SHORT")
+        lines.append(f"✅ <b>VÀO {action} NGAY</b> — đủ điều kiện vào lệnh của bot")
+        lines.append(f"💰 Vào: <b>{P(entry)}</b> · 🛑 SL: <b>{P(sl)}</b> ({-risk / entry:+.1%})")
+        cb = callback_rate(float(r["atr4"]), entry) if r.get("atr4") else None
+        if cb:
+            lines.append(f"🔁 Trailing: kích hoạt <b>{P(entry + side * risk)}</b>, callback <b>{cb * 100:.1f}%</b>")
+        target = next((x for x in (res_ if side > 0 else sup) if (x - entry) * side > 0), None)
+        if target:
+            lines.append(f"🎯 Mục tiêu tham khảo: {P(target)} ({'kháng cự' if side > 0 else 'hỗ trợ'} gần, "
+                         f"{(target - entry) / entry:+.1%})")
+        lines.append(f"⛔ Không vào nếu giá đã {'vượt' if side > 0 else 'xuống dưới'} {P(entry + side * 0.3 * risk)}")
+        stats = bucket_stats(cand.score)
+        if stats:
+            lines.append(f"📊 Backtest: {stats['win_rate']:.0%} lệnh có lời, TB {stats['avg_r']:+.2f}R/lệnh")
+        return "\n".join(lines)
+
+    t_long, t_short = float(rows[1]["trend"]), float(rows[-1]["trend"])
+    side = cand.side if cand else (1 if t_long >= t_short else -1)
+    strength = max(t_long, t_short)
+    if strength < 20:
+        lines.append("↔️ Xu hướng: <b>ĐI NGANG</b> — chưa có hướng rõ")
+        lines.append("⏸ <b>ĐỨNG NGOÀI</b>: vào lệnh lúc này là đoán hướng.")
+    elif mode == "spot" and side < 0:
+        lines.append(f"📉 Xu hướng: <b>GIẢM{' mạnh' if strength >= 25 else ''}</b>")
+        lines.append("⏸ <b>CHƯA NÊN MUA</b> — Spot nên đứng ngoài khi xu hướng giảm.")
+    else:
+        up = side > 0
+        lines.append(f"{'📈' if up else '📉'} Xu hướng: <b>{'TĂNG' if up else 'GIẢM'}{' mạnh' if strength >= 25 else ''}</b>"
+                     f" → hướng ưu tiên {'MUA' if mode == 'spot' else ('LONG' if up else 'SHORT')}")
+        lines.append("⏸ <b>CHƯA NÊN VÀO</b> — còn thiếu:")
+        lines += [f"• {escape(x)}" for x in _missing(res, side)]
+    near = [f"hỗ trợ {P(sup[0])}" if sup else "", f"kháng cự {P(res_[0])}" if res_ else ""]
+    if any(near):
+        lines.append("📍 Mốc cần để ý: " + " · ".join(x for x in near if x))
+    lines.append("👉 Khi đủ điều kiện, bot tự gửi tín hiệu kèm giá vào, SL, trailing."
+                 + (" Bấm ➕ Theo dõi để nhận." if mode == "futures" else ""))
+    return "\n".join(lines)
+
+
+def detail_text(res: dict) -> str:
+    """📊 Chi tiết điểm (cho người muốn xem kỹ)."""
+    coin, rows, th = res["coin"], res["rows"], res["threshold"]
+    lines = [f"📊 <b>Chi tiết điểm {coin.display}</b> (ngưỡng vào lệnh {th:.0f}/100)"]
     for side, name in ((1, "LONG"), (-1, "SHORT")):
         r = rows[side]
-        lines.append(f"\n<b>{name}</b>: {r['raw']:.0f}/100 điểm — xu hướng {r['trend']:.0f}/30, "
-                     f"động lượng {r['momentum']:.0f}/15, setup {r['setup']:.0f}/20, dòng tiền {r['flow']:.0f}/15")
+        lines.append(f"\n<b>{name}</b>: {r['raw']:.0f}/100 trước bộ lọc · {r['score']:.0f}/100 sau bộ lọc\n"
+                     f"xu hướng {r['trend']:.0f}/30 · động lượng {r['momentum']:.0f}/15 · điểm vào {r['setup']:.0f}/20 · "
+                     f"dòng tiền {r['flow']:.0f}/15")
     d = res["deriv"]
     if d:
-        lines.append("\n💹 <b>Phái sinh</b>: " + " · ".join(filter(None, [
+        lines.append("\n💹 " + " · ".join(filter(None, [
             f"funding {d['funding']:.4%}" if "funding" in d else "",
             f"OI 24h {d['oi_chg']:+.1%}" if "oi_chg" in d else "",
-            f"tỉ lệ long/short đám đông {d['ls']:.2f}" if "ls" in d else "",
-            f"top trader {d['top_ls']:.2f}" if "top_ls" in d else "",
+            f"long/short đám đông {d['ls']:.2f}" if "ls" in d else "",
         ])))
-        lines.append("<i>Bot chỉ vào lệnh khi OI biến động ≥5%, hoặc đám đông nghiêng ≥3:1 về phía ngược lại, "
-                     "hoặc setup Retest.</i>")
     n = res["news"]
     if n["count"]:
         mood = "nghiêng TỐT" if n["sentiment"] > 0.2 else "nghiêng XẤU" if n["sentiment"] < -0.2 else "trung lập"
         lines.append(f"📰 Tin 24h về coin này: {n['count']} bài, {mood}")
-    if cand and not cand.vetoed and cand.score >= th and not (mode == "spot" and cand.side < 0):
-        from app.strategy.trade import callback_rate
-        stats = bucket_stats(cand.score)
-        r = cand.row
-        entry, sl = float(r["entry"]), float(r["sl"])
-        risk = abs(entry - sl)
-        cb = callback_rate(float(r["atr4"]), entry) if r.get("atr4") else None
-        lines.append(f"\n✅ <b>KẾT LUẬN: CÓ THỂ VÀO {'MUA' if mode == 'spot' else cand.side_name}</b> "
-                     f"(điểm {cand.score:.0f}, ngưỡng {th:.0f})")
-        lines += [f"• {escape(x)}" for x in describe(cand)]
-        lines.append(f"💰 Vào: <b>{texts.price(entry)}</b> · 🛑 SL: <b>{texts.price(sl)}</b> (-{risk / entry:.1%})")
-        if cb:
-            lines.append(f"🔁 Trailing Stop cả lệnh: kích hoạt <b>{texts.price(entry + cand.side * risk)}</b>, "
-                         f"callback <b>{cb * 100:.1f}%</b>")
-        lines.append(f"⛔ Không vào nếu giá đã {'vượt' if cand.side > 0 else 'xuống dưới'} "
-                     f"{texts.price(entry + cand.side * 0.3 * risk)}")
-        if stats:
-            lines.append(f"📊 Backtest mức điểm này: {stats['win_rate']:.0%} lệnh có lời, TB {stats['avg_r']:+.2f}R")
-    elif cand and cand.vetoed:
-        lines.append(f"\n⛔ <b>KẾT LUẬN: CHƯA NÊN VÀO.</b> Có setup {cand.side_name} nhưng bị chặn: {escape(cand.vetoed)}")
-    elif cand and mode == "spot" and cand.side < 0:
-        lines.append("\n⏸ <b>KẾT LUẬN: CHƯA NÊN MUA.</b> Coin đang có xu hướng GIẢM (setup SHORT) — Spot nên đứng ngoài.")
-    else:
-        best = max(rows.values(), key=lambda r: r["raw"])
-        lines.append(f"\n⏸ <b>KẾT LUẬN: CHƯA NÊN VÀO.</b> Chưa có điểm vào đạt chuẩn (ngưỡng {th:.0f}). "
-                     + ("Chưa có nhịp hồi / retest hợp lệ." if best["setup"] == 0 else "Dòng tiền hoặc bộ lọc chưa ủng hộ."))
-        lines.append("Vào lệnh lúc này là đoán hướng — nên chờ bot báo tín hiệu.")
-    ready = cand and not cand.vetoed and cand.score >= th and not (mode == "spot" and cand.side < 0)
-    if not ready and res.get("ema20"):
-        from app.strategy import waiting
-        w = waiting.plan(rows, res["ema20"], res.get("supports", []), res.get("resistances", []), mode)
-        lines += waiting.lines(w, texts.price, mode)
+    lines.append("\n<i>Bot chỉ vào lệnh khi điểm sau bộ lọc ≥ ngưỡng và có xác nhận: OI biến động ≥5%, hoặc đám đông "
+                 "nghiêng ≥3:1 về phía ngược lại, hoặc điểm vào kiểu phá đỉnh/đáy rồi kiểm tra lại (Retest).</i>")
     return "\n".join(lines)
 
 
@@ -735,6 +806,7 @@ def register(app: Application) -> None:
     app.add_handler(CommandHandler("broadcast", broadcast_cmd, filters=private))
     app.add_handler(CallbackQueryHandler(on_callback, pattern=r"^(mode|risk|style|sub|cur|exch):"))
     app.add_handler(CallbackQueryHandler(on_admin, pattern=r"^adm:"))
+    app.add_handler(CallbackQueryHandler(on_detail, pattern=r"^andet:"))
     app.add_handler(MessageHandler(private & filters.Document.FileExtension("json"), on_backup_file))
     extra.register(app)
     portfolio_ui.register(app)

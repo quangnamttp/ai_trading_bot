@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from app import indicators as ta, storage
+from app import storage
 from app.config import VN_TZ, settings
 from app.data import binance, bybit, macro, news
 from app.strategy.core import Candidate, apply_live_context, best_candidate, build_features, poc_veto, score_frame
@@ -162,18 +162,16 @@ async def analyze_symbol(symbol: str, style_key: str = "short") -> dict:
     if cand is not None:
         cand = apply_live_context(cand, deriv, coin_news=cn, market_news=news.market_sentiment(items),
                                   stable_7d=await macro.stablecoin_change_7d(), style=style_key)
-    # dữ liệu cho 📋 Kịch bản chờ: EMA20 khung 4H + vùng hỗ trợ / kháng cự ngày (lỗi thì bỏ qua kịch bản)
-    ema20, sup, res = None, [], []
+    # vùng hỗ trợ / kháng cự ngày gần nhất: "📍 Mốc cần để ý" và mục tiêu tham khảo (lỗi thì bỏ qua)
+    sup, res = [], []
     try:
         from app.strategy import levels
-        mid = await binance.klines(symbol, style.tfs[1], 80)
-        ema20 = float(ta.ema(mid["close"], 20).iloc[-1])
         p = await levels.coin_plan(symbol)
         sup, res = [x for x, _ in p["supports"]], [x for x, _ in p["resistances"]]
     except Exception as exc:  # noqa: BLE001
-        log.info("Kịch bản chờ %s: thiếu dữ liệu (%s)", symbol, exc)
+        log.info("Mốc hỗ trợ/kháng cự %s: thiếu dữ liệu (%s)", symbol, exc)
     return {"coin": coin, "candidate": cand, "rows": rows, "deriv": deriv, "news": cn, "h1": base,
-            "threshold": threshold(style_key), "style": style, "ema20": ema20, "supports": sup, "resistances": res}
+            "threshold": threshold(style_key), "style": style, "supports": sup, "resistances": res}
 
 
 async def _open_state() -> tuple[list[dict], dict[int, int]]:

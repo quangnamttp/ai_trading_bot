@@ -1,4 +1,4 @@
-"""📋 Kịch bản chờ: khi 🔍 phân tích kết luận CHƯA NÊN VÀO, gợi ý vùng giá nên chờ theo đúng setup của bot.
+"""📋 Kịch bản chờ — ĐÃ GỠ KHỎI BOT (backtest 3 năm / 53 coin: ~0R/lệnh sau phí, LONG lỗ). Chỉ giữ cho bt_waiting.py.
 
 Bot chỉ có lời (backtest) khi vào lệnh đủ điều kiện, nên đây KHÔNG phải lệnh vào ngay hay lệnh chờ đặt sẵn:
 - Chọn phía có xu hướng mạnh hơn (điểm xu hướng >= 20/30); cả 2 phía yếu -> đi ngang, đứng ngoài.

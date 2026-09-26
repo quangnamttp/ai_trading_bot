@@ -105,9 +105,25 @@ def _res(score_long, vetoed=None):
 
 def test_analysis_verdict():
     ok = handlers.analysis_text(_res(80))
-    assert "KẾT LUẬN: CÓ THỂ VÀO LONG" in ok and "SL" in ok and "Trailing" in ok and "TP1" not in ok
-    assert "KẾT LUẬN: CHƯA NÊN VÀO" in handlers.analysis_text(_res(60))
-    assert "bị chặn" in handlers.analysis_text(_res(80, vetoed="Funding quá nóng"))
+    assert "VÀO LONG NGAY" in ok and "SL" in ok and "Trailing" in ok and "TP1" not in ok and "/100" not in ok
+    no = handlers.analysis_text(_res(60))
+    assert "CHƯA NÊN VÀO" in no and "còn thiếu" in no and "/100" not in no  # không khoe điểm số
+    assert "funding đang quá cao" in handlers.analysis_text(_res(80, vetoed="Funding quá nóng (0.100%)"))
+    poc = handlers.analysis_text(_res(80, vetoed="Giá phía nghịch POC Volume Profile (95.5)"))
+    assert "vùng giao dịch nhiều nhất" in poc and "95.5" in poc and "POC Volume" not in poc
+    news = handlers.analysis_text(_res(80, vetoed="Tin xấu: Exchange hacked"))
+    assert "tin xấu mới về SOL" in news and "hacked" not in news
+    assert "CHƯA NÊN MUA" in handlers.analysis_text(_res(80) | {"rows": _res(80)["rows"] | {1: _res(80)["rows"][1] | {"trend": 0}, -1: _res(80)["rows"][1] | {"trend": 30}}, "candidate": None}, "spot")
+    assert "trước bộ lọc" in handlers.detail_text(_res(80))
+
+
+def test_analysis_explains_pullback_long():
+    r = _res(76)
+    r["candidate"] = None
+    r["rows"][1] = r["rows"][1] | {"setup_type": "pullback", "setup": 20, "flow": 4, "score": 0}
+    r["deriv"] = {"oi_chg": -0.036, "ls": 2.03}
+    text = handlers.analysis_text(r)
+    assert "mua khi hồi" in text and "dòng tiền mua" in text and "-3.6%" in text and "76" not in text
 
 
 async def test_universe_when_fallback_lacks_volume(monkeypatch):
@@ -146,19 +162,3 @@ async def test_bybit_list_excludes_stocks(monkeypatch):
             for s, t in (("SOLUSDT", ""), ("NEWUSDT", "innovation"), ("SOXLUSDT", "ETF"), ("TSLAUSDT", "stock"))]}}
     monkeypatch.setattr(binance, "get_json", gj)
     assert [i["symbol"] for i in await binance._bybit_instruments()] == ["SOLUSDT", "NEWUSDT"]
-
-
-def test_waiting_plan():
-    from app.strategy import waiting
-    up = {1: {"trend": 30, "entry": 110.0, "atr4": 2.0}, -1: {"trend": 0, "entry": 110.0, "atr4": 2.0}}
-    w = waiting.plan(up, ema20=100.0, supports=[95.0], resistances=[120.0])
-    assert w.side == 1 and w.kind == "ema" and w.lo == pytest.approx(99.3) and w.hi == pytest.approx(100.6)
-    assert w.sl == pytest.approx(99.3 - 1.6) and w.act > w.hi
-    w = waiting.plan(up | {1: {"trend": 30, "entry": 97.0, "atr4": 2.0}}, ema20=100.0, supports=[95.0, 90.0], resistances=[])
-    assert w.kind == "level" and w.lo == pytest.approx(94.5)  # đã thủng EMA20 -> hỗ trợ ngày gần nhất
-    flat = {1: {"trend": 10, "entry": 100.0, "atr4": 2.0}, -1: {"trend": 5, "entry": 100.0, "atr4": 2.0}}
-    assert waiting.plan(flat, 100.0, [], []).kind == "flat"
-    down = {1: {"trend": 0, "entry": 100.0, "atr4": 2.0}, -1: {"trend": 30, "entry": 100.0, "atr4": 2.0}}
-    assert waiting.plan(down, 105.0, [], [110.0], mode="spot").kind == "spot_down"
-    w = waiting.plan(down, 105.0, [], [110.0])
-    assert w.side == -1 and w.sl > w.hi and "SHORT" in "".join(waiting.lines(w, str))

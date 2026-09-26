@@ -94,7 +94,7 @@ async def _brief_market() -> list[str]:
     return lines
 
 
-async def _coin_lines(symbols: list[str], *, spot_units: bool = False) -> list[str]:
+async def _coin_lines(symbols: list[str], *, spot_units: bool = True) -> list[str]:
     """Kế hoạch mốc giá bot tính cho từng coin. spot_units: đổi giá về 1 coin thật (chia hệ số 1000)."""
     lines = []
     for sym in symbols:
@@ -247,15 +247,15 @@ def forget(user_id: int) -> None:
 
 
 async def coin_view(symbols: list[str], mode: str = "futures") -> str:
-    """'PHÂN TÍCH CỦA BOT' cho coin được hỏi: kết luận có nên vào + kịch bản chờ (như nút 🔍), dạng chữ cho AI."""
-    from app.bot.handlers import analysis_text
+    """'PHÂN TÍCH CỦA BOT' cho coin được hỏi: kết luận có nên vào, điều kiện còn thiếu, mốc giá (như nút 🔍), dạng chữ cho AI."""
+    from app.bot.handlers import analysis_text, detail_text
     from app.strategy.scanner import analyze_symbol
     out = []
     for sym in symbols[:2]:
         try:
             res = await analyze_symbol(sym)
             out.append(f"PHÂN TÍCH CỦA BOT cho {pf.base_of(sym)} (chế độ {mode.upper()}):\n"
-                       + re.sub(r"<[^>]+>", "", analysis_text(res, mode)))
+                       + re.sub(r"<[^>]+>", "", analysis_text(res, mode) + "\n" + detail_text(res)))
         except Exception as exc:  # noqa: BLE001
             log.debug("coin view %s: %s", sym, exc)
     return "\n\n".join(out)
@@ -333,7 +333,7 @@ def closed_text(s: dict) -> str:
 
 async def answer_personal(user: dict, question: str, signal: dict | None = None) -> Reply:
     """🤖 Hỏi AI ở Bot Tín hiệu. Dữ liệu đưa cho AI: Spot -> danh mục; Futures -> tín hiệu đang mở của người hỏi
-    (hoặc tín hiệu đang được reply); kèm phân tích + kịch bản chờ của coin được nhắc tới và thị trường chung."""
+    (hoặc tín hiệu đang được reply); kèm phân tích của coin được nhắc tới và thị trường chung."""
     uid = user["chat_id"]
     if not (await allowed(uid))[0]:
         return LIMIT_TEXT, []
