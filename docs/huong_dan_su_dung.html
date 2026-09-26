@@ -1,0 +1,372 @@
+<title>Sổ tay Tín Hiệu Crypto AI</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+:root{
+  --bg:#f4f7f6; --surface:#ffffff; --sunk:#eaf0ee; --ink:#15211e; --muted:#566762; --line:#d9e2df;
+  --accent:#0d7a64; --accent-soft:#dff1ec; --long:#17864f; --long-soft:#e1f3e8; --short:#c23d36; --short-soft:#f9e5e3;
+  --warn:#a26300; --warn-soft:#fbefd9; --bubble:#effdde; --bubble-ink:#1b2a16;
+  --sans:"Be Vietnam Pro",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,"Cascadia Mono",Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme:dark;
+    --bg:#0e1513; --surface:#151f1c; --sunk:#1b2724; --ink:#e4eeeb; --muted:#9bb0aa; --line:#27352f;
+    --accent:#3cc3a2; --accent-soft:#16342c; --long:#4cc38a; --long-soft:#17301f; --short:#f0736a; --short-soft:#3a1d1b;
+    --warn:#f0b24d; --warn-soft:#352813; --bubble:#1f2e1b; --bubble-ink:#e3f1da;
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --bg:#0e1513; --surface:#151f1c; --sunk:#1b2724; --ink:#e4eeeb; --muted:#9bb0aa; --line:#27352f;
+  --accent:#3cc3a2; --accent-soft:#16342c; --long:#4cc38a; --long-soft:#17301f; --short:#f0736a; --short-soft:#3a1d1b;
+  --warn:#f0b24d; --warn-soft:#352813; --bubble:#1f2e1b; --bubble-ink:#e3f1da;
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font:16px/1.65 var(--sans);padding-inline:16px;padding-block:0 64px}
+a{color:var(--accent);text-underline-offset:3px}
+a:focus-visible,summary:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
+.wrap{max-width:1120px;margin:0 auto;display:grid;grid-template-columns:230px minmax(0,1fr);gap:48px}
+@media (max-width:860px){.wrap{grid-template-columns:1fr;gap:0}}
+
+header.top{max-width:1120px;margin:0 auto;padding-block:40px 28px;border-bottom:1px solid var(--line);margin-bottom:32px}
+.kicker{font-size:12px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--accent)}
+h1{font-size:clamp(28px,4.4vw,42px);line-height:1.15;font-weight:800;margin:.25em 0 .35em;text-wrap:balance;letter-spacing:-.01em}
+.lede{max-width:66ch;color:var(--muted);margin:0}
+.bots{display:flex;flex-wrap:wrap;gap:12px;margin-top:22px}
+.bot{flex:1 1 260px;display:flex;gap:12px;align-items:flex-start;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+.bot b{display:block}
+.bot span{color:var(--muted);font-size:14px}
+.av{flex:0 0 38px;height:38px;border-radius:50%;display:grid;place-items:center;font-weight:700;color:#fff;font-size:15px}
+.av.sig{background:#1f9d6f}.av.news{background:#2a78c7}
+
+nav.toc{position:sticky;top:calc(env(safe-area-inset-top,0px) + 20px);align-self:start;font-size:14px}
+nav.toc p{font-size:12px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin:0 0 8px}
+nav.toc ol{list-style:none;margin:0;padding:0;display:grid;gap:2px;counter-reset:t}
+nav.toc a{display:block;padding:6px 10px;border-radius:8px;color:var(--ink);text-decoration:none}
+nav.toc a:hover{background:var(--sunk)}
+nav.toc li{counter-increment:t}
+nav.toc a::before{content:counter(t) ". ";color:var(--muted);font-variant-numeric:tabular-nums}
+@media (max-width:860px){
+  nav.toc{position:static;margin-bottom:28px}
+  nav.toc ol{display:flex;flex-wrap:wrap;gap:6px}
+  nav.toc a{border:1px solid var(--line);background:var(--surface)}
+}
+
+main{min-width:0}
+section{padding-block:8px 36px;border-bottom:1px solid var(--line);margin-bottom:36px;scroll-margin-top:16px}
+section:last-of-type{border-bottom:0}
+h2{font-size:clamp(22px,3vw,28px);line-height:1.25;font-weight:700;margin:0 0 .6em;text-wrap:balance}
+h3{font-size:18px;font-weight:700;margin:1.8em 0 .5em}
+p,li{max-width:70ch}
+ul,ol{padding-left:1.25em}
+li+li{margin-top:.3em}
+.muted{color:var(--muted)}
+.tbl{overflow-x:auto;margin:14px 0;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-size:15px}
+th,td{text-align:left;padding:10px 14px;border-bottom:1px solid var(--line);vertical-align:top}
+tr:last-child td{border-bottom:0}
+th{font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);background:var(--sunk)}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.steps{list-style:none;padding:0;counter-reset:s;display:grid;gap:10px}
+.steps>li{counter-increment:s;display:grid;grid-template-columns:32px 1fr;gap:12px;align-items:start;max-width:none}
+.steps>li::before{content:counter(s);width:28px;height:28px;border-radius:50%;background:var(--accent-soft);color:var(--accent);font-weight:700;display:grid;place-items:center;font-size:14px;margin-top:1px}
+
+.chat{display:flex;flex-wrap:wrap;gap:16px;margin:16px 0}
+.msg{flex:1 1 300px;max-width:440px;background:var(--bubble);color:var(--bubble-ink);border-radius:14px 14px 14px 4px;padding:12px 14px 8px;font:14px/1.6 var(--mono);box-shadow:0 1px 0 rgba(0,0,0,.06);white-space:pre-wrap;word-break:break-word}
+.msg .t{display:block;text-align:right;font:12px var(--sans);opacity:.6;margin-top:4px}
+.msg b{font-weight:600}
+.cap{font-size:13px;color:var(--muted);margin:6px 0 0}
+.pill{display:inline-block;font-size:12px;font-weight:600;padding:2px 9px;border-radius:999px;vertical-align:1px}
+.pill.l{background:var(--long-soft);color:var(--long)}
+.pill.s{background:var(--short-soft);color:var(--short)}
+.pill.w{background:var(--warn-soft);color:var(--warn)}
+.note{border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:14px 16px;margin:16px 0}
+.note.warn{border-color:transparent;background:var(--warn-soft)}
+.note p{margin:0}
+.note p+p{margin-top:.5em}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px;margin:14px 0}
+.cell{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+.cell h4{margin:0 0 4px;font-size:15px}
+.cell p{margin:0;font-size:15px;color:var(--muted)}
+kbd{font:13px var(--mono);background:var(--sunk);border:1px solid var(--line);border-bottom-width:2px;border-radius:5px;padding:0 5px}
+code{font:14px var(--mono);background:var(--sunk);border-radius:4px;padding:1px 5px}
+details{border:1px solid var(--line);border-radius:10px;background:var(--surface);padding:0 16px;margin:10px 0}
+summary{cursor:pointer;font-weight:600;padding:12px 0;list-style-position:outside}
+details[open] summary{border-bottom:1px solid var(--line);margin-bottom:10px}
+details p{margin:0 0 12px}
+.r-bar{display:flex;height:34px;border-radius:8px;overflow:hidden;margin:10px 0 4px;font:600 13px var(--sans)}
+.r-bar div{display:flex;align-items:center;justify-content:center;color:#fff}
+footer{max-width:1120px;margin:0 auto;color:var(--muted);font-size:13px;border-top:1px solid var(--line);padding-top:20px}
+@media (prefers-reduced-motion:no-preference){html{scroll-behavior:smooth}}
+</style>
+
+<header class="top">
+  <div class="kicker">Sổ tay người dùng · bản 09/2026</div>
+  <h1>Dùng bot tín hiệu và tin tức crypto từ A đến Z</h1>
+  <p class="lede">Hướng dẫn cho người mới: mở bot, đọc tín hiệu, đặt lệnh trên sàn, đọc tin tức tiếng Việt và dùng
+    2 chỉ báo TradingView. Mọi ví dụ lấy từ tin nhắn thật của bot.</p>
+  <div class="bots">
+    <div class="bot"><div class="av sig" aria-hidden="true">TH</div><div><b>🤖 Bot Tín hiệu</b><span>Tín hiệu vào lệnh, theo dõi lệnh, phân tích coin, danh mục Spot, hỏi AI về lệnh của bạn</span></div></div>
+    <div class="bot"><div class="av news" aria-hidden="true">TT</div><div><b>📰 Bot Tin tức</b><span>Tin tóm tắt tiếng Việt, tin gấp, lịch kinh tế, dấu hiệu coin sắp chạy, hỏi AI thị trường</span></div></div>
+  </div>
+</header>
+
+<div class="wrap">
+<nav class="toc" aria-label="Mục lục">
+  <p>Mục lục</p>
+  <ol>
+    <li><a href="#bat-dau">Bắt đầu</a></li>
+    <li><a href="#cai-dat">Cài đặt Bot Tín hiệu</a></li>
+    <li><a href="#tin-hieu">Đọc tín hiệu</a></li>
+    <li><a href="#dat-lenh">Đặt lệnh trên sàn</a></li>
+    <li><a href="#phan-tich">Phân tích coin</a></li>
+    <li><a href="#danh-muc">Coin theo dõi &amp; danh mục</a></li>
+    <li><a href="#hoi-ai">Hỏi AI</a></li>
+    <li><a href="#tin-tuc">Bot Tin tức</a></li>
+    <li><a href="#chi-bao">Chỉ báo TradingView</a></li>
+    <li><a href="#von">Quản lý vốn &amp; kỳ vọng</a></li>
+    <li><a href="#san">Sàn MEXC &amp; sàn Việt</a></li>
+    <li><a href="#hoi-dap">Câu hỏi thường gặp</a></li>
+  </ol>
+</nav>
+
+<main>
+<section id="bat-dau">
+  <h2>Bắt đầu</h2>
+  <ol class="steps">
+    <li><div>Mở link bot admin gửi, bấm <b>Start</b> (hoặc gõ <code>/start</code>).</div></li>
+    <li><div>Lần đầu bot báo <i>đang chờ duyệt</i>. Admin duyệt xong, bot nhắn cho bạn — gõ <code>/start</code> lại để mở menu.</div></li>
+    <li><div>Menu là <b>bàn phím nút</b> dưới ô nhập tin. Không thấy thì bấm biểu tượng <kbd>⌘</kbd> cạnh ô nhập, hoặc gõ <code>/start</code>.</div></li>
+    <li><div>Làm tương tự với Bot Tin tức. Hai bot dùng chung tài khoản của bạn.</div></li>
+  </ol>
+  <div class="note warn"><p><b>Trước khi giao dịch:</b> bot không đảm bảo thắng. Khoảng một nửa số lệnh sẽ lỗ; lợi nhuận đến từ việc lệnh lời chạy xa hơn lệnh lỗ. Luôn đặt cắt lỗ (SL) và chỉ rủi ro 0.5–1% vốn mỗi lệnh.</p></div>
+</section>
+
+<section id="cai-dat">
+  <h2>Cài đặt Bot Tín hiệu</h2>
+  <p>Bấm <b>⚙️ Cài đặt</b> và chọn:</p>
+  <div class="tbl"><table>
+    <thead><tr><th>Mục</th><th>Nên chọn</th></tr></thead>
+    <tbody>
+      <tr><td><b>Spot / Futures</b></td><td>Spot: chỉ lệnh MUA, có 💼 Danh mục. Futures: MUA (LONG) và BÁN (SHORT), có 🪙 Coin theo dõi.</td></tr>
+      <tr><td><b>% rủi ro mỗi lệnh</b></td><td>0.5% (mặc định) hoặc 1% — số % vốn mất nếu lệnh chạm SL.</td></tr>
+      <tr><td><b>Kiểu swing</b></td><td>⚡ Swing ngắn (giữ vài giờ → vài ngày, tối đa 3 tín hiệu/ngày) · 🌙 Swing dài (~1 tín hiệu/tuần) · hoặc cả hai.</td></tr>
+      <tr><td><b>Sàn</b></td><td>Binance hoặc <b>MEXC</b> — chọn MEXC thì tin tín hiệu có thêm giá MEXC lúc báo.</td></tr>
+      <tr><td><b>Đơn vị tiền</b></td><td>USDT hoặc <b>VNĐ</b> (danh mục quy đổi theo tỉ giá USDT/VNĐ).</td></tr>
+    </tbody>
+  </table></div>
+  <p class="muted">Menu Futures: 📊 Lệnh đang chạy · 🔍 Phân tích coin · 🤖 Hỏi AI · 🪙 Coin theo dõi · ⚙️ Cài đặt · 📈 Thống kê · ℹ️ Hướng dẫn.<br>
+  Menu Spot: 💼 Danh mục của tôi · 🔍 Phân tích coin · 🤖 Hỏi AI · 📊 Tín hiệu Spot · ⚙️ Cài đặt · 📈 Thống kê · ℹ️ Hướng dẫn.</p>
+</section>
+
+<section id="tin-hieu">
+  <h2>Đọc tin tín hiệu</h2>
+  <div class="chat"><div class="msg">🟢 <b>SOL/USDT | MUA</b> · Futures · LONG
+⚡ Swing ngắn (giữ vài giờ → vài ngày) · Hạng A
+
+💰 Vào ngay: <b>120.37</b> (giá thị trường)
+⛔ Không vào nếu giá đã vượt: 121.98
+🛑 Cắt lỗ (SL): <b>115.00</b> (-4.5%)
+🧱 Kháng cự gần: 128.40 (cách 1.5R) · Hỗ trợ gần: 101.40
+🔁 Trailing Stop (cả lệnh): kích hoạt <b>125.74</b>, callback <b>5.1%</b>
+🎯 Mục tiêu tham khảo: 131.11 (+8.9%)
+⚖️ Khối lượng 11% vốn · đòn bẩy tối đa x10 · rủi ro 0.5% vốn<span class="t">22:20</span></div></div>
+  <div class="tbl"><table>
+    <thead><tr><th>Dòng</th><th>Ý nghĩa và việc cần làm</th></tr></thead>
+    <tbody>
+      <tr><td>🟢 MUA / 🔴 BÁN</td><td>Chiều lệnh. Spot chỉ có MUA.</td></tr>
+      <tr><td>💰 Vào ngay</td><td>Vào lệnh Market ngay khi nhận tin.</td></tr>
+      <tr><td>⛔ Không vào nếu…</td><td>Giá đã chạy quá mức này thì <b>bỏ qua</b>, không đuổi theo.</td></tr>
+      <tr><td>🛑 Cắt lỗ (SL)</td><td>Đặt ngay trên sàn. Chạm SL = mất đúng % rủi ro đã chọn.</td></tr>
+      <tr><td>🧱 Kháng cự / hỗ trợ</td><td>Vùng giá gần nhất phía trước / phía sau lệnh, để tham khảo.</td></tr>
+      <tr><td>🔁 Trailing Stop</td><td>Lệnh dừng di động: giá tới mức <b>kích hoạt</b> thì sàn bám theo giá, đóng lệnh khi giá quay đầu đúng <b>callback %</b>.</td></tr>
+      <tr><td>🎯 Mục tiêu</td><td>Chỉ để hình dung. <b>Không đặt chốt lời cố định</b> — trailing tự chốt.</td></tr>
+      <tr><td>⚖️ Khối lượng</td><td>Giá trị vị thế để chạm SL chỉ mất đúng % rủi ro. Đòn bẩy chỉ giảm ký quỹ, không đổi số tiền mất.</td></tr>
+    </tbody>
+  </table></div>
+  <h3>Bot theo dõi lệnh giúp bạn</h3>
+  <ul>
+    <li>🔒 <b>Giá tới +1R</b>: trailing đã kích hoạt (không dùng trailing thì dời SL về giá vào).</li>
+    <li>❌ <b>Chạm cắt lỗ</b> / 🏁 <b>Đóng lệnh</b>: kèm kết quả bằng R và % vốn, rồi 📋 <b>Tổng kết lệnh</b>.</li>
+    <li>⚠️ <b>Tin xấu ngược chiều lệnh</b>: bấm vào tin để đọc tóm tắt tiếng Việt.</li>
+  </ul>
+  <p class="muted">Bot tạm dừng tín hiệu mới từ 3 giờ trước đến 1 giờ sau tin kinh tế Mỹ quan trọng (CPI, lãi suất Fed, việc làm). Swing ngắn không gửi tín hiệu mới từ 22h đến 6h.</p>
+</section>
+
+<section id="dat-lenh">
+  <h2>Đặt lệnh trên sàn</h2>
+  <p>Ví dụ trên MEXC / Binance Futures — đặt 1 lần là xong, không cần canh chart:</p>
+  <ol class="steps">
+    <li><div>Chọn đúng coin, ký quỹ <b>Isolated</b> (cô lập), đòn bẩy không quá mức gợi ý.</div></li>
+    <li><div>Vào lệnh <b>Market</b> với khối lượng gợi ý.</div></li>
+    <li><div>Đặt <b>Stop-Loss</b> đúng giá SL trong tin.</div></li>
+    <li><div>Đặt <b>Trailing Stop</b> cho toàn bộ vị thế: giá kích hoạt + callback % trong tin, tích <b>Reduce-Only</b> (chỉ giảm vị thế).</div></li>
+  </ol>
+  <div class="note"><p><b>Sàn không có Trailing Stop, hoặc Spot:</b> khi bot báo "giá tới +1R", tự dời SL về giá vào lệnh; sau đó dời SL theo các tin bot báo.</p></div>
+</section>
+
+<section id="phan-tich">
+  <h2>🔍 Phân tích coin</h2>
+  <p>Gõ tên coin (vd <code>SOL</code>, <code>PEPE</code>). Bot trả lời ngắn và nói thẳng nên làm gì — không bắt bạn đọc điểm số.</p>
+  <div class="chat">
+    <div><div class="msg">🔍 <b>SOL/USDT</b> · giá 120.37
+✅ <b>VÀO LONG NGAY</b> — đủ điều kiện
+💰 Vào: <b>120.37</b> · 🛑 SL: <b>115.00</b> (-4.5%)
+🔁 Trailing: kích hoạt <b>125.74</b>, callback <b>5.1%</b>
+🎯 Mục tiêu tham khảo: 128.40 (+6.7%)
+⛔ Không vào nếu giá đã vượt 121.98<span class="t">09:05</span></div><p class="cap"><span class="pill l">Đủ điều kiện</span> vào như một tín hiệu.</p></div>
+    <div><div class="msg">🔍 <b>ETH/USDT</b> · giá 2,689.72
+📈 Xu hướng: <b>TĂNG mạnh</b> → ưu tiên LONG
+⏸ <b>CHƯA NÊN VÀO</b> — còn thiếu:
+• dòng tiền mua chủ động còn yếu
+• hợp đồng mở (OI) chưa biến động mạnh
+  (-2.8% / 24h, cần từ ±5%)
+📍 Mốc cần để ý: hỗ trợ 2,491.82 · kháng cự 2,806.76<span class="t">09:06</span></div><p class="cap"><span class="pill w">Chưa đủ</span> bấm ➕ Theo dõi để bot tự báo.</p></div>
+  </div>
+  <ul>
+    <li><b>Mốc cần để ý</b> chỉ cho biết giá đang ở đâu — không phải điểm vào lệnh.</li>
+    <li>Bấm <b>➕ Theo dõi</b>: khi đủ điều kiện, bot gửi tín hiệu kèm giá vào, SL, trailing chính xác.</li>
+    <li>Đi ngang thì bot ghi <b>ĐỨNG NGOÀI</b>; Spot gặp xu hướng giảm thì ghi <b>CHƯA NÊN MUA</b>.</li>
+    <li>Muốn xem điểm kỹ thuật: bấm <b>📊 Chi tiết điểm</b>.</li>
+  </ul>
+  <div class="note"><p><b>Vì sao bot không đưa "giá dự kiến để vào" khi chưa đủ điều kiện?</b> Đã kiểm tra 3 năm / 53 coin cách "chờ giá về vùng rồi vào": kết quả hòa vốn sau phí, chiều LONG còn lỗ. Bot chỉ đưa giá vào lệnh khi đủ điều kiện — cách đã kiểm chứng có lời.</p></div>
+</section>
+
+<section id="danh-muc">
+  <h2>Coin theo dõi và danh mục</h2>
+  <div class="grid2">
+    <div class="cell"><h4>🪙 Coin theo dõi (Futures)</h4><p>Thêm tối đa 20 coin ngoài Top 20. Chọn nhận tín hiệu từ Top 20, chỉ coin của bạn, hoặc cả hai. Bật <b>🎯 Tín hiệu chỉ báo Swing</b> ở đây — nên chọn khung <b>4H</b>.</p></div>
+    <div class="cell"><h4>💼 Danh mục (Spot)</h4><p>Ghi mua / bán bằng số tiền (vd <code>100</code>, <code>2tr</code>, <code>50%</code>) → bot tính giá vốn, lời/lỗ. <b>🎯 Đặt vốn DCA</b>: bot chia 30/30/40% vào 3 vùng hỗ trợ và nhắc khi giá chạm vùng.</p></div>
+  </div>
+  <p>Bot cảnh báo coin trong danh mục khi xu hướng đổi chiều, thủng vùng giá, OI / funding bất thường hoặc có tin xấu. 22:00 mỗi tối gửi tổng kết cá nhân.</p>
+</section>
+
+<section id="hoi-ai">
+  <h2>🤖 Hỏi AI</h2>
+  <p>Hỏi như nói chuyện bình thường. AI nhớ các câu trước trong 2 giờ, nên có thể hỏi tiếp.</p>
+  <div class="chat"><div class="msg">SOL có nên vào không?<span class="t">10:12</span></div><div class="msg">vậy mốc nào cần để ý?<span class="t">10:13</span></div></div>
+  <ul>
+    <li><b>Bot Tín hiệu</b>: hỏi về lệnh bot đã gửi cho bạn (hoặc reply thẳng vào tin tín hiệu), bất kỳ coin nào, danh mục, cách đặt lệnh, kiến thức giao dịch. 50 câu/ngày.</li>
+    <li><b>Bot Tin tức</b>: hỏi về thị trường, tin tức, vĩ mô, coin nào đang mạnh. 100 câu/ngày.</li>
+    <li>Câu đầu tiên của AI trả lời thẳng; muốn chi tiết hơn thì nhắn "giải thích thêm".</li>
+    <li>Giá, mốc vào lệnh, SL luôn lấy từ dữ liệu bot — AI không tự đoán giá.</li>
+  </ul>
+</section>
+
+<section id="tin-tuc">
+  <h2>📰 Bot Tin tức</h2>
+  <div class="tbl"><table>
+    <thead><tr><th>Nút</th><th>Nội dung</th></tr></thead>
+    <tbody>
+      <tr><td>📰 Tin mới nhất</td><td>8 tin quan trọng nhất 24h. <b>Bấm vào tin</b> → tóm tắt tiếng Việt + nút mở bài gốc.</td></tr>
+      <tr><td>📅 Lịch tuần</td><td>Tin kinh tế Mỹ trong tuần; bấm từng tin để xem giải thích và thống kê ảnh hưởng tới BTC.</td></tr>
+      <tr><td>🌍 Thị trường 24h</td><td>BTC, ETH, coin tăng / giảm mạnh, Fear &amp; Greed, OI, funding, dòng tiền stablecoin.</td></tr>
+      <tr><td>🔥 Coin đáng chú ý</td><td>Coin biến động mạnh và coin gần đủ điều kiện vào lệnh.</td></tr>
+      <tr><td>⚙️ Cài đặt tin</td><td>Bật 🔔 / tắt 🔕 từng loại tin tự động.</td></tr>
+    </tbody>
+  </table></div>
+  <h3>Tin tự động</h3>
+  <div class="tbl"><table>
+    <thead><tr><th>Tin</th><th>Khi nào</th></tr></thead>
+    <tbody>
+      <tr><td>🌅 Thị trường 7h</td><td>Mỗi sáng; kèm lịch tin kinh tế hôm nay nếu có tin mạnh.</td></tr>
+      <tr><td>⏰ Tin vĩ mô Mỹ</td><td>Trước 1 giờ và 1 giờ sau khi ra tin (thị trường phản ứng thế nào).</td></tr>
+      <tr><td>⚡ Tin nóng</td><td>Tin ảnh hưởng xu hướng — gửi ngay, đã tóm tắt tiếng Việt.</td></tr>
+      <tr><td>💰 Tiền lớn vào / ra</td><td>Stablecoin phát hành / rút từ 1 tỉ USD trong 24h.</td></tr>
+      <tr><td>🆕 Niêm yết</td><td>Coin sắp niêm yết Binance / Upbit.</td></tr>
+      <tr><td>🚀 Dấu hiệu sớm</td><td>Coin có dấu hiệu gom hàng / dễ bị ép short, trước khi chạy (tối đa 5 tin/ngày, kèm ảnh).</td></tr>
+      <tr><td>📊 Tổng kết tuần</td><td>Chủ nhật 20:00.</td></tr>
+    </tbody>
+  </table></div>
+  <h3>Dùng tin 🚀 "dấu hiệu sớm"</h3>
+  <p>Tin này báo <b>sắp biến động mạnh</b>, chưa biết chắc hướng. Hai năm qua, trong 24h sau tin:</p>
+  <div class="tbl"><table>
+    <thead><tr><th>Loại</th><th class="num">Tăng ≥10%</th><th class="num">Giảm ≥10%</th><th class="num">Bình thường</th></tr></thead>
+    <tbody>
+      <tr><td>Gom hàng</td><td class="num">33%</td><td class="num">16%</td><td class="num">9% / 7%</td></tr>
+      <tr><td>Ép short</td><td class="num">46%</td><td class="num">32%</td><td class="num">9% / 7%</td></tr>
+    </tbody>
+  </table></div>
+  <p>Bấm nút <b>🔍 … có nên vào không?</b> dưới tin: Bot Tín hiệu kiểm tra ngay và trả lời vào ngay hay chưa. <b>Không vào lệnh chỉ vì tin dấu hiệu sớm.</b></p>
+</section>
+
+<section id="chi-bao">
+  <h2>Chỉ báo TradingView</h2>
+  <div class="grid2">
+    <div class="cell"><h4>Swing Entry Pro</h4><p>Báo khi nào vào lệnh: nhãn MUA / BÁN, SL, trailing, vùng hỗ trợ (HT) / kháng cự (KC). Cùng công thức với bot.</p></div>
+    <div class="cell"><h4>Volume Profile Pro</h4><p>Bản đồ vùng giá: POC (giá giao dịch nhiều nhất), vùng giá trị VAH–VAL, mốc tuần / tháng trước.</p></div>
+  </div>
+  <h3>Cài lên chart</h3>
+  <ol class="steps">
+    <li><div>Mở chart trên tradingview.com, ví dụ <code>BINANCE:SOLUSDT.P</code>, chọn khung <b>4h</b>.</div></li>
+    <li><div>Dưới đáy màn hình bấm <b>Pine Editor</b>, xóa code mẫu, dán toàn bộ code chỉ báo (admin gửi).</div></li>
+    <li><div>Bấm <b>Save</b> rồi <b>Add to chart</b>. Không có dấu <b>!</b> đỏ cạnh tên chỉ báo là đã chạy đúng.</div></li>
+    <li><div>Làm lại với chỉ báo thứ hai. Tài khoản miễn phí gắn được 2 chỉ báo mỗi chart.</div></li>
+  </ol>
+  <h3>Cảnh báo về điện thoại</h3>
+  <p>Bấm đồng hồ báo thức ⏰ (hoặc <kbd>Alt</kbd>+<kbd>A</kbd>) → <b>Condition</b>: chọn tên chỉ báo, ô dưới chọn <b>Any alert() function call</b> → tab Notifications tích <b>Notify in app</b> → <b>Create</b>. Mỗi cảnh báo theo dõi 1 coin, 1 khung giờ.</p>
+  <h3>Kết quả kiểm chứng Swing Entry Pro</h3>
+  <div class="tbl"><table>
+    <thead><tr><th>Khung</th><th class="num">Có lời</th><th class="num">Lời TB / lệnh</th><th class="num">2 năm gần</th><th class="num">Chuỗi thua dài nhất</th></tr></thead>
+    <tbody>
+      <tr><td><b>4H</b> <span class="pill l">khuyên dùng</span></td><td class="num">48%</td><td class="num">+0.29R</td><td class="num">+0.21R</td><td class="num">13 lệnh</td></tr>
+      <tr><td>1H <span class="pill w">tham khảo</span></td><td class="num">41%</td><td class="num">+0.10R</td><td class="num">+0.07R</td><td class="num">43 lệnh</td></tr>
+    </tbody>
+  </table></div>
+  <p class="muted">53 coin, 08/2017 → 09/2026, đã trừ phí 0.1%. Vùng HT / KC chỉ để nhìn; lệnh có vùng cản gần không kém hơn lệnh khác.</p>
+</section>
+
+<section id="von">
+  <h2>Quản lý vốn và kỳ vọng</h2>
+  <p><b>R</b> là số tiền bạn chấp nhận mất nếu lệnh chạm SL. Mọi kết quả đều tính theo R.</p>
+  <div class="note">
+    <p><b>Ví dụ:</b> vốn 1.000 USDT, rủi ro 1%/lệnh → 1R = 10 USDT. Tín hiệu có SL cách giá vào 4% → khối lượng lệnh = 10 ÷ 4% = <b>250 USDT</b>. Đòn bẩy x5 thì ký quỹ 50 USDT.</p>
+    <p>Chạm SL: mất khoảng 10 USDT. Lệnh chạy +3R: lời khoảng 30 USDT.</p>
+  </div>
+  <div class="r-bar" role="img" aria-label="Khoảng 45 trên 100 lệnh có lời, 55 lệnh lỗ">
+    <div style="flex:45;background:var(--long)">45 lệnh lời</div>
+    <div style="flex:55;background:var(--short)">55 lệnh lỗ</div>
+  </div>
+  <p class="cap">Trong 100 lệnh swing ngắn, khoảng 45 lệnh có lời — vẫn có lãi vì lệnh lời chạy xa hơn lệnh lỗ.</p>
+  <div class="tbl"><table>
+    <thead><tr><th>Loại tín hiệu</th><th class="num">Có lời</th><th class="num">Lời TB / lệnh</th><th>Ghi chú</th></tr></thead>
+    <tbody>
+      <tr><td>⚡ Swing ngắn (Futures)</td><td class="num">45%</td><td class="num">+0.21R</td><td>2 năm, 40 coin; sụt giảm tệ nhất ~15R</td></tr>
+      <tr><td>🌙 Swing dài (Futures)</td><td class="num">42%</td><td class="num">+0.43R</td><td>~1 lệnh/tuần</td></tr>
+      <tr><td>🎯 Chỉ báo Swing 4H</td><td class="num">48%</td><td class="num">+0.29R</td><td>9 năm, 53 coin</td></tr>
+    </tbody>
+  </table></div>
+  <ul>
+    <li>Rủi ro 0.5–1% vốn mỗi lệnh. Sẽ có chuỗi thua liên tiếp và tuần / tháng lỗ.</li>
+    <li>Không tăng khối lượng để gỡ, không dời SL ra xa.</li>
+    <li>Đánh giá sau 30–50 lệnh, không phải sau vài lệnh. Kết quả quá khứ không đảm bảo tương lai.</li>
+  </ul>
+</section>
+
+<section id="san">
+  <h2>Sàn MEXC và sàn Việt Nam</h2>
+  <ul>
+    <li>Bot tính tín hiệu bằng dữ liệu <b>Binance Futures</b> — thanh khoản lớn nhất, giá chuẩn của thị trường. Binance tạm giới hạn thì bot tự chuyển sang Bybit / MEXC.</li>
+    <li><b>MEXC</b>: coin lớn thường lệch Binance dưới 0.1–0.3%. Chọn sàn MEXC trong ⚙️ Cài đặt để thấy giá MEXC lúc báo. Coin nhỏ có thể lệch nhiều hơn — so giá trước khi vào.</li>
+    <li><b>Sàn Việt Nam</b>: giá bám theo giá quốc tế (USDT). Chọn đơn vị VNĐ để danh mục hiển thị theo tỉ giá.</li>
+    <li>Giá trong bot luôn tính cho <b>1 coin</b> (vd PEPE 0.0000044), đúng như giá trên sàn.</li>
+  </ul>
+</section>
+
+<section id="hoi-dap">
+  <h2>Câu hỏi thường gặp</h2>
+  <details><summary>Bấm menu không thấy gì?</summary><p>Gõ <code>/start</code> để hiện lại menu.</p></details>
+  <details><summary>Nhận tín hiệu nhưng giá đã chạy xa?</summary><p>So với mức "Không vào nếu giá đã vượt"; quá mức thì bỏ qua lệnh này.</p></details>
+  <details><summary>Lâu rồi không có tín hiệu?</summary><p>Bot chỉ báo khi đủ điều kiện; có ngày không có tín hiệu nào là bình thường. Thêm coin ở 🪙 Coin theo dõi để có nhiều cơ hội hơn.</p></details>
+  <details><summary>Thua liên tiếp mấy lệnh?</summary><p>Bình thường với hệ thống có tỉ lệ thắng dưới 50%. Không tăng khối lượng để gỡ.</p></details>
+  <details><summary>Có nên dời SL ra xa khi giá sắp chạm?</summary><p>Không. SL là giới hạn rủi ro đã tính trước.</p></details>
+  <details><summary>Chỉ báo TradingView có dấu ! đỏ?</summary><p>Chỉ báo bị lỗi. Bấm vào dấu !, chụp màn hình dòng báo lỗi gửi admin. Thường do dán thiếu code.</p></details>
+  <details><summary>Tin tức chưa có bản tiếng Việt?</summary><p>Hiếm khi xảy ra (AI tạm hết lượt). Thử lại sau vài phút.</p></details>
+</section>
+</main>
+</div>
+
+<footer>Bản đầy đủ từng phần (cài đặt, cấu hình, số liệu kiểm chứng) nằm trong thư mục <code>docs/</code> và <code>tradingview/</code> của dự án. Công cụ hỗ trợ phân tích, không phải lời khuyên đầu tư.</footer>

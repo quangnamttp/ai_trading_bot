@@ -88,13 +88,40 @@ Bot trả lời ngay vào tin tín hiệu gốc khi:
 
 ### 2.5 🔍 Phân tích coin
 
-Gõ tên coin (ví dụ `SOL`, `PEPE`). Bot trả về điểm LONG/SHORT, dữ liệu phái sinh, tin tức và **KẾT LUẬN**:
-- ✅ **CÓ THỂ VÀO LONG/SHORT**: kèm giá vào, SL, trailing, mức "không vào nếu đã vượt".
-- ⏸ / ⛔ **CHƯA NÊN VÀO**: kèm lý do và **📋 Kịch bản chờ**: vùng giá nên chờ (theo đúng setup của bot), SL tham
-  khảo, mức hủy kịch bản. Không đặt lệnh chờ sẵn; bấm **➕ Theo dõi** để bot tự gửi tín hiệu chính xác khi coin đạt chuẩn.
-  Xu hướng không rõ thì bot ghi "đứng ngoài".
+Gõ tên coin (ví dụ `SOL`, `PEPE`). Bot trả lời ngắn, nói thẳng nên làm gì. Có 3 trường hợp:
 
-Bot phân tích coin có hợp đồng futures trên Binance (hầu hết coin phổ biến).
+**1. Đủ điều kiện** — vào lệnh được ngay:
+```
+🔍 SOL/USDT · giá 120.37
+✅ VÀO LONG NGAY — đủ điều kiện vào lệnh của bot
+💰 Vào: 120.37 · 🛑 SL: 115.00 (-4.5%)
+🔁 Trailing: kích hoạt 125.74, callback 5.1%
+🎯 Mục tiêu tham khảo: 128.40 (kháng cự gần, +6.7%)
+⛔ Không vào nếu giá đã vượt 121.98
+```
+
+**2. Có xu hướng nhưng chưa đủ điều kiện** — bot nói rõ **còn thiếu gì**:
+```
+🔍 ETH/USDT · giá 2,689.72
+📈 Xu hướng: TĂNG mạnh → hướng ưu tiên LONG
+⏸ CHƯA NÊN VÀO — còn thiếu:
+• dòng tiền mua chủ động còn yếu
+• hợp đồng mở (OI) chưa biến động mạnh (-2.8% / 24h, cần từ ±5%)
+📍 Mốc cần để ý: hỗ trợ 2,491.82 · kháng cự 2,806.76
+```
+Mốc hỗ trợ / kháng cự chỉ để biết giá đang ở đâu, **không phải điểm vào lệnh**. Bấm **➕ Theo dõi**: khi đủ điều kiện,
+bot tự gửi tín hiệu kèm giá vào, SL, trailing chính xác.
+
+**3. Đi ngang / Spot gặp xu hướng giảm** — bot ghi **ĐỨNG NGOÀI** hoặc **CHƯA NÊN MUA**.
+
+Muốn xem điểm kỹ thuật chi tiết: bấm **📊 Chi tiết điểm**.
+
+> Vì sao bot không đưa "giá dự kiến để vào" khi chưa đủ điều kiện? Đã backtest 3 năm / 53 coin cách "chờ giá về vùng
+> rồi vào": kết quả **hòa vốn sau phí** (chiều LONG còn lỗ). Bot chỉ đưa giá vào khi đủ điều kiện, vì đó là cách đã
+> kiểm chứng có lời.
+
+Bot phân tích coin có hợp đồng futures trên Binance (hầu hết coin phổ biến). Giá luôn tính cho **1 coin** (ví dụ PEPE
+0.0000044), đúng như giá trên sàn.
 
 ### 2.6 🪙 Coin theo dõi (Futures)
 
@@ -113,7 +140,8 @@ Thêm tối đa 20 coin muốn nhận tín hiệu ngoài Top 20. Chọn nhận t
 
 Hỏi như nói chuyện bình thường; AI **nhớ các câu trước** (trong 2 giờ) nên có thể hỏi tiếp, ví dụ
 "SOL có nên vào không?" rồi "vậy giá nào thì vào?".
-- Hỏi về **bất kỳ coin nào**: AI dùng đúng phân tích của bot (kết luận có nên vào + kịch bản chờ).
+- Hỏi về **bất kỳ coin nào**: AI dùng đúng phân tích của bot (có nên vào không, còn thiếu gì, mốc giá). Trả lời
+  ngắn gọn: câu đầu nói thẳng kết luận, sau đó vài gạch đầu dòng. Muốn dài hơn thì hỏi "giải thích thêm".
 - Futures: hỏi về lệnh bot đã gửi cho bạn (vì sao LONG, khi nào về bờ...), hoặc reply thẳng vào tin tín hiệu.
 - Spot: hỏi về danh mục (nên DCA bao nhiêu, ở đâu, đang lời hay lỗ...).
 - Hỏi kiến thức: funding là gì, đặt trailing stop trên sàn thế nào, quản lý vốn ra sao...
@@ -166,8 +194,9 @@ Tin này báo **sắp có biến động mạnh**, **chưa biết chắc hướn
 - Gom hàng: 2 năm qua, 24h sau đó 33% lần giá tăng ≥10%, 16% lần giảm ≥10% (bình thường 9% / 7%).
 - Ép short: 46% lần tăng ≥10%, nhưng 32% lần giảm ≥10% — biến động mạnh cả 2 chiều.
 
-Cách dùng: bấm nút **🔍 … có nên vào không?** → Bot Tín hiệu kiểm tra ngay và trả lời **CÓ THỂ VÀO** (kèm giá vào,
-SL, trailing) hoặc **CHƯA NÊN VÀO**. Chưa nên vào thì bấm **➕ Theo dõi** để bot tự báo khi đạt chuẩn.
+Cách dùng: bấm nút **🔍 … có nên vào không?** → Bot Tín hiệu kiểm tra ngay và trả lời **VÀO LONG/SHORT NGAY**
+(kèm giá vào, SL, trailing) hoặc **CHƯA NÊN VÀO** (kèm điều kiện còn thiếu). Chưa nên vào thì bấm **➕ Theo dõi**
+để bot tự báo khi đủ điều kiện.
 **Không vào lệnh chỉ vì tin dấu hiệu sớm.**
 
 ## 4. Dữ liệu và sàn giao dịch

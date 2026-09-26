@@ -5,7 +5,7 @@ kiểu TradingView. Bot theo dõi từng lệnh tới khi đóng. Có 2 kiểu g
 và **🌙 Swing dài** (khoảng 1 tín hiệu/tuần). Chế độ **Spot** chỉ nhận lệnh MUA; **Futures** nhận LONG/SHORT kèm đòn bẩy
 an toàn. Toàn bộ dữ liệu miễn phí.
 
-> 📘 **Hướng dẫn**: [cài đặt & vận hành bot](docs/HUONG_DAN_CAI_DAT_BOT.md) (admin) ·
+> 📘 **Bộ tài liệu**: [docs/README.md](docs/README.md) · [cài đặt & vận hành bot](docs/HUONG_DAN_CAI_DAT_BOT.md) (admin) ·
 > [sử dụng 2 bot](docs/HUONG_DAN_SU_DUNG_BOT.md) (người dùng) · 2 chỉ báo TradingView: [tradingview/README.md](tradingview/README.md).
 >
 > Code cũ nằm ở tag `legacy-v2` / `legacy-final`.
